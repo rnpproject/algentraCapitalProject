@@ -387,7 +387,7 @@ MQL5 `WebRequest` bersifat blocking dan hanya HTTP(S) — rancang protokol yang 
 ### Fase 1 — Restrukturisasi tanpa perubahan perilaku
 - [x] Pindahkan source backend, worker, dan EA ke struktur monorepo (bagian 4). Pemisahan domain dan use case belum selesai.
 - [x] Ganti entrypoint `.bat` dengan skrip PowerShell; sediakan installer NSSM untuk `core-api` di `infra/windows/`. Managed worker tetap memakai Task Scheduler karena terminal MT5 membutuhkan sesi desktop interaktif.
-- [ ] Lengkapi lint/format/typecheck/CI: workflow memuat lint, pemeriksaan format, typecheck domain, test, contract generation, audit dependency Python/web, dan build web. Semua job workflow GitHub hijau; secret scan CI masih tertunda.
+- [ ] Lengkapi lint/format/typecheck/CI: workflow memuat lint, pemeriksaan format, typecheck domain, test, contract generation, audit dependency Python/web, build web, dan secret scan Gitleaks untuk riwayat Git penuh. Tunggu semua job workflow GitHub hijau pada perubahan ini.
 - [x] Pindahkan seluruh logika bisnis dari router ke service; use case EA, auth, dan MT5 telah diekstrak, termasuk 16 endpoint di `mt5.py`.
 - **DoD:** seluruh test lama lulus; aplikasi berjalan identik; tidak ada logika bisnis di router.
 
@@ -493,6 +493,7 @@ MQL5 `WebRequest` bersifat blocking dan hanya HTTP(S) — rancang protokol yang 
 
 - **Pembaruan keamanan dan validasi (2026-10-13):** revision `0002_rls_and_token_redaction` diterapkan ke Supabase development melalui skrip migrasi development. Seluruh tabel `app` kini mengaktifkan RLS; role `algentra_api` memiliki policy runtime dan `algentra_backup` policy SELECT. Kolom ciphertext token EA dihapus; hash yang digunakan EA tetap ada. Importer tidak menyalin kolom ciphertext legacy dari SQLite. Dry-run setelah migrasi terhubung sebagai role API dan memverifikasi 40.914 baris pada 26 tabel sebagai identik setelah redaksi tersebut. Chat tidak lagi membaca atau mengungkap token, dan penanda token dari percakapan lama disamarkan. BFF Next.js membatasi body request ke 6 MiB, memvalidasi origin API, dan mewajibkan HTTPS untuk origin production. Ruff, typecheck, dan build web lulus; ekspektasi test chat diperbarui tanpa menjalankan test suite pada giliran ini.
 - **Status pekerjaan per 2026-10-13:** belum ada migrasi atau deployment production, konfigurasi Vercel/Cloudflare live, backup/restore staging, serta cutover data production. `algentra_backup` belum diuji. Repository interface/memory, outbox, state in-memory untuk hot path, ETag/304, ticket realtime, HMAC per perangkat EA, dan rotasi KEK managed-copy masih belum selesai. Tidak ada contributor yang ditambahkan ke repository.
+- **Secret scan CI (2026-10-13):** job Gitleaks ditambahkan dan dipin ke commit action; checkout memuat riwayat penuh. Konfigurasi hanya mengizinkan dua nilai fixture test yang sudah diketahui secara exact-match; scan awal workflow masih perlu lulus sebelum Fase 1 ditandai selesai.
 
 
 ### Progres restrukturisasi monorepo (2026-10-12)
