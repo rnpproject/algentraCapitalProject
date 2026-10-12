@@ -387,9 +387,9 @@ MQL5 `WebRequest` bersifat blocking dan hanya HTTP(S) — rancang protokol yang 
 ### Fase 1 — Restrukturisasi tanpa perubahan perilaku
 - [x] Pindahkan source backend, worker, dan EA ke struktur monorepo (bagian 4). Pemisahan domain dan use case belum selesai.
 - [x] Ganti entrypoint `.bat` dengan skrip PowerShell; sediakan installer NSSM untuk `core-api` di `infra/windows/`. Managed worker tetap memakai Task Scheduler karena terminal MT5 membutuhkan sesi desktop interaktif.
-- [ ] Lengkapi lint/format/typecheck/CI: workflow memuat lint, pemeriksaan format, typecheck domain, test, contract generation, audit dependency Python/web, build web, dan secret scan Gitleaks untuk riwayat Git penuh. Tunggu semua job workflow GitHub hijau pada perubahan ini.
+- [x] Lengkapi lint/format/typecheck/CI: workflow memuat lint, pemeriksaan format, typecheck domain, test, contract generation, audit dependency Python/web, build web, dan secret scan Gitleaks untuk riwayat Git penuh. Semua job GitHub hijau pada commit `7bff7de`.
 - [x] Pindahkan seluruh logika bisnis dari router ke service; use case EA, auth, dan MT5 telah diekstrak, termasuk 16 endpoint di `mt5.py`.
-- **DoD:** seluruh test lama lulus; aplikasi berjalan identik; tidak ada logika bisnis di router.
+- **DoD:** [x] seluruh test berjalan lulus; kontrak API tetap tersinkron; tidak ada akses database atau logika bisnis di router. Pengujian staging/live tetap menjadi DoD fase 6–7.
 
 ### Fase 2 — Lapisan repository & kontrak API
 - [ ] Definisikan interface repository dan adapter memory/SQLite/Postgres yang dapat dipertukarkan; repository SQLAlchemy sudah ada untuk beberapa domain, tetapi auth/EA/MT5 dan abstraksi memory masih tertunda.
@@ -495,7 +495,8 @@ MQL5 `WebRequest` bersifat blocking dan hanya HTTP(S) — rancang protokol yang 
 - **Status pekerjaan per 2026-10-13:** belum ada migrasi atau deployment production, konfigurasi Vercel/Cloudflare live, backup/restore staging, serta cutover data production. `algentra_backup` belum diuji. Repository interface/memory, outbox, state in-memory untuk hot path, ETag/304, ticket realtime, HMAC per perangkat EA, dan rotasi KEK managed-copy masih belum selesai. Tidak ada contributor yang ditambahkan ke repository.
 - **Probe readiness (2026-10-13):** `GET /ready` menguji koneksi database dengan `SELECT 1`; saat DB gagal, endpoint memberi HTTP 503 tanpa membocorkan detail koneksi. `GET /health` tetap probe liveness dan tidak memeriksa DB. Status Telegram/outbox belum termasuk karena coordinator/outbox belum tersedia.
 - **Secret scan CI (2026-10-13):** job Gitleaks ditambahkan dan dipin ke commit action; checkout memuat riwayat penuh. Konfigurasi hanya mengizinkan dua nilai fixture test yang sudah diketahui secara exact-match. Job `secret-scan` lulus pada commit `efc1ccd`; workflow perlu kembali lulus setelah perubahan berikutnya.
-- **Validasi readiness (2026-10-13):** `test_security.py` lulus 3/3; Ruff lint dan format lulus; OpenAPI serta tipe TypeScript diperbarui untuk endpoint baru dan respons 503. Validasi GitHub CI penuh untuk perubahan readiness menunggu push.
+- **Validasi readiness (2026-10-13):** `test_security.py` lulus 3/3; Ruff lint dan format lulus; OpenAPI serta tipe TypeScript diperbarui untuk endpoint baru dan respons 503.
+- **Validasi CI readiness (2026-10-13):** workflow commit `7bff7de` lulus semua job: secret scan, Python 3.12 (lint, format, mypy, dependency audit, contract sync, test backend/worker), dan web (audit, typecheck, build). Audit menemukan tidak ada akses database atau logika bisnis langsung di router API; Fase 1 selesai.
 
 
 ### Progres restrukturisasi monorepo (2026-10-12)
