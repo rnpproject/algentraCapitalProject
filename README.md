@@ -149,9 +149,10 @@ Rilis sekarang memerlukan maintenance window. Uvicorn berjalan satu proses dan t
 
    ```powershell
    Invoke-WebRequest http://127.0.0.1:8000/health
+   Invoke-WebRequest http://127.0.0.1:8000/ready
    ```
 
-   HTTP 200 hanya membuktikan proses aplikasi menjawab; endpoint ini tidak memeriksa database atau integrasi lain. Lanjutkan dengan login admin, dashboard, status Telegram, heartbeat EA, status worker, tunnel, dan alur portal yang berubah pada rilis. Pastikan log startup bersih sebelum membuka trafik.
+   `/health` membuktikan proses menjawab. `/ready` harus memberi HTTP 200 dan memeriksa koneksi database; ia tidak memeriksa Telegram, EA, worker, atau backlog outbox. Lanjutkan dengan login admin, dashboard, status Telegram, heartbeat EA, status worker, tunnel, dan alur portal yang berubah pada rilis. Pastikan log startup bersih sebelum membuka trafik.
 6. Untuk EA Telegram, cek `ServerURL`, `EA_API_KEY`, allow-list WebRequest MT5, Algo Trading, akun/server/simbol, quote, SL/TP, lot, dan Experts/Journal. Backend tidak memiliki demo/dry-run switch untuk EA sinyal dan tidak membatasi jumlah posisi EA. Uji EA lebih dulu pada akun demo; halaman parser test hanya menguji parsing/validasi dan tidak membuat order.
 7. Lepas kill switch hanya setelah operator memutuskan sinyal valid berikutnya boleh menjadi order live. Untuk managed copy, pastikan worker online, pemeriksaan login follower berstatus valid, dan batas lot/jumlah posisi sudah ditinjau; client harus menyetujui **Mulai copy trading (live)** di portal.
 
@@ -161,7 +162,7 @@ Kill switch dashboard menghentikan distribusi sinyal baru ke EA Telegram; ia tid
 
 Jika smoke test gagal, aktifkan kill switch dan hentikan service/worker terkait. Pulihkan kode rilis sebelumnya dan ulangi pemeriksaan origin, dashboard, tunnel, dan terminal. Bila database perlu dipulihkan, decrypt backup ke host pemulihan terproteksi, restore ke project Supabase staging terlebih dahulu, lalu rencanakan cutover setelah menghitung transaksi setelah waktu backup. Rekonsiliasi order, deal, posisi, dan pending order terhadap riwayat broker/MT5 sebelum mengaktifkan kembali trading.
 
-Untuk Cloudflare **502**, periksa origin dengan `Invoke-WebRequest http://127.0.0.1:8000/health` lebih dulu. Jika origin gagal, tinjau status service dan log startup. Jika origin berhasil, periksa status/log `cloudflared`, DNS hostname, dan ingress. Untuk gangguan database, periksa lokasi `DATABASE_URL`, izin akun service, kapasitas disk, dan backup terbaru. Pastikan pasangan variabel Telegram bot tetap sama-sama terisi atau sama-sama kosong.
+Untuk Cloudflare **502**, periksa origin dengan `Invoke-WebRequest http://127.0.0.1:8000/health` lebih dulu. Jika origin gagal, tinjau status service dan log startup. Jika `/health` berhasil tetapi `/ready` memberi HTTP 503, periksa lokasi `DATABASE_URL`, izin akun service, koneksi Supabase, dan kapasitas database. Jika keduanya berhasil, periksa status/log `cloudflared`, DNS hostname, dan ingress. Pastikan pasangan variabel Telegram bot tetap sama-sama terisi atau sama-sama kosong.
 
 
 ## Layanan managed copy untuk akun client
@@ -177,6 +178,7 @@ Untuk menjalankan di lokal, mulai backend dengan `infra\windows\run-development.
 OpenAPI versi baru tersedia pada `packages/contracts/openapi.json` dan tipe TypeScript pada `packages/contracts/src/generated.d.ts`. Gunakan `/v1/auth`, `/v1/cs`, `/v1/mt5`, `/v1/ea`, `/v1/payments`, `/v1/settings`, `/v1/parser`, `/v1/telegram`, serta `/v1/dashboard`. Endpoint lama `/api/...` tetap dipertahankan agar EA, worker, dan website lama tetap kompatibel selama migrasi klien.
 
 - `GET /health`
+- `GET /ready` checks database connectivity and returns HTTP 503 without connection details when the database is unavailable.
 - Public site: `GET /` dan `/performance`; data performa anonim di `GET /api/public/performance` hanya memakai trade yang sudah ditutup.
 - `POST /api/auth/login` untuk admin, `POST /api/auth/client-login` untuk klien, `POST /api/auth/logout`, pendaftaran melalui `POST /api/auth/register`, `POST /api/auth/resend-code`, dan `POST /api/auth/verify-email`, serta reset kata sandi melalui `POST /api/auth/password-reset/request` dan `POST /api/auth/password-reset/confirm`. Halaman reset: `GET /forgot-password`.
 - Portal klien: `/account`; pengelolaan terminal melalui `GET/POST /api/mt5/accounts`, `PUT /api/mt5/accounts/{id}`, `PUT /api/mt5/accounts/{id}/active`, dan `POST /api/mt5/accounts/{id}/rotate-token`.

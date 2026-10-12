@@ -6,7 +6,19 @@ from fastapi.testclient import TestClient
 from app.database import SessionLocal
 from app.services.gemini_parser import SignalClassification
 from app.main import app
-from app.models import AppSetting, EAExecution, EAStatus, Signal, Trade, utc_now
+from app.models import (
+    AppSetting,
+    EAExecution,
+    EAStatus,
+    MasterCopyPosition,
+    MasterCopyState,
+    MT5MasterAccountState,
+    MT5MasterMarketState,
+    Signal,
+    Trade,
+    utc_now,
+)
+from app.state import ea_heartbeat_state, master_snapshot_state
 
 
 API_KEY = "m4-test-ea-api-key-32-characters-long"
@@ -89,11 +101,12 @@ def test_ea_api_key_heartbeat_claim_report_and_trade_result():
         with SessionLocal() as db:
             stored_signal = db.get(Signal, signal_id)
             trade = db.query(Trade).filter_by(ticket="98765").one()
-            ea_status = db.get(EAStatus, 1)
             assert stored_signal.status == "WIN"
             assert trade.profit == 25.5
             assert trade.result == "WIN"
-            assert ea_status.active is True
+            assert db.get(EAStatus, 1) is None
+        assert ea_heartbeat_state.current() is not None
+        assert ea_heartbeat_state.current().active is True
         with SessionLocal() as db:
             db.query(EAExecution).filter_by(signal_id=signal_id).delete(synchronize_session=False)
             db.query(Trade).filter_by(ticket="98765").delete(synchronize_session=False)
@@ -251,3 +264,46 @@ def test_legacy_demo_setting_does_not_block_live_report():
             db.query(Signal).filter_by(id=signal_id).delete(synchronize_session=False)
             db.delete(db.get(AppSetting, "demo_mode"))
             db.commit()
+
+
+def test_master_snapshot_stays_process_local_and_keeps_api_contract():
+    payload = {
+        "terminal_login": "12345",
+        "terminal_server": "Broker-Demo",
+        "positions": [
+            {
+                "ticket": "position-1",
+                "symbol": "XAUUSD",
+                "action": "BUY",
+                "lots": 0.1,
+                "entry_price": 2400.0,
+                "sl": 2390.0,
+                "tp": 2420.0,
+            }
+        ],
+        "balance": 1000.0,
+        "equity": 1010.0,
+        "floating_profit": 10.0,
+        "currency": "USD",
+        "trade_mode": "demo",
+        "market_quotes": [
+            {"symbol": "XAUUSD", "bid": 2400.0, "ask": 2400.2, "time_msc": 1_800_000_000_000}
+        ],
+    }
+
+    with TestClient(app) as client:
+        response = client.post("/api/ea/master/snapshot", headers={"X-API-Key": API_KEY}, json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["positions"] == 1
+    snapshot = master_snapshot_state.current()
+    assert snapshot is not None
+    assert snapshot.positions[0].ticket == "position-1"
+    assert snapshot.account is not None and snapshot.account.equity == 1010.0
+    assert snapshot.market_quotes_json is not None
+    with SessionLocal() as db:
+        assert db.get(MasterCopyState, 1) is None
+        assert db.query(MasterCopyPosition).count() == 0
+        assert db.get(MT5MasterAccountState, 1) is None
+        assert db.get(MT5MasterMarketState, 1) is None

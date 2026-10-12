@@ -15,6 +15,7 @@ from ..models import (
 )
 from ..core.time_utils import WIB, as_utc, wib_iso
 from ..repositories.public_performance import PublicPerformanceRepository
+from ..state import master_snapshot_state
 from .registration import LAUNCH_AT, registration_is_open, registration_launch_pending
 
 
@@ -87,21 +88,19 @@ def _public_contact_context(db: Session) -> dict[str, object]:
 def public_performance_payload(db: Session, *, include_equity_curve: bool = True) -> dict[str, object]:
     repository = PublicPerformanceRepository(db)
     registered_clients = repository.registered_client_count()
-    master_account = repository.master_account()
-    master_copy_state = repository.master_copy_state()
-    market_state = repository.market_state()
+    snapshot = master_snapshot_state.current()
+    master_account = snapshot.account if snapshot is not None else None
     now = utc_now()
     master_online = bool(
         master_account
-        and master_copy_state
-        and master_copy_state.last_snapshot_at
-        and now - as_utc(master_copy_state.last_snapshot_at) <= timedelta(seconds=20)
+        and snapshot
+        and now - as_utc(snapshot.observed_at) <= timedelta(seconds=20)
         and now - as_utc(master_account.observed_at) <= timedelta(seconds=30)
     )
     market_quotes: list[dict[str, object]] = []
-    if market_state is not None:
+    if snapshot is not None and snapshot.market_quotes_json is not None:
         try:
-            decoded_quotes = json.loads(market_state.quotes_json)
+            decoded_quotes = json.loads(snapshot.market_quotes_json)
             if isinstance(decoded_quotes, list):
                 for quote in decoded_quotes:
                     if not isinstance(quote, dict):
@@ -133,7 +132,10 @@ def public_performance_payload(db: Session, *, include_equity_curve: bool = True
         except (TypeError, json.JSONDecodeError):
             market_quotes = []
     market_quotes_online = bool(
-        master_online and market_state and now - as_utc(market_state.observed_at) <= timedelta(seconds=30)
+        master_online
+        and snapshot
+        and snapshot.market_observed_at
+        and now - as_utc(snapshot.market_observed_at) <= timedelta(seconds=30)
     )
     equity_curve: list[dict[str, object]] = []
     equity_candles: list[MT5MasterEquityCandle] = []
@@ -165,7 +167,9 @@ def public_performance_payload(db: Session, *, include_equity_curve: bool = True
         },
         "market_quotes": market_quotes,
         "market_quotes_online": market_quotes_online,
-        "market_quotes_reported_at": wib_iso(market_state.observed_at) if market_state else None,
+        "market_quotes_reported_at": wib_iso(snapshot.market_observed_at)
+        if snapshot is not None and snapshot.market_observed_at
+        else None,
         "registered_clients": registered_clients,
     }
     if include_equity_curve:
