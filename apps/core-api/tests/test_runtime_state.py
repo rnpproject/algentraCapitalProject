@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from app.state import MasterAccountSnapshot, MasterPosition
+from app.state import EAHeartbeat, MasterAccountSnapshot, MasterPosition
+from app.state.ea_heartbeat import EAHeartbeatStore
 from app.state.master_snapshot import MasterSnapshotStore
 
 
@@ -43,3 +44,17 @@ def test_master_snapshot_freshness_and_clear():
     store.clear()
     assert store.current() is None
     assert not store.is_online(now, timedelta(seconds=20))
+
+
+def test_ea_heartbeat_store_replaces_state_and_clears():
+    store = EAHeartbeatStore()
+    first = EAHeartbeat(True, datetime.now(timezone.utc), "terminal-1", "1.0", "XAUUSD")
+    second = EAHeartbeat(False, datetime.now(timezone.utc), "terminal-1", "1.0", "XAUUSD")
+
+    assert store.publish(first) == first
+    assert store.current() == first
+    assert store.publish(second) == second
+    assert store.current() == second
+
+    store.clear()
+    assert store.current() is None

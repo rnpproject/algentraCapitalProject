@@ -33,7 +33,7 @@ def _development_env_values() -> dict[str, str]:
             value = value[1:-1]
         values[name] = value
 
-    for name in supported_keys:
+    for name in supported_keys - {"APP_ENV"}:
         process_value = os.environ.get(name, "").strip()
         if process_value:
             values[name] = process_value
@@ -56,8 +56,8 @@ def load_development_database_config() -> DevelopmentDatabaseConfig:
     if os.environ.get("APP_ENV", "development").casefold() != "development":
         raise RuntimeError("Operasi database ini hanya boleh dijalankan dengan APP_ENV=development")
     values = _development_env_values()
-    if values.get("APP_ENV", "development").casefold() != "development":
-        raise RuntimeError(".env.local harus menetapkan APP_ENV=development")
+    if values.get("APP_ENV", "").casefold() != "development":
+        raise RuntimeError(".env.local harus secara eksplisit menetapkan APP_ENV=development untuk tooling migrasi")
 
     project_ref = values.get("SUPABASE_DEV_PROJECT_REF", "").strip()
     if not project_ref:

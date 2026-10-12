@@ -3,19 +3,18 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import ClientUser, EAStatus, Signal, Trade
+from ..models import ClientUser, Signal, Trade
 
 
 class StatisticsRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def dashboard_data(self) -> tuple[list[str], list[tuple[str | None, float | None]], int, EAStatus | None]:
+    def dashboard_data(self) -> tuple[list[str], list[tuple[str | None, float | None]], int]:
         statuses = list(self._session.scalars(select(Signal.status)))
         trade_rows = list(self._session.execute(select(Trade.result, Trade.profit)).all())
         active_clients = int(self._session.scalar(select(func.count(ClientUser.id))) or 0)
-        ea_status = self._session.get(EAStatus, 1)
-        return statuses, trade_rows, active_clients, ea_status
+        return statuses, trade_rows, active_clients
 
     def group_signal_counts(self) -> list[tuple[str | None, str | None, int]]:
         rows = self._session.execute(

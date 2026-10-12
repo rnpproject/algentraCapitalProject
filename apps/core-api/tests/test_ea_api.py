@@ -18,7 +18,7 @@ from app.models import (
     Trade,
     utc_now,
 )
-from app.state import master_snapshot_state
+from app.state import ea_heartbeat_state, master_snapshot_state
 
 
 API_KEY = "m4-test-ea-api-key-32-characters-long"
@@ -101,11 +101,12 @@ def test_ea_api_key_heartbeat_claim_report_and_trade_result():
         with SessionLocal() as db:
             stored_signal = db.get(Signal, signal_id)
             trade = db.query(Trade).filter_by(ticket="98765").one()
-            ea_status = db.get(EAStatus, 1)
             assert stored_signal.status == "WIN"
             assert trade.profit == 25.5
             assert trade.result == "WIN"
-            assert ea_status.active is True
+            assert db.get(EAStatus, 1) is None
+        assert ea_heartbeat_state.current() is not None
+        assert ea_heartbeat_state.current().active is True
         with SessionLocal() as db:
             db.query(EAExecution).filter_by(signal_id=signal_id).delete(synchronize_session=False)
             db.query(Trade).filter_by(ticket="98765").delete(synchronize_session=False)

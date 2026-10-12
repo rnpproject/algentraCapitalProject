@@ -54,5 +54,5 @@ def result(payload: TradeResultReport, db: Session = Depends(get_db)) -> dict[st
 
 
 @router.post("/heartbeat", dependencies=[Depends(require_ea_key)])
-def heartbeat(payload: HeartbeatReport, db: Session = Depends(get_db)) -> dict[str, object]:
-    return process_heartbeat(payload, db)
+def heartbeat(payload: HeartbeatReport) -> dict[str, object]:
+    return process_heartbeat(payload)

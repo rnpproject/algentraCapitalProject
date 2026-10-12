@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..repositories.statistics import StatisticsRepository
 from ..core.time_utils import as_utc, wib_iso
+from ..state import ea_heartbeat_state
 
 
 def calculate_trade_stats(trades: Iterable[Any]) -> dict[str, int | float]:
@@ -34,9 +35,10 @@ def calculate_trade_stats(trades: Iterable[Any]) -> dict[str, int | float]:
 
 
 def get_dashboard_stats(db: Session) -> dict[str, int | float]:
-    signal_rows, trades, active_clients, ea = StatisticsRepository(db).dashboard_data()
+    signal_rows, trades, active_clients = StatisticsRepository(db).dashboard_data()
     status_counts = Counter(status.upper() for status in signal_rows)
     trade_stats = calculate_trade_stats(trades)
+    ea = ea_heartbeat_state.current()
     heartbeat = ea.last_heartbeat if ea else None
     if heartbeat is not None:
         heartbeat = as_utc(heartbeat)

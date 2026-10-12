@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from ..services.gemini_parser import SignalClassification
 from ..models import (
     EAExecution,
-    EAStatus,
     MT5MasterEquityCandle,
     MT5MasterEquityMinuteSample,
     MT5MasterEquitySample,
@@ -26,7 +25,7 @@ from ..services.risk_controls import risk_state
 from ..services.public_service import public_performance_payload
 from ..repositories.settings import SettingsRepository
 from ..core.time_utils import wib_iso
-from ..state import MasterAccountSnapshot, MasterPosition, master_snapshot_state
+from ..state import EAHeartbeat, MasterAccountSnapshot, MasterPosition, ea_heartbeat_state, master_snapshot_state
 
 FINAL_SIGNAL_STATES = {"EXECUTED", "REJECTED", "FAILED", "EXPIRED"}
 CLAIM_LEASE_SECONDS = 90
@@ -518,15 +517,14 @@ def result(payload: TradeResultReport, db: Session) -> dict[str, object]:
     return {"status": payload.result, "ticket": ticket, "duplicate": False}
 
 
-def heartbeat(payload: HeartbeatReport, db: Session) -> dict[str, object]:
-    status = db.get(EAStatus, 1)
-    if status is None:
-        status = EAStatus(id=1)
-        db.add(status)
-    status.active = payload.active
-    status.last_heartbeat = utc_now()
-    status.terminal = payload.terminal
-    status.version = payload.version
-    status.symbol = payload.symbol
-    db.commit()
+def heartbeat(payload: HeartbeatReport) -> dict[str, object]:
+    status = ea_heartbeat_state.publish(
+        EAHeartbeat(
+            active=payload.active,
+            last_heartbeat=utc_now(),
+            terminal=payload.terminal,
+            version=payload.version,
+            symbol=payload.symbol,
+        )
+    )
     return {"status": "ok", "active": status.active, "last_heartbeat": wib_iso(status.last_heartbeat)}

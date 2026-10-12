@@ -48,12 +48,13 @@ from .core.security import (
 from .services.stats_service import get_dashboard_stats
 from .core.time_utils import wib_iso
 from .services.payment_bot import payment_review_bot
-from .state import master_snapshot_state
+from .state import ea_heartbeat_state, master_snapshot_state
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     master_snapshot_state.clear()
+    ea_heartbeat_state.clear()
     config = get_settings()
     if config.app_env in {"development", "test"} and engine.dialect.name == "sqlite":
         migrate_schema()
