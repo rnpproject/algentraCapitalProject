@@ -14,8 +14,6 @@ from ..database import get_db
 from ..models import (
     ClientUser,
     ManagedCopyProfile,
-    MasterCopyPosition,
-    MasterCopyState,
     MT5Account,
     MT5AccountState,
     MT5HistoryDeal,
@@ -39,6 +37,7 @@ from ..core.token_crypto import (
 )
 from ..core.time_utils import wib_iso
 from ..repositories.settings import SettingsRepository
+from ..state import master_snapshot_state
 
 
 logger = logging.getLogger(__name__)
@@ -51,10 +50,9 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _master_source_is_online(db: Session, now: datetime | None = None) -> bool:
+def _master_source_is_online(now: datetime | None = None) -> bool:
     now = now or utc_now()
-    state = db.get(MasterCopyState, 1)
-    return bool(state and state.last_snapshot_at and now - _aware(state.last_snapshot_at) <= MASTER_SNAPSHOT_MAX_AGE)
+    return master_snapshot_state.is_online(now, MASTER_SNAPSHOT_MAX_AGE)
 
 
 def _managed_worker_online(db: Session, now: datetime | None = None) -> bool:
@@ -166,7 +164,7 @@ def _account_from_token(
 
 def list_accounts(owner_id: int = Depends(require_client_id), db: Session = Depends(get_db)) -> list[dict[str, object]]:
     # The owner id is taken from the signed client session, never from query input.
-    master_online = _master_source_is_online(db)
+    master_online = _master_source_is_online()
     rows = db.execute(select(MT5Account).where(MT5Account.owner_id == owner_id).order_by(MT5Account.id.asc())).scalars()
     payloads = []
     for row in rows:
@@ -451,7 +449,7 @@ def set_active(
         account.last_seen_at = None
     account.active = payload.active
     db.commit()
-    return _account_payload(account, _master_source_is_online(db), db.get(MT5AccountState, account.id))
+    return _account_payload(account, _master_source_is_online(), db.get(MT5AccountState, account.id))
 
 
 def update_account(
@@ -477,7 +475,7 @@ def update_account(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="Server dan nomor akun tersebut sudah terdaftar") from exc
-    return _account_payload(account, _master_source_is_online(db), db.get(MT5AccountState, account.id))
+    return _account_payload(account, _master_source_is_online(), db.get(MT5AccountState, account.id))
 
 
 def delete_account(
@@ -596,19 +594,14 @@ def follower_positions(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     now = utc_now()
-    fresh = _master_source_is_online(db, now)
+    fresh = _master_source_is_online(now=now)
     positions: list[dict[str, object]] = []
     if fresh:
-        rows = db.execute(
-            select(MasterCopyPosition)
-            .where(
-                MasterCopyPosition.is_open.is_(True),
-            )
-            .order_by(MasterCopyPosition.id.asc())
-        ).scalars()
+        snapshot = master_snapshot_state.current()
+        rows = snapshot.positions if snapshot is not None else ()
         positions = [
             {
-                "ticket": row.source_ticket,
+                "ticket": row.ticket,
                 "symbol": row.symbol,
                 "action": row.action,
                 "lots": row.lots,

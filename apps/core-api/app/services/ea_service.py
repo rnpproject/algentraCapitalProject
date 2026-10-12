@@ -15,10 +15,6 @@ from ..models import (
     MT5MasterEquityCandle,
     MT5MasterEquityMinuteSample,
     MT5MasterEquitySample,
-    MasterCopyPosition,
-    MasterCopyState,
-    MT5MasterAccountState,
-    MT5MasterMarketState,
     Signal,
     SystemLog,
     Trade,
@@ -30,6 +26,7 @@ from ..services.risk_controls import risk_state
 from ..services.public_service import public_performance_payload
 from ..repositories.settings import SettingsRepository
 from ..core.time_utils import wib_iso
+from ..state import MasterAccountSnapshot, MasterPosition, master_snapshot_state
 
 FINAL_SIGNAL_STATES = {"EXECUTED", "REJECTED", "FAILED", "EXPIRED"}
 CLAIM_LEASE_SECONDS = 90
@@ -43,27 +40,6 @@ def publish_master_snapshot(payload: CopySnapshotInput, db: Session) -> dict[str
         raise HTTPException(status_code=422, detail="Ticket posisi harus unik")
 
     now = utc_now()
-    db.execute(delete(MasterCopyPosition))
-    for position in payload.positions:
-        db.add(
-            MasterCopyPosition(
-                source_ticket=position.ticket,
-                symbol=position.symbol,
-                action=position.action,
-                lots=position.lots,
-                entry_price=position.entry_price,
-                sl=position.sl,
-                tp=position.tp,
-                is_open=True,
-                updated_at=now,
-            )
-        )
-
-    state = db.get(MasterCopyState, 1)
-    if state is None:
-        state = MasterCopyState(id=1)
-        db.add(state)
-    state.last_snapshot_at = now
     master_report_fields = (
         payload.balance,
         payload.equity,
@@ -71,18 +47,41 @@ def publish_master_snapshot(payload: CopySnapshotInput, db: Session) -> dict[str
         payload.currency,
         payload.trade_mode,
     )
+    account_snapshot = None
     if all(value is not None for value in master_report_fields):
-        account_state = db.get(MT5MasterAccountState, 1)
-        if account_state is None:
-            account_state = MT5MasterAccountState(id=1)
-            db.add(account_state)
-        account_state.balance = payload.balance
-        account_state.equity = payload.equity
-        account_state.floating_profit = payload.floating_profit
-        account_state.currency = payload.currency.upper()
-        account_state.trade_mode = payload.trade_mode
-        account_state.observed_at = now
+        account_snapshot = MasterAccountSnapshot(
+            balance=payload.balance,
+            equity=payload.equity,
+            floating_profit=payload.floating_profit,
+            currency=payload.currency.upper(),
+            trade_mode=payload.trade_mode,
+            observed_at=now,
+        )
+    positions = tuple(
+        MasterPosition(
+            ticket=position.ticket,
+            symbol=position.symbol,
+            action=position.action,
+            lots=position.lots,
+            entry_price=position.entry_price,
+            sl=position.sl,
+            tp=position.tp,
+        )
+        for position in payload.positions
+    )
+    market_quotes_json = (
+        json.dumps([quote.model_dump() for quote in payload.market_quotes], separators=(",", ":"))
+        if payload.market_quotes is not None
+        else None
+    )
+    master_snapshot_state.publish(
+        positions,
+        now,
+        account=account_snapshot,
+        market_quotes_json=market_quotes_json,
+    )
 
+    if account_snapshot is not None:
         sample_hour = now.replace(minute=0, second=0, microsecond=0)
         equity_sample = db.execute(
             select(MT5MasterEquitySample).where(MT5MasterEquitySample.sample_hour == sample_hour)
@@ -172,16 +171,6 @@ def publish_master_snapshot(payload: CopySnapshotInput, db: Session) -> dict[str
             equity_candle.currency = payload.currency.upper()
             equity_candle.observed_at = now
 
-    if payload.market_quotes is not None:
-        market_state = db.get(MT5MasterMarketState, 1)
-        if market_state is None:
-            market_state = MT5MasterMarketState(id=1)
-            db.add(market_state)
-        market_state.quotes_json = json.dumps(
-            [quote.model_dump() for quote in payload.market_quotes],
-            separators=(",", ":"),
-        )
-        market_state.observed_at = now
     db.commit()
     if public_performance_hub.connected:
         live_payload = public_performance_payload(db, include_equity_curve=False)
