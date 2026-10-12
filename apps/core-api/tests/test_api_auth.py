@@ -10,8 +10,8 @@ from app.core.config import Settings
 from app.database import Base, SessionLocal
 from app.models import AdminUser, AuthSession, ClientUser, EAExecution, MT5Account, MT5AccountState, PasswordResetCode, Signal, Trade, utc_now
 from app.api.v1.dashboard import _csv_text
-from app.api.v1 import auth as auth_router
 from app.main import app
+from app.services import auth_service
 
 
 def test_qris_endpoint_reports_payment_feature_unavailable():
@@ -43,7 +43,7 @@ def test_admin_login_protects_and_unlocks_dashboard_routes():
 
 
 def test_password_reset_request_does_not_disclose_account_existence(monkeypatch):
-    monkeypatch.setattr(auth_router, "send_verification_code", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(auth_service, "send_verification_code", lambda *_args, **_kwargs: None)
     with TestClient(app) as client:
         with SessionLocal() as db:
             db.add(ClientUser(
@@ -71,8 +71,8 @@ def test_password_reset_revokes_existing_client_session():
         now = utc_now()
         with SessionLocal() as db:
             db.add(PasswordResetCode(
-                email_hash=auth_router._password_reset_email_key(email),
-                code_hash=auth_router._password_reset_hash(email, code),
+                email_hash=auth_service._password_reset_email_key(email),
+                code_hash=auth_service._password_reset_hash(email, code),
                 expires_at=now + timedelta(minutes=10),
                 resend_after=now,
                 attempts=0,
