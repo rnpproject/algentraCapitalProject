@@ -34,9 +34,7 @@ def resend_code(payload: ResendCodeRequest, db: Session = Depends(get_db)) -> di
 
 
 @router.post("/verify-email")
-def verify_email(
-    payload: VerifyEmailRequest, request: Request, db: Session = Depends(get_db)
-) -> dict[str, str | int]:
+def verify_email(payload: VerifyEmailRequest, request: Request, db: Session = Depends(get_db)) -> dict[str, str | int]:
     return auth_service.verify_email(payload, request, db)
 
 
@@ -50,16 +48,12 @@ def request_password_reset(
 
 
 @router.post("/password-reset/confirm")
-def confirm_password_reset(
-    payload: PasswordResetConfirmRequest, db: Session = Depends(get_db)
-) -> dict[str, str]:
+def confirm_password_reset(payload: PasswordResetConfirmRequest, db: Session = Depends(get_db)) -> dict[str, str]:
     return auth_service.confirm_password_reset(payload, db)
 
 
 @router.post("/client-login")
-def client_login(
-    payload: ClientLoginRequest, request: Request, db: Session = Depends(get_db)
-) -> dict[str, str | int]:
+def client_login(payload: ClientLoginRequest, request: Request, db: Session = Depends(get_db)) -> dict[str, str | int]:
     return auth_service.client_login(payload, request, db)
 
 

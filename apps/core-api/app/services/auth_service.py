@@ -12,13 +12,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ...auth import hash_password, verify_password
-from ...core.config import get_settings
-from ...services.email_service import send_verification_code
-from ...models import AdminUser, AuthSession, ClientUser, EmailVerification, PasswordResetCode, utc_now
-from ...repositories.transactions import begin_serialized_write
-from ...services.registration import registration_is_open
-from ...core.security import (
+from ..auth import hash_password, verify_password
+from ..core.config import get_settings
+from ..services.email_service import send_verification_code
+from ..models import AdminUser, AuthSession, ClientUser, EmailVerification, PasswordResetCode, utc_now
+from ..repositories.transactions import begin_serialized_write
+from ..services.registration import registration_is_open
+from ..core.security import (
     AUTH_EXPIRES_SESSION_KEY,
     REMEMBER_CLIENT_MAX_AGE,
     REMEMBER_SESSION_KEY,
@@ -26,7 +26,7 @@ from ...core.security import (
     csrf_token,
     require_csrf,
 )
-from ...schemas import (
+from ..schemas import (
     ClientLoginRequest,
     LoginRequest,
     PasswordResetConfirmRequest,

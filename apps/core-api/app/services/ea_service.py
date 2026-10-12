@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.orm import Session
 
-from ...services.gemini_parser import SignalClassification
-from ...models import (
+from ..services.gemini_parser import SignalClassification
+from ..models import (
     EAExecution,
     EAStatus,
     MT5MasterEquityCandle,
@@ -24,17 +24,18 @@ from ...models import (
     Trade,
     utc_now,
 )
-from ...realtime.public_realtime import public_performance_hub
-from ...schemas import CopySnapshotInput
-from ...services.risk_controls import risk_state
-from ...services.public_service import public_performance_payload
-from ...repositories.settings import SettingsRepository
-from ...core.time_utils import wib_iso
+from ..realtime.public_realtime import public_performance_hub
+from ..schemas import CopySnapshotInput
+from ..services.risk_controls import risk_state
+from ..services.public_service import public_performance_payload
+from ..repositories.settings import SettingsRepository
+from ..core.time_utils import wib_iso
 
 FINAL_SIGNAL_STATES = {"EXECUTED", "REJECTED", "FAILED", "EXPIRED"}
 CLAIM_LEASE_SECONDS = 90
 MAX_SIGNAL_TARGETS = 20
 SIGNAL_EXPIRY_SECONDS = 3600
+
 
 def publish_master_snapshot(payload: CopySnapshotInput, db: Session) -> dict[str, object]:
     ticket_values = [position.ticket for position in payload.positions]
@@ -190,6 +191,7 @@ def publish_master_snapshot(payload: CopySnapshotInput, db: Session) -> dict[str
         public_performance_hub.publish(live_payload)
     return {"status": "ok", "positions": len(payload.positions), "last_snapshot_at": wib_iso(now)}
 
+
 class ExecutionReport(BaseModel):
     signal_id: int = Field(gt=0)
     status: Literal["EXECUTED", "REJECTED", "FAILED"]
@@ -225,6 +227,7 @@ class ExecutionReport(BaseModel):
                 self.exec_price = None
         return self
 
+
 class TradeResultReport(BaseModel):
     ticket: str | int
     profit: float
@@ -237,15 +240,18 @@ class TradeResultReport(BaseModel):
             raise ValueError("Profit harus finite")
         return self
 
+
 class HeartbeatReport(BaseModel):
     active: bool = True
     terminal: str | None = Field(default=None, max_length=128)
     version: str | None = Field(default=None, max_length=64)
     symbol: str | None = Field(default=None, max_length=64)
 
+
 def _entry_mode(db: Session) -> str:
     value = SettingsRepository(db).get_json("entry_mode", "PARTIAL")
     return value if isinstance(value, str) and value in {"SINGLE", "PARTIAL"} else "PARTIAL"
+
 
 def _take_profit_prices(parsed: dict) -> list[float]:
     raw_targets = parsed.get("tp")
@@ -256,6 +262,7 @@ def _take_profit_prices(parsed: dict) -> list[float]:
     ]
     return targets[:MAX_SIGNAL_TARGETS]
 
+
 def _expected_signal_legs(parsed: dict) -> int:
     if parsed.get("execution_mode") == "SINGLE":
         return 1
@@ -265,6 +272,7 @@ def _expected_signal_legs(parsed: dict) -> int:
     if parsed.get("entry_low") is not None and parsed.get("entry_high") is not None:
         return 2
     return 1
+
 
 def _sync_signal_execution_status(db: Session, signal: Signal, expected_legs: int) -> None:
     executions = list(db.execute(select(EAExecution).where(EAExecution.signal_id == signal.id)).scalars())
@@ -294,6 +302,7 @@ def _sync_signal_execution_status(db: Session, signal: Signal, expected_legs: in
         signal.status = "BE" if abs(total_profit) < 0.005 else "WIN" if total_profit > 0 else "LOSS"
     else:
         signal.status = "EXECUTED"
+
 
 def pending(limit: int, db: Session) -> dict[str, object]:
     now = utc_now()
@@ -385,6 +394,7 @@ def pending(limit: int, db: Session) -> dict[str, object]:
     db.commit()
     return {"items": items, **response_controls, "server_time": wib_iso(now)}
 
+
 def report(payload: ExecutionReport, db: Session) -> dict[str, object]:
     signal = db.get(Signal, payload.signal_id)
     if signal is None:
@@ -469,6 +479,7 @@ def report(payload: ExecutionReport, db: Session) -> dict[str, object]:
     db.commit()
     return {"status": payload.status, "signal_id": signal.id, "leg": leg, "duplicate": False}
 
+
 def result(payload: TradeResultReport, db: Session) -> dict[str, object]:
     ticket = str(payload.ticket)
     trade = db.execute(select(Trade).where(Trade.ticket == ticket)).scalar_one_or_none()
@@ -517,6 +528,7 @@ def result(payload: TradeResultReport, db: Session) -> dict[str, object]:
     db.commit()
     return {"status": payload.result, "ticket": ticket, "duplicate": False}
 
+
 def heartbeat(payload: HeartbeatReport, db: Session) -> dict[str, object]:
     status = db.get(EAStatus, 1)
     if status is None:
@@ -529,5 +541,3 @@ def heartbeat(payload: HeartbeatReport, db: Session) -> dict[str, object]:
     status.symbol = payload.symbol
     db.commit()
     return {"status": "ok", "active": status.active, "last_heartbeat": wib_iso(status.last_heartbeat)}
-
-

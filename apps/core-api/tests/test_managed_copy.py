@@ -7,14 +7,14 @@ from app.auth import hash_password
 from app.database import SessionLocal
 from app.main import app
 from app.models import AppSetting, ClientUser, ManagedCopyProfile, MT5Account, utc_now
-from app.api.v1 import mt5 as mt5_router
+from app.services import mt5_service
 from app.core.token_crypto import decrypt_managed_copy_password
 
 
 def test_managed_copy_client_setup_worker_auth_and_live_acknowledgement(monkeypatch):
     worker_key = "m5-managed-copy-worker-key-at-least-32-characters"
     monkeypatch.setattr(
-        mt5_router,
+        mt5_service,
         "get_settings",
         lambda: SimpleNamespace(copier_worker_api_key=SecretStr(worker_key)),
     )

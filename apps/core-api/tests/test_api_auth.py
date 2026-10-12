@@ -9,7 +9,7 @@ from app.auth import hash_password, seed_admin, verify_password
 from app.core.config import Settings
 from app.database import Base, SessionLocal
 from app.models import AdminUser, AuthSession, ClientUser, EAExecution, MT5Account, MT5AccountState, PasswordResetCode, Signal, Trade, utc_now
-from app.api.v1.dashboard import _csv_text
+from app.services.dashboard_service import _csv_text
 from app.main import app
 from app.services import auth_service
 
@@ -320,7 +320,7 @@ def test_signal_endpoint_includes_execution_ticket_and_profit():
                 json={"username": "admin", "password": "M1-Testing-Password-123"},
             )
             assert login.status_code == 200
-            response = client.get(f"/api/signals?group_id=dashboard-route-test")
+            response = client.get("/api/signals?group_id=dashboard-route-test")
             assert response.status_code == 200
             [item] = response.json()
             assert item["id"] == signal_id

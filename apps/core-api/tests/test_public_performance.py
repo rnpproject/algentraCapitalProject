@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.api.v1.public import equity_session_start
+from app.services.public_service import equity_session_start
 
 
 @pytest.mark.parametrize(
