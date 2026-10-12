@@ -7,7 +7,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSock
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from urllib.parse import urlsplit
@@ -241,6 +242,20 @@ include_versioned_router(payments_router.router, "/v1")
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "algentra-capital"}
+
+
+@app.get("/ready", responses={503: {"description": "Database unavailable"}})
+def readiness() -> JSONResponse:
+    """Report whether the process can currently reach its configured database."""
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "checks": {"database": "unavailable"}},
+        )
+    return JSONResponse(content={"status": "ready", "checks": {"database": "ok"}})
 
 
 @app.get("/login", response_class=HTMLResponse)

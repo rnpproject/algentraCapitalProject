@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
+import app.main as main_module
 from app.main import app as application
 from app.core.security import RateLimitMiddleware
 
@@ -43,3 +45,20 @@ def test_application_security_headers_and_api_docs_are_disabled():
         themed_page = client.get("/")
         assert 'data-theme="light"' in themed_page.text
         assert 'id="theme-toggle"' in themed_page.text
+
+
+def test_readiness_reports_database_connectivity_without_connection_details(monkeypatch):
+    with TestClient(application) as client:
+        ready = client.get("/ready")
+        assert ready.status_code == 200
+        assert ready.json() == {"status": "ready", "checks": {"database": "ok"}}
+
+        class UnavailableEngine:
+            def connect(self):
+                raise SQLAlchemyError("private database connection details")
+
+        monkeypatch.setattr(main_module, "engine", UnavailableEngine())
+        unavailable = client.get("/ready")
+        assert unavailable.status_code == 503
+        assert unavailable.json() == {"status": "not_ready", "checks": {"database": "unavailable"}}
+        assert "private database connection details" not in unavailable.text

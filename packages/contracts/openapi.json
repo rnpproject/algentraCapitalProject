@@ -5787,6 +5787,26 @@
         }
       }
     },
+    "/ready": {
+      "get": {
+        "summary": "Readiness",
+        "description": "Report whether the process can currently reach its configured database.",
+        "operationId": "readiness_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "503": {
+            "description": "Database unavailable"
+          }
+        }
+      }
+    },
     "/login": {
       "get": {
         "summary": "Login Page",
