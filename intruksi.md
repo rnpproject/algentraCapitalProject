@@ -388,7 +388,7 @@ MQL5 `WebRequest` bersifat blocking dan hanya HTTP(S) — rancang protokol yang 
 - [x] Pindahkan source backend, worker, dan EA ke struktur monorepo (bagian 4). Pemisahan domain dan use case belum selesai.
 - [x] Ganti entrypoint `.bat` dengan skrip PowerShell; sediakan installer NSSM untuk `core-api` di `infra/windows/`. Managed worker tetap memakai Task Scheduler karena terminal MT5 membutuhkan sesi desktop interaktif.
 - [ ] Lengkapi lint/format/typecheck/CI: workflow memuat lint, pemeriksaan format, typecheck domain, test, contract generation, audit dependency Python/web, dan build web; secret scan serta validasi CI hijau masih tertunda.
-- [ ] Pindahkan seluruh logika bisnis dari router; `auth.py`, `ea.py`, dan `mt5.py` masih memiliki akses DB langsung.
+- [ ] Pindahkan seluruh logika bisnis dari router; use case EA sudah diekstrak ke service, sedangkan `auth.py` dan `mt5.py` masih memiliki akses DB langsung.
 - **DoD:** seluruh test lama lulus; aplikasi berjalan identik; tidak ada logika bisnis di router.
 
 ### Fase 2 — Lapisan repository & kontrak API
@@ -508,3 +508,4 @@ MQL5 `WebRequest` bersifat blocking dan hanya HTTP(S) — rancang protokol yang 
 - **Pemisahan parser preview (2026-10-12):** `POST /api/parser/test` kini mendelegasikan parsing, baca setting, dan validasi ke `services/parser_service.py`; router hanya memetakan kegagalan parser menjadi respons HTTP. Integrasi Gemini dan skema payload tidak berubah.
 - **Pengamanan worker Windows (2026-10-12):** installer standalone dan managed worker kini menjalankan Task Scheduler pada saat akun operator login dengan token hak standar; hal ini mempertahankan sesi desktop yang diperlukan MT5 tanpa hak admin. README worker dan root menjelaskan bahwa terminal template/runtime perlu dimiliki atau dapat ditulis akun tersebut.
 - **CI Python (2026-10-13):** workflow kini menjalankan `ruff format --check` dan `pip-audit` pada environment Python yang memasang dependency backend serta worker; `pip-audit` ditambahkan ke requirements development. Sebanyak 48 file source diformat; `ruff format --check` (77 file) dan `ruff check` lulus lokal. Secret scanning CI dan bukti workflow penuh hijau masih tertunda; test suite dan `pip-audit` belum dijalankan pada giliran ini.
+- **Ekstraksi use case EA (2026-10-13):** endpoint router EA kini mendelegasikan snapshot master, claim sinyal, laporan eksekusi, hasil trade, dan heartbeat ke `services/ea_service.py`; validasi autentikasi dan parameter HTTP tetap di router, bentuk payload dan respons dipertahankan. Pemeriksaan statis Pylance tidak menemukan error. Test EA yang sudah ada belum dijalankan; ekstraksi router auth/MT5, interface repository, dan verifikasi CI masih tertunda.
