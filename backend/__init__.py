@@ -1,1 +1,0 @@
-"""Algentra Capital backend package."""

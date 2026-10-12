@@ -1,0 +1,10 @@
+{
+  "name": "@algentra/contracts",
+  "private": true,
+  "scripts": {
+    "generate:types": "openapi-typescript openapi.json -o src/generated.d.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.8.0"
+  }
+}
