@@ -1,49 +1,180 @@
 # Algentra Capital
 
-Layanan copy trading berbasis AI dengan FastAPI, SQLite, parser Gemini, koneksi Telegram, REST API untuk EA MT5, dashboard publik, dan workspace operasi privat.
+Layanan copy trading berbasis AI dengan FastAPI, Supabase PostgreSQL, parser Gemini, koneksi Telegram, REST API untuk EA MT5, dashboard publik, dan workspace operasi privat.
 
 ## Menjalankan backend
 
-1. Gunakan Python 3.11 atau lebih baru.
-2. Dari folder proyek, salin `.env.example` menjadi `.env`, lalu ganti `APP_SECRET_KEY` dengan nilai acak minimal 32 karakter, `ADMIN_PASSWORD` dengan password minimal 12 karakter, dan `EA_API_KEY` dengan nilai acak. Isi konfigurasi SMTP untuk mengaktifkan pendaftaran klien dan reset kata sandi melalui email.
-3. Buat virtual environment (`python -m venv .venv` di Windows atau `python3 -m venv .venv` di Linux/macOS), lalu pasang dependensi dengan `.venv\Scripts\python -m pip install -r backend/requirements.txt` di Windows atau `.venv/bin/python -m pip install -r backend/requirements.txt` di Linux/macOS.
-4. Jalankan `run.bat` untuk pengembangan. Backend bind ke `127.0.0.1:8000` dan memuat ulang saat kode berubah.
-5. Buka `http://127.0.0.1:8000/loginAdmin` untuk masuk sebagai admin. Admin dapat membuka/menutup pendaftaran dari dashboard; jika ditutup sebelum jadwal launching, pendaftaran otomatis terbuka pada 16 Januari 2027 pukul 09.00 WIB. Klien mendaftar dari `/register`, memverifikasi email, lalu masuk melalui `/login`. Di `/account`, client memilih paket dan mengisi detail akun MT5; sesudah membuat pesanan, portal mengarahkan client ke `/transactions` untuk pembayaran, melihat status, dan membuka nota. Halaman transaksi menampilkan QRIS dari `backend/app/static/qris.jpeg`; client dapat mengunggah bukti pembayaran untuk diperiksa admin melalui tombol bot Telegram. Akun dibuat setelah transaksi diterima. Reset kata sandi tersedia melalui `/forgot-password` setelah SMTP diisi.
-6. Isi `GEMINI_API_KEY` di `.env` untuk Gemini parser sinyal. Chat customer service **ALGENTRA** memakai key terpisah `GEMINI_CS_API_KEY`; isi dengan API key CS yang berbeda. Model dan batas waktu CS dapat diatur lewat `GEMINI_CS_MODEL` dan `GEMINI_CS_TIMEOUT_SECONDS` (default 60 detik), terpisah dari parser sinyal. Kedua fitur tetap nonaktif sampai key masing-masing diisi.
-7. Untuk Telegram, isi `TELEGRAM_API_ID` dan `TELEGRAM_API_HASH` dari [my.telegram.org](https://my.telegram.org), lalu restart backend dan buka `/telegram-setup` setelah login admin.
-8. Untuk konfirmasi pembayaran, buat bot melalui `@BotFather`, lalu isi `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_ADMIN_CHAT_ID` (ID chat pribadi admin) di `.env`. Mulai percakapan pribadi dengan bot setidaknya sekali. Bot pembayaran memakai long polling, jadi jangan pasang webhook untuk bot tersebut dan jalankan satu proses backend saja. Setelah restart backend, bukti transaksi akan dikirim sebagai foto dengan tombol **Transaksi diterima** dan **Transaksi tidak valid**.
+1. Gunakan Python 3.12 64-bit atau lebih baru.
+2. Siapkan project Supabase khusus development sesuai bagian [Bootstrap Supabase development](#bootstrap-supabase-development). Jangan gunakan project production untuk langkah ini.
+3. Dari folder proyek, salin `.env.example` menjadi `.env.local`, lalu ganti `APP_SECRET_KEY` dengan nilai acak minimal 32 karakter, `ADMIN_PASSWORD` dengan password minimal 12 karakter, dan `EA_API_KEY` dengan nilai acak. Isi `DATABASE_URL` memakai role `algentra_api`, `MIGRATION_DATABASE_URL` memakai role `algentra_migrator`, dan `SUPABASE_DEV_PROJECT_REF` dengan project ref yang sama. Ambil host/port/database dari Supabase **Dashboard → Connect**; URL project `https://<project-ref>.supabase.co` bukan connection string PostgreSQL. Kedua URL harus menuju database Supabase development yang sama dan menggunakan TLS (`sslmode=require`). File `.env.local` diabaikan Git. Jangan masukkan Supabase `anon` atau `service_role` key; aplikasi terhubung langsung ke Postgres.
+4. Buat virtual environment (`python -m venv .venv` di Windows atau `python3 -m venv .venv` di Linux/macOS), lalu pasang dependensi dengan `.venv\Scripts\python -m pip install -r apps/core-api/requirements.txt` di Windows atau `.venv/bin/python -m pip install -r apps/core-api/requirements.txt` di Linux/macOS.
+5. Jalankan `infra\windows\migrate-development.ps1` untuk menerapkan revisi skema ke project Supabase development. Script memaksa `APP_ENV=development`, memeriksa project ref dan marker database, lalu memakai role migrator dari `.env.local`. Jika ada database SQLite lokal yang perlu dipindahkan, impor sebelum menjalankan aplikasi untuk pertama kali, sesuai langkah di bagian Bootstrap. Setelah migrasi/impor selesai, jalankan `infra\windows\run-development.ps1`; backend bind ke `127.0.0.1:8000` dan memuat ulang saat kode berubah. Migrasi tidak berjalan otomatis saat backend start.
+6. Buka `http://127.0.0.1:8000/loginAdmin` untuk masuk sebagai admin. Admin dapat membuka/menutup pendaftaran dari dashboard; jika ditutup sebelum jadwal launching, pendaftaran otomatis terbuka pada 16 Januari 2027 pukul 09.00 WIB. Klien mendaftar dari `/register`, memverifikasi email, lalu masuk melalui `/login`. Portal akun dan riwayat transaksi masih tersedia, tetapi **pembelian paket dan pembayaran QRIS akan segera tersedia**: order baru dan bukti pembayaran ditolak oleh backend. Jangan melakukan transfer. Pesanan lama yang belum dibayar sebaiknya dibatalkan; bila transfer sudah terlanjur dilakukan, hubungi admin. Nota dan bukti lama yang sudah tersimpan tetap dapat dilihat. Reset kata sandi tersedia melalui `/forgot-password` setelah SMTP diisi.
+7. Isi `GEMINI_API_KEY` di `.env.local` untuk Gemini parser sinyal. Chat customer service **ALGENTRA** memakai key terpisah `GEMINI_CS_API_KEY`; isi dengan API key CS yang berbeda. Model dan batas waktu CS dapat diatur lewat `GEMINI_CS_MODEL` dan `GEMINI_CS_TIMEOUT_SECONDS` (default 60 detik), terpisah dari parser sinyal. Kedua fitur tetap nonaktif sampai key masing-masing diisi.
+8. Untuk Telegram, isi `TELEGRAM_API_ID` dan `TELEGRAM_API_HASH` dari [my.telegram.org](https://my.telegram.org) di `.env.local`, lalu restart backend dan buka `/telegram-setup` setelah login admin.
+9. Bot Telegram masih dapat dipakai untuk menyelesaikan pemeriksaan transaksi lama yang sudah mengirim bukti. Buat bot melalui `@BotFather`, lalu isi `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_ADMIN_CHAT_ID` (ID chat pribadi admin) di `.env.local`. Mulai percakapan pribadi dengan bot setidaknya sekali. Bot pembayaran memakai long polling, jadi jangan pasang webhook untuk bot tersebut dan jalankan satu proses backend saja. Order baru dan bukti baru tetap dinonaktifkan.
 
-Kontak publik pada beranda diatur melalui variabel `CONTACT_*` di `.env.example` dan `.env`. Tautan email, Instagram, TikTok, grup/admin Telegram, dan website ditampilkan dengan ikon; alamat sosial harus berupa URL HTTPS.
+### Bootstrap Supabase development
+
+Langkah ini dilakukan sekali pada project Supabase **development** yang terpisah. Gunakan region dan database yang memang akan dipakai untuk pengembangan; project ref terlihat pada URL project Supabase.
+
+1. Buka `infra/supabase/bootstrap.sql`, ganti `REPLACE_WITH_SUPABASE_PROJECT_REF` dengan project ref development, lalu jalankan SQL melalui Supabase **SQL Editor** sebagai project owner. Script membuat role terpisah (`algentra_api`, `algentra_migrator`, `algentra_backup`), memberi grant sementara untuk revision pertama, dan menulis marker environment/ref sebagai comment database. Script ini tidak membuat tabel atau schema aplikasi; Alembic membuat schema `app`, tabel, dan grant runtime.
+2. Aktifkan login hanya untuk role yang dipakai development di SQL Editor. `algentra_backup` tetap `NOLOGIN` sampai host backup khusus dikonfigurasi:
+
+   ```sql
+   ALTER ROLE algentra_api LOGIN;
+   ALTER ROLE algentra_migrator LOGIN;
+   ```
+
+3. Set password role dari terminal `psql` yang tersambung sebagai project owner. Gunakan host/port/database dari panel **Connect** Supabase, pakai TLS, dan biarkan `psql` meminta password project owner. Di prompt `psql`, jalankan `\password algentra_api` dan `\password algentra_migrator`; masukkan password berbeda saat diminta. Dengan cara ini password role tidak ditulis ke SQL file atau command history.
+4. Di `.env.local`, isi `DATABASE_URL` dengan bentuk `postgresql+psycopg://algentra_api.<project-ref>:<password-url-encoded>@<host>:<port>/postgres?sslmode=require`, lalu isi `MIGRATION_DATABASE_URL` dengan bentuk yang sama memakai username `algentra_migrator.<project-ref>` dan password role migrator. Dari koneksi langsung, username role tidak memakai akhiran project ref. Gunakan session pooler atau koneksi langsung; jangan gunakan transaction pooler untuk migrasi. URL-encode karakter khusus pada password. Project ref harus cocok persis dengan marker pada bootstrap.
+5. Jalankan `infra\windows\migrate-development.ps1`. Revision Alembic berikutnya mengaktifkan RLS pada semua tabel `app`, memberi akses penuh hanya kepada role runtime `algentra_api`, akses baca kepada `algentra_backup`, serta meniadakan akses role lain. Revision `0002` juga menghapus kolom ciphertext token EA lama; autentikasi tetap memakai hash token. Setelah revision pertama berhasil membuat schema `app` dan bookkeeping Alembic di `public`, jalankan [revoke-dev-bootstrap-grants.sql](./infra/supabase/revoke-dev-bootstrap-grants.sql) sebagai project owner setelah mengganti project ref di marker. Ini menghapus grant sementara `CREATE` pada database dan schema `public`; role migrator tetap pemilik schema `app` dan dapat mengubah objek di sana.
+
+   ```sql
+   REVOKE CREATE ON DATABASE postgres FROM algentra_migrator;
+   REVOKE CREATE ON SCHEMA public FROM algentra_migrator;
+   ```
+
+   Migrasi berikutnya mengubah objek dalam schema yang sudah ada. Jangan jalankan backend menggunakan project owner atau role migrator.
+
+Untuk provisioning schema production awal, ekspor snapshot tanpa data dari development yang sudah berada di revision head:
+
+```powershell
+Set-Location apps\core-api
+..\..\.venv\Scripts\python.exe -m app.export_schema_snapshot D:\Secure\algentra-production-schema.sql
+```
+
+Perintah ini memeriksa marker project dan revision Alembic, lalu memakai `pg_dump --schema-only`; ia tidak mengekspor tabel data development. Simpan hasilnya di lokasi aman di luar repo. DBA menerapkan file SQL satu kali pada project production sebelum service dirilis, sebagai role project owner. Contoh dari PowerShell, dengan host dari panel **Connect**:
+
+```powershell
+$dbHost = 'HOST_DARI_SUPABASE_CONNECT'
+psql --host $dbHost --port 5432 --username postgres --dbname postgres --password --set ON_ERROR_STOP=1 --file D:\Secure\algentra-production-schema.sql
+```
+
+Setelah import, pastikan comment database bernilai `algentra:production:<project-ref>` dan comment schema `app` bernilai `algentra:revision:<revision-yang-dicetak-exporter>`. File ini hanya untuk provisioning database production kosong/awal. Ia bukan perintah Alembic atau DDL yang dijalankan aplikasi saat start/deploy. Jangan menggunakannya untuk menimpa database production yang sudah aktif.
+
+Bootstrap menerima database tanpa comment atau comment standar Supabase `default administrative connection database`; comment lain ditolak agar marker tidak terganti tanpa pemeriksaan. Jangan hapus atau ubah comment pada database aktif untuk mengakali pemeriksaan target.
+
+Jika file SQLite lokal berisi data yang ingin dipindahkan ke Supabase development, lakukan setelah migrasi skema berhasil. Jalankan dry-run lebih dulu. Importer membandingkan checksum data tiap tabel, melewati tabel yang sudah identik, menambah baris yang belum ada, dan membatalkan seluruh transaksi bila benturan membuat data target tidak sama dengan sumber. Kolom legacy `token_ciphertext` dari SQLite sengaja tidak diimpor karena autentikasi EA menggunakan `token_hash`; token mentah hanya ditampilkan satu kali saat dibuat/dirotasi. Importer menolak tabel atau kolom tak dikenal selain kolom legacy yang diredaksi. Hentikan backend selama impor agar tidak ada penulisan bersamaan:
+
+```powershell
+Set-Location apps\core-api
+..\..\.venv\Scripts\python.exe -m app.import_sqlite_to_supabase --dry-run
+..\..\.venv\Scripts\python.exe -m app.import_sqlite_to_supabase
+```
+
+Secara default sumbernya `backend/data/app.db`; path lain dapat diberikan sebagai argumen. Periksa jumlah baris dan status checksum per tabel yang dilaporkan, lalu buat backup terpisah sebelum memindahkan database lokal penting.
+
+Kontak publik pada beranda diatur melalui variabel `CONTACT_*` di `.env.example` dan `.env.local`. Tautan email, Instagram, TikTok, grup/admin Telegram, dan website ditampilkan dengan ikon; alamat sosial harus berupa URL HTTPS.
 
 ## Akses publik melalui Cloudflare Tunnel
 
 Quick Tunnel untuk pengembangan membuat URL sementara pada domain trycloudflare.com. Untuk menggunakannya:
 
-1. Jalankan backend dengan run.bat atau ./run.sh.
+1. Jalankan backend dengan `infra\windows\run-development.ps1`.
 2. Buka terminal kedua dari folder proyek dan jalankan **cloudflared tunnel --url http://127.0.0.1:8000**.
 3. Buka URL HTTPS yang dicetak cloudflared. URL berhenti berlaku ketika proses tunnel dihentikan.
 
-Quick Tunnel ditujukan untuk pengembangan. Untuk domain tetap, buat named tunnel di Cloudflare, atur public hostname menuju http://127.0.0.1:8000, lalu jalankan **cloudflared tunnel run --token TOKEN_DARI_DASHBOARD** dengan token dari dashboard Cloudflare. Gunakan COOKIE_SECURE=true di .env untuk akses HTTPS produksi. Backend tetap mendengarkan di localhost; tunnel meneruskan trafik tanpa membuka port 8000 ke internet. Lihat [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) dan [panduan tunnel bernama](https://developers.cloudflare.com/tunnel/features/locally-managed-tunnels/create-local-tunnel/).
+Quick Tunnel ditujukan untuk pengembangan. Untuk domain tetap, buat named tunnel di Cloudflare, atur public hostname menuju http://127.0.0.1:8000, lalu jalankan **cloudflared tunnel run --token TOKEN_DARI_DASHBOARD** dengan token dari dashboard Cloudflare. Atur `COOKIE_SECURE=true` pada environment Windows Service untuk akses HTTPS production. Backend tetap mendengarkan di localhost; tunnel meneruskan trafik tanpa membuka port 8000 ke internet. Lihat [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) dan [panduan tunnel bernama](https://developers.cloudflare.com/tunnel/features/locally-managed-tunnels/create-local-tunnel/).
 
-## Produksi di Windows Server
+Musik latar tidak dikirim dari server aplikasi. Jika ingin menampilkannya, unggah audio ke CDN/object storage publik dan isi `PUBLIC_MUSIC_URL` dengan URL HTTPS di `.env.local` untuk development atau environment Windows Service untuk production; kosongkan nilainya untuk menyembunyikan pemutar. Audio menggunakan `preload="none"` dan hanya diputar setelah pengunjung menekan tombol.
 
-Gunakan satu Windows Server dengan Cloudflare Tunnel. Simpan `.env`, SQLite, sesi Telegram, dan backup di folder data persisten di luar folder kode; berikan akses folder hanya ke akun layanan. Atur `APP_ENV=production`, `COOKIE_SECURE=true`, dan `DATABASE_URL` ke jalur SQLite absolut, misalnya `sqlite:///D:/algentra-data/app.db`. Jangan gunakan jalur relatif karena layanan dapat dimulai dengan direktori kerja berbeda.
+## Live production di Windows Server
 
-Pasang aplikasi sebagai Windows Service melalui NSSM atau Task Scheduler saat boot. Jalankan `run-service.bat` sebagai perintah layanan; ia bind ke `127.0.0.1:8000`, memakai satu worker, dan tidak mengaktifkan reload. Atur Cloudflare Tunnel ingress ke `http://127.0.0.1:8000`; jangan buka port 8000 ke jaringan. Aktifkan HSTS pada Cloudflare SSL/TLS Edge Certificates. Konfigurasikan rotasi log pada service manager.
+Target database aplikasi adalah Supabase PostgreSQL. Project development menerima migrasi Alembic eksplisit; aplikasi tidak menjalankan DDL atau migrasi saat start. Production harus sudah memiliki skema yang cocok dengan revisi aplikasi sebelum binary dirilis. Jalur pemindahan data produksi SQLite ke Supabase, provisioning project production, Vercel, deploy otomatis, dan rollback otomatis belum selesai; jangan cut over live sampai runbook menyatakan semuanya siap.
 
-Jika situs mengembalikan halaman Cloudflare **502**, uji origin langsung dari VPS dengan `Invoke-WebRequest http://127.0.0.1:8000/health` sebelum memeriksa Tunnel. Jika gagal, lihat log service dan pastikan dependency terbaru sudah terpasang dengan `.venv\Scripts\python.exe -m pip install -r backend\requirements.txt`, lalu restart service. Jika health lokal berhasil tetapi domain tetap 502, periksa log `cloudflared` dan pastikan hostname diarahkan ke `http://127.0.0.1:8000`. Setelah pembaruan fitur pembayaran, pastikan `.env` tidak mengisi hanya salah satu dari `TELEGRAM_BOT_TOKEN` atau `TELEGRAM_ADMIN_CHAT_ID`; keduanya harus diisi bersama atau dibiarkan kosong.
+Sebelum mengikuti langkah deploy, siapkan host, rahasia, backup, dan prosedur aktivasi/rollback berikut.
 
-Database SQLite dibuat otomatis pada jalur yang ditentukan. Atur `BACKUP_DIR` pada environment layanan ke folder backup di disk/lokasi terpisah. Buat task harian Windows Task Scheduler yang menjalankan `run-backup.bat`; skrip menggunakan SQLite online backup API dan mempertahankan 14 salinan terakhir. Pulihkan dengan menyalin file backup saat aplikasi berhenti, lalu mulai ulang layanan. Uji restore sebelum peluncuran. Perubahan Gemini hanya menerima nama model dari dashboard; simpan API key di environment layanan.
+### Persiapan host dan konfigurasi
+
+1. Gunakan Windows Server yang dikelola sendiri, Python 3.12 64-bit, dan akun layanan non-admin. Pasang MT5 pada host bila managed copy dipakai. Aplikasi backend dan tunnel harus berjalan dengan akun yang aksesnya dibatasi.
+2. Buat project Supabase production terpisah dari development. Sebelum menjalankan `infra/supabase/bootstrap.sql`, ganti marker SQL menjadi `'algentra:production:<project-ref-production>'`; hapus dua baris `GRANT CREATE` karena migrasi pertama hanya dijalankan pada development. Di SQL Editor, aktifkan hanya `algentra_api` dan `algentra_backup`, set password terpisah lewat prompt `psql` dengan `\password`, dan biarkan `algentra_migrator` tanpa LOGIN. Provisioning schema production dilakukan dari snapshot awal development sebelum rilis. Role runtime memakai hak minimum, TLS (`sslmode=require` atau verifikasi lebih ketat), dan tidak menggunakan `service_role`/`anon` key.
+3. Simpan konfigurasi service pada file environment terpisah di luar paket rilis, misalnya `D:\AlgentraSecure\core-api.env`. Buat file kosong dan batasi ACL NTFS sebelum mengisi kredensial:
+
+   ```powershell
+   New-Item -ItemType Directory -Path 'D:\AlgentraSecure' -Force | Out-Null
+   icacls.exe 'D:\AlgentraSecure' /inheritance:r /grant 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F'
+   New-Item -ItemType File -Path 'D:\AlgentraSecure\core-api.env' -Force | Out-Null
+   notepad.exe 'D:\AlgentraSecure\core-api.env'
+   ```
+
+   Isi satu `KEY=VALUE` per baris memakai nama variabel dari `.env.example`: `SUPABASE_PROJECT_REF`, `COOKIE_SECURE=true`, `DATABASE_URL`, `APP_SECRET_KEY`, `ADMIN_PASSWORD`, `BFF_HMAC_SECRET`, dan secret untuk fitur yang digunakan. `BFF_HMAC_SECRET` harus berupa secret acak minimal 32 karakter dan sama dengan environment Vercel. Jangan isi `MIGRATION_DATABASE_URL`, `SUPABASE_DEV_PROJECT_REF`, atau `APP_ENV`; launcher menetapkan environment production dan menolak migrator. File tetap plaintext, jadi aksesnya dibatasi pada administrator, SYSTEM, dan akun service; installer memberi akun service akses baca. Launcher memuat file tersebut ke environment proses dan tidak menjalankan Alembic. Sesi Telethon dan bukti pembayaran masih ditulis ke `backend\data`; lindungi dan pertahankan folder itu saat mengganti rilis.
+4. Isi `EA_API_KEY` minimal 24 karakter untuk EA Telegram. Untuk managed copy, gunakan `COPIER_WORKER_API_KEY` acak minimal 32 karakter dan pasang nilai yang sama pada backend serta akun worker. Jangan ganti `APP_SECRET_KEY` tanpa rencana migrasi ulang password broker dan token terenkripsi.
+5. Isi key Gemini/Telegram/SMTP hanya jika fitur tersebut dipakai. `TELEGRAM_API_ID` dan `TELEGRAM_API_HASH` harus berpasangan; begitu juga `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_ADMIN_CHAT_ID`. Bot pembayaran memakai long polling sehingga hanya boleh ada satu proses backend.
+
+Pembelian dan pembayaran QRIS belum tersedia pada rilis ini. Endpoint order baru menjawab HTTP 503, endpoint QRIS menjawab HTTP 410, dan unggah bukti ditolak. Jangan mengaktifkan atau mengiklankan alur pembayaran sampai kanal pembayaran aktif dan telah diuji dari portal sampai rekonsiliasi persetujuan admin.
+
+Tidak ada kredensial migrator, perintah Alembic, atau DDL pada langkah deploy aplikasi production. Sebelum cutover, provision database production dengan snapshot awal dari [prosedur export schema development](#bootstrap-supabase-development) yang sudah diverifikasi, dan pastikan comment schema `app` berisi revision yang cocok dengan rilis serta comment database menunjukkan project production. Service production tidak memiliki akses atau kode untuk mengubah struktur database. Setiap revision baru harus memperbarui comment schema sebagai bagian revision Alembic; DDL yang sudah diverifikasi di development harus diprovisikan oleh DBA sebelum kode baru dirilis.
+
+### Web Vercel dan BFF
+
+Web berada di `apps/web` dan memakai API same-origin `/api/core/*`. Vercel harus diarahkan ke folder tersebut sebagai Root Directory. Isi environment server-only `CORE_API_ORIGIN` dengan origin API yang dilindungi Cloudflare Access, `CF_ACCESS_CLIENT_ID` dan `CF_ACCESS_CLIENT_SECRET` dengan service token khusus Vercel, serta `BFF_HMAC_SECRET` yang sama dengan secret pada Windows Server. Browser tidak menerima nilai-nilai tersebut dan tidak menghubungi Supabase. Core API mewajibkan HMAC dengan timestamp, nonce sekali pakai, method, path/query, dan SHA-256 body untuk request `/v1`; endpoint lama `/api` tetap tersedia selama klien berpindah.
+
+Web lokal memakai [contoh environment web](apps/web/.env.example). Atur `CORE_API_ORIGIN=http://127.0.0.1:8000` dan gunakan `BFF_HMAC_SECRET` yang sama pada root `.env.local` dan `apps/web/.env.local`. Jalankan `npm ci` lalu `npm run dev` dari `apps/web`. Service token Cloudflare hanya diperlukan pada production.
+
+Deploy Vercel production, DNS, service token Cloudflare, dan integrasi penuh halaman portal belum divalidasi pada akun hosting. Jangan arahkan domain live sebelum semua environment Vercel dan allow-list Access diuji di preview deployment.
+
+Pasang dependency pada folder rilis dari PowerShell:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -e .\apps\copier-worker
+```
+
+### Menjalankan backend, tunnel, dan backup
+
+1. Pasang NSSM, lalu dari PowerShell administrator jalankan `infra\windows\install-core-api-service.ps1 -EnvironmentFile 'D:\AlgentraSecure\core-api.env' -NssmPath 'C:\Tools\nssm\win64\nssm.exe'`. Script memasang service `AlgentraCoreApi` dengan akun virtual terbatas `NT SERVICE\AlgentraCoreApi`, memberi akses minimum ke kode, data, log, dan environment file, lalu mengatur restart otomatis. Setelah database, environment, izin folder, dan tunnel siap, mulai dengan `Start-Service AlgentraCoreApi`. Service bind ke `127.0.0.1:8000`, memakai satu worker, dan tanpa reload. Jangan jalankan development launcher atau instance backend lain di production.
+2. Pasang named Cloudflare Tunnel sebagai service/task terpisah dengan ingress ke `http://127.0.0.1:8000`. Aktifkan TLS dan HSTS di Cloudflare. Jangan buka port 8000 pada firewall atau bind backend ke alamat publik.
+3. Pasang PostgreSQL client tools (`pg_dump`, `pg_restore`) dan `age` pada host backup. Buat environment file backup terpisah dan batasi ACL kepada akun task backup; isinya mencakup `BACKUP_DIR`, `BACKUP_DATABASE_URL` (role backup read-only), `BACKUP_AGE_RECIPIENT` (public key age), dan `DATABASE_URL`. Jadwalkan `infra\windows\run-backup.ps1 -EnvironmentFile 'D:\AlgentraSecure\backup.env'` setiap hari dengan Task Scheduler pada akun backup. Script membuat custom dump schema `app`, mengenkripsinya, menghapus dump plaintext sementara, dan merotasi 14 file terenkripsi. Simpan private key age di luar server dan uji restore ke project staging. Untuk tes manual:
+
+   ```powershell
+   .\infra\windows\run-backup.ps1 -EnvironmentFile 'D:\AlgentraSecure\backup.env'
+   ```
+
+   Simpan salinan tambahan di lokasi terpisah dari host dan Supabase; folder backup pada disk yang sama bukan perlindungan terhadap kerusakan host.
+4. Jika managed copy digunakan, siapkan `apps\copier-worker\config\managed-worker.json`, `master.json`, terminal master, template follower yang bersih, dan folder runtime. Jalankan helper sekali untuk menyalin file contoh konfigurasi, lalu isi path lokal yang valid sebelum menjalankan worker. Installer task worker memakai akun standar dan trigger **AtLogOn** karena MT5 membutuhkan sesi desktop interaktif; setelah reboot worker baru berjalan saat akun masuk ke Windows. Untuk pemulihan otomatis tanpa operator, siapkan akun terminal khusus dengan auto-logon terbatas dan kontrol fisik server. Pastikan akun memiliki izin tulis hanya pada direktori worker/runtime dan terminal yang dipakai. Jangan menyalakan managed worker bersamaan dengan standalone launcher.
+5. Installer NSSM mengatur restart otomatis dan rotasi stdout/stderr core API saat mencapai 10 MB per file. Pantau kapasitas folder log, hasil Task Scheduler worker, dan status `cloudflared`; alert terpusat belum dikonfigurasi di repo.
+
+### Prosedur setiap rilis dan aktivasi live
+
+Rilis sekarang memerlukan maintenance window. Uvicorn berjalan satu proses dan tidak menjalankan DDL/migrasi database saat startup. Cutover SQLite produksi ke Supabase dan uji restore belum selesai.
+
+1. Uji kandidat rilis lebih dulu pada staging/akun demo, dengan salinan database. Dari root repo, jalankan test backend dan worker seperti pada bagian [Test](#test). Tinjau perubahan kode, konfigurasi, dependency, dan versi source EA sebelum menjadwalkan maintenance.
+2. Pilih window saat tidak ada order yang sedang diproses. Aktifkan kill switch admin untuk menghentikan klaim sinyal baru. Periksa akun/simbol, EA, pending order, posisi terbuka, dan semua managed follower. Jika posisi broker masih terbuka, pastikan SL/TP broker sudah benar dan operator siap memantau langsung dari MT5/broker selama downtime.
+3. Buat backup dengan `infra\windows\run-backup.ps1 -EnvironmentFile 'D:\AlgentraSecure\backup.env'`, verifikasi file terenkripsi keluar dan hasil backup dapat dibaca, lalu catat versi lama, versi baru, waktu backup, dan lokasi file backup.
+4. Hentikan service backend. Ganti kode sambil mempertahankan environment Windows Service, database Supabase, `backend\data`, konfigurasi MT5, state worker, serta folder terminal. Pasang dependency rilis, kemudian mulai kembali satu service.
+5. Uji origin dari server:
+
+   ```powershell
+   Invoke-WebRequest http://127.0.0.1:8000/health
+   ```
+
+   HTTP 200 hanya membuktikan proses aplikasi menjawab; endpoint ini tidak memeriksa database atau integrasi lain. Lanjutkan dengan login admin, dashboard, status Telegram, heartbeat EA, status worker, tunnel, dan alur portal yang berubah pada rilis. Pastikan log startup bersih sebelum membuka trafik.
+6. Untuk EA Telegram, cek `ServerURL`, `EA_API_KEY`, allow-list WebRequest MT5, Algo Trading, akun/server/simbol, quote, SL/TP, lot, dan Experts/Journal. Backend tidak memiliki demo/dry-run switch untuk EA sinyal dan tidak membatasi jumlah posisi EA. Uji EA lebih dulu pada akun demo; halaman parser test hanya menguji parsing/validasi dan tidak membuat order.
+7. Lepas kill switch hanya setelah operator memutuskan sinyal valid berikutnya boleh menjadi order live. Untuk managed copy, pastikan worker online, pemeriksaan login follower berstatus valid, dan batas lot/jumlah posisi sudah ditinjau; client harus menyetujui **Mulai copy trading (live)** di portal.
+
+### Jeda darurat dan rollback
+
+Kill switch dashboard menghentikan distribusi sinyal baru ke EA Telegram; ia tidak menutup posisi/pending order yang sudah ada dan tidak menjeda managed copy. Menjeda managed profile menghentikan salinan selanjutnya, tetapi posisi follower yang sudah terbuka tetap berada di akun broker. Untuk menghentikan eksposur, kelola atau tutup posisi dan pending order langsung dari MT5/broker, lalu verifikasi status pada akun.
+
+Jika smoke test gagal, aktifkan kill switch dan hentikan service/worker terkait. Pulihkan kode rilis sebelumnya dan ulangi pemeriksaan origin, dashboard, tunnel, dan terminal. Bila database perlu dipulihkan, decrypt backup ke host pemulihan terproteksi, restore ke project Supabase staging terlebih dahulu, lalu rencanakan cutover setelah menghitung transaksi setelah waktu backup. Rekonsiliasi order, deal, posisi, dan pending order terhadap riwayat broker/MT5 sebelum mengaktifkan kembali trading.
+
+Untuk Cloudflare **502**, periksa origin dengan `Invoke-WebRequest http://127.0.0.1:8000/health` lebih dulu. Jika origin gagal, tinjau status service dan log startup. Jika origin berhasil, periksa status/log `cloudflared`, DNS hostname, dan ingress. Untuk gangguan database, periksa lokasi `DATABASE_URL`, izin akun service, kapasitas disk, dan backup terbaru. Pastikan pasangan variabel Telegram bot tetap sama-sama terisi atau sama-sama kosong.
+
 
 ## Layanan managed copy untuk akun client
 
-Mode **Dikelola server** membolehkan client mengatur follower melalui `/account`; client tidak perlu memasang MT5 atau EA di komputernya. Setelah client menyimpan detail dan password broker, worker otomatis memeriksa login MT5 tanpa mengirim order. Portal menampilkan hasilnya dan tombol live hanya aktif setelah login serta izin trading terminal terverifikasi. Worker mengaktifkan Auto Trading pada salinan terminal follower saat menyiapkannya. Akun tetap dijeda sampai client menetapkan batas lot, lalu menekan **Mulai copy trading (live)** dan menyetujui konfirmasi. Password broker disimpan terenkripsi menggunakan key turunan `APP_SECRET_KEY`, tidak dikembalikan ke halaman client, dan hanya diberikan ke worker yang memakai `COPIER_WORKER_API_KEY`.
+Mode **Dikelola server** membolehkan client yang sudah memiliki akun terdaftar mengatur follower melalui `/account`; client tidak perlu memasang MT5 atau EA di komputernya. Pembelian akun baru sementara dinonaktifkan. Untuk akun yang sudah ada, setelah client menyimpan detail dan password broker, worker otomatis memeriksa login MT5 tanpa mengirim order. Portal menampilkan hasilnya dan tombol live hanya aktif setelah login serta izin trading terminal terverifikasi. Worker mengaktifkan Auto Trading pada salinan terminal follower saat menyiapkannya. Akun tetap dijeda sampai client menetapkan batas lot, lalu menekan **Mulai copy trading (live)** dan menyetujui konfirmasi. Password broker disimpan terenkripsi menggunakan key turunan `APP_SECRET_KEY`, tidak dikembalikan ke halaman client, dan hanya diberikan ke worker yang memakai `COPIER_WORKER_API_KEY`.
 
-Worker berada di subfolder `copyTrading/` dan membutuhkan Windows dengan terminal MT5 serta package MetaTrader5. Untuk VPS, atur `COPIER_WORKER_API_KEY` yang sama pada backend dan akun service Windows, gunakan terminal template follower yang bersih dan terpisah dari master, lalu ikuti [panduan managed worker](copyTrading/README.md#managed-copy-dari-portal-client). Tanpa worker online, permintaan tersimpan tetapi akun tidak menyalin posisi. Jika `APP_SECRET_KEY` diganti, password managed yang tersimpan tidak dapat dibuka; client perlu menyimpan ulang kredensial dari portal.
+Worker berada di [apps/copier-worker/](./apps/copier-worker/) dan membutuhkan Windows dengan terminal MT5 serta package MetaTrader5. Untuk VPS, atur `COPIER_WORKER_API_KEY` yang sama pada backend dan akun service Windows, gunakan terminal template follower yang bersih dan terpisah dari master, lalu ikuti [panduan managed worker](apps/copier-worker/README.md#managed-copy-dari-portal-client). Tanpa worker online, permintaan tersimpan tetapi akun tidak menyalin posisi. Jika `APP_SECRET_KEY` diganti, password managed yang tersimpan tidak dapat dibuka; client perlu menyimpan ulang kredensial dari portal.
 
-Untuk menjalankan di lokal, mulai backend dengan `run.bat`, login-kan terminal MT5 sumber, lalu dari root folder proyek jalankan `.venv\Scripts\python.exe copyTrading\scripts\run_managed_worker.py`. Helper membaca worker key dari `.env`; `copyTrading/config/managed-worker.json` harus mengarah ke backend lokal dan `copyTrading/config/master.json` ke terminal sumber yang login. Lalu buka `/account` sebagai client. Akun follower baru diproses setelah pembelian disetujui, detail broker dan batas risiko disimpan, dan client secara sadar mengaktifkan copy live.
+Untuk menjalankan di lokal, mulai backend dengan `infra\windows\run-development.ps1`, login-kan terminal MT5 sumber, lalu dari root folder proyek jalankan `.venv\Scripts\python.exe apps\copier-worker\scripts\run_managed_worker.py`. Helper membaca worker key dari `.env.local` hanya di development; pada server, atur key pada environment akun Windows. `apps/copier-worker/config/managed-worker.json` harus mengarah ke backend lokal dan `apps/copier-worker/config/master.json` ke terminal sumber yang login. Lalu buka `/account` sebagai client. Akun follower baru diproses setelah pembelian disetujui, detail broker dan batas risiko disimpan, dan client secara sadar mengaktifkan copy live.
 
-## Endpoint M1
+## Endpoint API dan kompatibilitas
+
+OpenAPI versi baru tersedia pada `packages/contracts/openapi.json` dan tipe TypeScript pada `packages/contracts/src/generated.d.ts`. Gunakan `/v1/auth`, `/v1/cs`, `/v1/mt5`, `/v1/ea`, `/v1/payments`, `/v1/settings`, `/v1/parser`, `/v1/telegram`, serta `/v1/dashboard`. Endpoint lama `/api/...` tetap dipertahankan agar EA, worker, dan website lama tetap kompatibel selama migrasi klien.
 
 - `GET /health`
 - Public site: `GET /` dan `/performance`; data performa anonim di `GET /api/public/performance` hanya memakai trade yang sudah ditutup.
@@ -69,9 +200,9 @@ Grafik Indeks Equity publik menampilkan grafik garis dari laporan equity akun ut
 
 Tombol chat ALGENTRA tampil pada halaman publik dan portal klien, tetapi tidak pada workspace admin. Server menentukan mode dari sesi login: pengunjung mendapat jawaban umum, sedangkan klien hanya mendapat ringkasan akun miliknya. Riwayat publik memakai cookie pengunjung bertanda tangan; percakapan publik dan klien disimpan terpisah. Riwayat tidak dapat dibaca lagi setelah 24 jam dari awal percakapan. Pesan yang kedaluwarsa dihapus saat endpoint chat dipanggil dan oleh pembersih berkala setiap 15 menit.
 
-Chat memakai `GEMINI_CS_API_KEY` dan `GEMINI_CS_MODEL`; key parser sinyal `GEMINI_API_KEY` tidak digunakan oleh layanan CS. Pesan dan ringkasan label/status akun milik klien dikirim ke Gemini untuk menjawab pertanyaan. Token EA tidak dimasukkan ke prompt Gemini. Token baru dan token hasil rotasi disimpan terenkripsi menggunakan key yang diturunkan dari `APP_SECRET_KEY`, lalu hanya disisipkan dalam jawaban API untuk pemilik akun yang sedang login bila pelanggan meminta kode/token. Kode/token tetap tidak muncul dalam log percakapan tersimpan; pelanggan harus menghindari membagikannya. Akun yang dibuat sebelum fitur ini menyimpan token satu-arah saja; untuk menampilkannya lewat chat, pelanggan harus merotasi token sekali dari portal.
+Chat memakai `GEMINI_CS_API_KEY` dan `GEMINI_CS_MODEL`; key parser sinyal `GEMINI_API_KEY` tidak digunakan oleh layanan CS. Pesan dan ringkasan label/status akun milik klien dikirim ke Gemini untuk menjawab pertanyaan. Token EA tidak dimasukkan ke prompt Gemini dan tidak pernah ditampilkan melalui chat. Token mentah hanya ditampilkan satu kali di Portal Klien saat dibuat atau dirotasi; bila hilang, klien harus merotasinya dari portal. Riwayat chat lama yang pernah berisi penanda token kini menampilkan pesan bahwa token disamarkan dan perlu dirotasi.
 
-Jaga `APP_SECRET_KEY` tetap stabil selama token terenkripsi diperlukan. Jika nilainya diganti, token lama tidak bisa dibuka oleh chat dan pelanggan perlu melakukan rotasi token dari portal; token MT5 yang sudah aktif tetap dapat dicabut/dirotasi.
+`APP_SECRET_KEY` masih melindungi password broker managed-copy yang tersimpan. Token terminal disimpan sebagai hash; token lama yang sebelumnya dienkripsi sedang dihapus dari project development melalui migrasi data. Jangan ganti `APP_SECRET_KEY` tanpa rencana pemulihan password broker managed-copy.
 
 ## Dashboard admin
 
@@ -83,7 +214,7 @@ Sebelum memanggil Gemini, filter lokal hanya meneruskan pesan yang memiliki arah
 
 ## Uji login Telegram manual
 
-1. Buat API ID dan API hash pada `my.telegram.org`, simpan di `.env`, dan restart backend.
+1. Buat API ID dan API hash pada `my.telegram.org`, simpan di `.env.local` untuk development atau environment Windows Service untuk production, lalu restart backend.
 2. Login admin di `/loginAdmin`, lalu buka `/telegram-setup`.
 3. Masukkan nomor telepon dengan kode negara, minta kode, lalu masukkan kode yang diterima di aplikasi Telegram.
 4. Jika akun memakai 2FA, masukkan password 2FA. Status harus berubah ke `connected`.
@@ -94,7 +225,7 @@ Session Telethon berada di `backend/data/telegram_user.session`, tidak disajikan
 
 ## Memasang EA MT5
 
-1. Buat `EA_API_KEY` acak minimal 24 karakter di `.env`, lalu restart backend.
+1. Buat `EA_API_KEY` acak minimal 24 karakter di `.env.local` untuk development atau environment Windows Service untuk production, lalu restart backend.
 2. Login sebagai admin dan unduh source EA utama dari `/downloads/TelegramSignalEA.mq5`.
 3. Buka file `.mq5` dengan MetaEditor dari MT5, tekan **F7** untuk compile, lalu pasang file `.ex5` hasil compile ke `MQL5/Experts`.
 4. Di MT5, buka **Tools > Options > Expert Advisors**, aktifkan **Allow WebRequest for listed URL**, lalu tambahkan URL yang sama dengan `ServerURL` (default publik: `https://algentracapital.my.id`; untuk server lokal: `http://127.0.0.1:8000`).
@@ -107,7 +238,7 @@ Resolusi simbol mencoba nama persis, akhiran broker yang unik, lalu pemetaan eks
 
 ## Copy posisi dari akun utama ke akun follower
 
-Pendaftaran dan reset kata sandi memakai email OTP enam digit yang berlaku 10 menit. Pengiriman kode dibatasi satu kali per menit dan maksimal tiga kali berturut-turut; setelah pengiriman ketiga, pengiriman berikutnya menunggu satu jam. Kode menerima maksimal tiga percobaan. Gmail bisa dipakai sebagai pengirim: buat akun Gmail khusus, aktifkan 2-Step Verification, lalu buat App Password dari pengaturan Google Account. Isi `.env` seperti di bawah memakai App Password, bukan password Gmail biasa, lalu restart backend. Endpoint juga dibatasi per alamat IP.
+Pendaftaran dan reset kata sandi memakai email OTP enam digit yang berlaku 10 menit. Pengiriman kode dibatasi satu kali per menit dan maksimal tiga kali berturut-turut; setelah pengiriman ketiga, pengiriman berikutnya menunggu satu jam. Kode menerima maksimal tiga percobaan. Gmail bisa dipakai sebagai pengirim: buat akun Gmail khusus, aktifkan 2-Step Verification, lalu buat App Password dari pengaturan Google Account. Atur `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, `EMAIL_FROM`, dan `EMAIL_SMTP_STARTTLS` di `.env.local` untuk development atau environment Windows Service untuk production memakai App Password, bukan password Gmail biasa, lalu restart backend. Endpoint juga dibatasi per alamat IP.
 
 ```env
 EMAIL_SMTP_HOST=smtp.gmail.com
@@ -138,7 +269,7 @@ EA Telegram menerbitkan posisi dengan magic number miliknya setiap detik; posisi
 
 Semua terminal follower klien menerima sumber posisi Algentra yang sama. Akun MT5 klien hanya perlu didaftarkan sebagai follower; terminal sumber tidak perlu didaftarkan lewat portal klien.
 
-Kedua EA yang dibagikan berupa file `.ex5` hasil compile. Jika binary diperbarui, unduh file terbaru dan salin ulang ke folder `MQL5/Experts`.
+Repo menyimpan source `.mq5`; file `.ex5` hasil compile tidak disertakan. Compile source dengan MetaEditor sebelum instalasi. Endpoint unduh `.ex5` hanya melayani binary yang tanggal modifikasinya tidak lebih lama dari source; compile ulang jika endpoint mengembalikan HTTP 410.
 
 ### Entry berupa rentang harga
 
@@ -150,7 +281,7 @@ SL dan setiap TP divalidasi terhadap seluruh zona: SL BUY harus di bawah batas b
 
 ## Test
 
-Jalankan backend tests dari folder proyek: `.venv\Scripts\python -m pytest backend/tests` di Windows atau `.venv/bin/python -m pytest backend/tests` di Linux/macOS. Jalankan worker tests di Windows dengan `$env:PYTHONPATH="copyTrading/src"; .venv\Scripts\python.exe -m pytest copyTrading/tests`.
+Jalankan test backend dari folder proyek: `.venv\Scripts\python -m pytest apps/core-api/tests` di Windows atau `.venv/bin/python -m pytest apps/core-api/tests` di Linux/macOS. Jalankan worker tests di Windows dengan `$env:PYTHONPATH="apps/copier-worker/src"; .venv\Scripts\python.exe -m pytest apps/copier-worker/tests`.
 
 ## Belum teruji
 

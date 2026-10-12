@@ -1,0 +1,8 @@
+{
+  "terminal_path": "C:/Program Files/MetaTrader 5/terminal64.exe",
+  "folder_sinyal": "C:/Algentra/signals",
+  "filter_magic": [],
+  "filter_simbol": [],
+  "abaikan_komentar_mengandung": [],
+  "poll_seconds": 1
+}
