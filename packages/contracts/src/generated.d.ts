@@ -463,6 +463,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/mt5-live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Mt5 Live */
+        get: operations["mt5_live_api_mt5_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/signals": {
         parameters: {
             query?: never;
@@ -574,6 +591,23 @@ export interface paths {
         };
         /** Stats */
         get: operations["stats_v1_dashboard_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dashboard/mt5-live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Mt5 Live */
+        get: operations["mt5_live_v1_dashboard_mt5_live_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1299,6 +1333,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/mt5/copier/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Managed Copy Worker Health */
+        get: operations["managed_copy_worker_health_api_mt5_copier_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/mt5/copier/jobs/{account_id}/login-check": {
         parameters: {
             query?: never;
@@ -1531,6 +1582,23 @@ export interface paths {
         };
         /** List Managed Copy Jobs */
         get: operations["list_managed_copy_jobs_v1_mt5_copier_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/mt5/copier/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Managed Copy Worker Health */
+        get: operations["managed_copy_worker_health_v1_mt5_copier_health_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2027,6 +2095,16 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Body_submit_payment_proof_api_payments_orders__order_id__proof_post */
+        Body_submit_payment_proof_api_payments_orders__order_id__proof_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_submit_payment_proof_v1_payments_orders__order_id__proof_post */
+        Body_submit_payment_proof_v1_payments_orders__order_id__proof_post: {
+            /** File */
+            file: string;
+        };
         /** CSChatMessageRequest */
         CSChatMessageRequest: {
             /** Message */
@@ -3113,7 +3191,9 @@ export interface operations {
     };
     public_performance_v1_public_performance_get: {
         parameters: {
-            query?: never;
+            query?: {
+                include_equity_curve?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3131,11 +3211,22 @@ export interface operations {
                     };
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     public_performance_api_public_performance_get: {
         parameters: {
-            query?: never;
+            query?: {
+                include_equity_curve?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3151,6 +3242,15 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3240,6 +3340,28 @@ export interface operations {
         };
     };
     stats_api_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    mt5_live_api_mt5_live_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -3460,6 +3582,28 @@ export interface operations {
         };
     };
     stats_v1_dashboard_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    mt5_live_v1_dashboard_mt5_live_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -4906,6 +5050,39 @@ export interface operations {
             };
         };
     };
+    managed_copy_worker_health_api_mt5_copier_health_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Copier-Worker-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     report_managed_copy_login_check_api_mt5_copier_jobs__account_id__login_check_post: {
         parameters: {
             query?: never;
@@ -5432,6 +5609,39 @@ export interface operations {
             };
         };
     };
+    managed_copy_worker_health_v1_mt5_copier_health_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Copier-Worker-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     report_managed_copy_login_check_v1_mt5_copier_jobs__account_id__login_check_post: {
         parameters: {
             query?: never;
@@ -5904,7 +6114,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_submit_payment_proof_api_payments_orders__order_id__proof_post"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -6091,7 +6305,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_submit_payment_proof_v1_payments_orders__order_id__proof_post"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

@@ -2,13 +2,15 @@
 
 import logging
 from pathlib import Path
+import uuid
 
 from sqlalchemy.orm import Session
 
 from ..core.time_utils import wib_iso
+from ..domain.client_plans import CLIENT_PLANS
 from ..models import PaymentOrder
 from ..repositories.payments import PaymentRepository
-from .payment_bot import payment_proof_path, payment_review_bot
+from .payment_bot import MAX_PROOF_BYTES, payment_proof_path, payment_review_bot
 
 
 logger = logging.getLogger("copytrade.payments")
@@ -20,6 +22,41 @@ class PaymentOrderNotFound(LookupError):
 
 class PaymentOrderConflict(RuntimeError):
     pass
+
+
+def create_order(
+    db: Session,
+    *,
+    owner_id: int,
+    label: str,
+    server: str,
+    login: str,
+    plan: str,
+    execution_mode: str,
+) -> dict[str, object]:
+    selected_plan = CLIENT_PLANS.get(plan)
+    if selected_plan is None:
+        raise PaymentOrderConflict("Paket layanan tidak dikenal")
+    order, failure = PaymentRepository(db).create_for_owner(
+        owner_id=owner_id,
+        label=label.strip(),
+        server=server.strip(),
+        login=login.strip(),
+        plan=plan,
+        execution_mode=execution_mode,
+        total_idr=int(selected_plan["price_idr"]),
+    )
+    if failure == "MISSING":
+        raise PaymentOrderNotFound("Akun pengguna tidak ditemukan")
+    if failure == "ACCOUNT_LIMIT":
+        raise PaymentOrderConflict("Anda sudah mencapai batas 10 akun Copy Trading.")
+    if failure == "ACCOUNT_EXISTS":
+        raise PaymentOrderConflict("Akun broker ini sudah terdaftar.")
+    if failure == "ORDER_EXISTS":
+        raise PaymentOrderConflict("Masih ada pesanan aktif untuk akun broker ini.")
+    if order is None:
+        raise RuntimeError("Pesanan pembayaran gagal disimpan")
+    return _order_payload(order)
 
 
 def _order_payload(order: PaymentOrder) -> dict[str, object]:
@@ -39,6 +76,50 @@ def _order_payload(order: PaymentOrder) -> dict[str, object]:
         "created_at": wib_iso(order.created_at),
         "updated_at": wib_iso(order.updated_at),
     }
+
+
+def _proof_extension(content: bytes) -> str | None:
+    if content.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+async def submit_payment_proof(
+    db: Session, order_id: int, owner_id: int, content: bytes
+) -> dict[str, object]:
+    if not content:
+        raise PaymentOrderConflict("File bukti pembayaran kosong.")
+    if len(content) > MAX_PROOF_BYTES:
+        raise PaymentOrderConflict("Ukuran bukti pembayaran maksimal 5 MB.")
+    extension = _proof_extension(content)
+    if extension is None:
+        raise PaymentOrderConflict("Bukti pembayaran harus berupa gambar JPG, PNG, atau WebP yang valid.")
+
+    filename = f"{uuid.uuid4().hex}{extension}"
+    proof_path = payment_proof_path(filename)
+    proof_path.parent.mkdir(parents=True, exist_ok=True)
+    file_created = False
+    try:
+        with proof_path.open("xb") as proof_file:
+            file_created = True
+            proof_file.write(content)
+        order, submitted = PaymentRepository(db).submit_proof_for_owner(order_id, owner_id, filename)
+        if order is None:
+            raise PaymentOrderNotFound("Pesanan tidak ditemukan")
+        if not submitted:
+            raise PaymentOrderConflict("Pesanan ini tidak sedang menunggu bukti pembayaran.")
+    except Exception:
+        if file_created:
+            proof_path.unlink(missing_ok=True)
+        raise
+    notification = await payment_review_bot.notify_order(order_id)
+    result = _order_payload(order)
+    result["notification_sent"] = notification
+    return result
 
 
 def list_orders(db: Session, owner_id: int) -> list[dict[str, object]]:

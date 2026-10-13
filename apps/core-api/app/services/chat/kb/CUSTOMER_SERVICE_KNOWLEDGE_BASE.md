@@ -147,8 +147,8 @@ Jika perlu mengirim tangkapan layar, minta pelanggan menyamarkan token, email, n
 ## Jawaban singkat yang disarankan
 
 - **“Apakah profit dijamin?”** — “Tidak. Trading memiliki risiko kerugian. Data performa historis atau equity bukan jaminan hasil mendatang.”
-- **“Apakah Anda perlu password MT5 saya?”** — “Tidak. Portal hanya meminta nama server dan nomor login MT5 untuk pendaftaran; jangan kirim password broker atau token EA ke chat.”
+- **“Apakah Anda perlu password MT5 saya?”** — “Untuk mode Dikelola server, masukkan password trading hanya pada form akun yang sudah login di portal. Password dienkripsi dan dikirim hanya ke worker copier yang terautentikasi untuk login serta menyalin posisi; jangan pernah mengirimkannya lewat chat. Mode Pasang EA sendiri tidak meminta password broker. Jangan kirim token EA ke chat.”
 - **“Kenapa posisi belum tersalin?”** — “Periksa status EA di portal, koneksi terminal, token, URL WebRequest, Algo Trading, izin akun, mode hedging, dan apakah EA utama masih mengirim snapshot. Jika masih bermasalah, kirim status/error dari tab Experts setelah menyamarkan data sensitif.”
 - **“Kalau saya stop EA, posisi tertutup?”** — “Tidak otomatis. Posisi yang sudah terbuka tetap berada di terminal MT5 dan perlu dikelola langsung di akun broker.”
-- **“Berapa harga level akun?”** — “Daftar harga saat ini: ZERO Rp 150.000, PRO Rp 200.000, dan EXPERT Rp 300.000; periode penagihan belum ditentukan. Pembelian dan pembayaran QRIS belum tersedia. Jangan melakukan transfer; hubungi kanal Kontak resmi jika perlu menindaklanjuti transaksi lama.”
+- **“Berapa harga level akun?”** — “Daftar harga saat ini: ZERO Rp 150.000, PRO Rp 200.000, dan EXPERT Rp 300.000; periode penagihan belum ditentukan. Pembayaran dilakukan manual mengikuti instruksi pada pesanan dan bukti ditinjau admin; QRIS belum tersedia. Jangan transfer sebelum detail pembayaran dikonfirmasi.”
 - **“Berapa modal trading minimumnya?”** — “Informasi modal trading minimum belum ditetapkan pada panduan yang tersedia. Silakan konfirmasi melalui kanal resmi di bagian Kontak pada situs.”

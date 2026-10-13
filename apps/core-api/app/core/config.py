@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     telegram_api_hash: SecretStr | None = Field(default=None, validation_alias="TELEGRAM_API_HASH")
     telegram_bot_token: SecretStr | None = Field(default=None, validation_alias="TELEGRAM_BOT_TOKEN")
     telegram_admin_chat_id: str | None = Field(default=None, validation_alias="TELEGRAM_ADMIN_CHAT_ID")
+    payment_manual_instructions: str = Field(
+        default="", validation_alias="PAYMENT_MANUAL_INSTRUCTIONS", max_length=1200
+    )
     ea_api_key: SecretStr | None = Field(default=None, validation_alias="EA_API_KEY")
     copier_worker_api_key: SecretStr | None = Field(default=None, validation_alias="COPIER_WORKER_API_KEY")
     bff_hmac_secret: SecretStr | None = Field(default=None, validation_alias="BFF_HMAC_SECRET")
@@ -140,6 +143,7 @@ class Settings(BaseSettings):
             raise ValueError("TELEGRAM_API_ID dan TELEGRAM_API_HASH harus diisi bersamaan")
         if (self.telegram_bot_token is None) != (self.telegram_admin_chat_id is None):
             raise ValueError("TELEGRAM_BOT_TOKEN dan TELEGRAM_ADMIN_CHAT_ID harus diisi bersamaan")
+        self.payment_manual_instructions = self.payment_manual_instructions.strip()
         if self.telegram_admin_chat_id is not None:
             chat_id = self.telegram_admin_chat_id.strip()
             if not chat_id.isdigit() or int(chat_id) < 1:

@@ -28,11 +28,11 @@ from app.services import auth_service
 from app.state import MasterAccountSnapshot, MasterPosition, master_snapshot_state
 
 
-def test_qris_endpoint_reports_payment_feature_unavailable():
+def test_qris_endpoint_remains_unavailable_during_manual_payment_review():
     with TestClient(app) as client:
         response = client.get("/api/payments/qris.jpeg")
         assert response.status_code == 410
-        assert "segera tersedia" in response.json()["detail"]
+        assert "instruksi pembayaran manual" in response.json()["detail"]
 
 
 def test_admin_login_protects_and_unlocks_dashboard_routes():

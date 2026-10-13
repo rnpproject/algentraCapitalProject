@@ -326,6 +326,7 @@ def client_account_page(
             "csrf_token": request.session["csrf_token"],
             "client_plans": CLIENT_PLANS,
             "managed_copy_enabled": get_settings().copier_worker_api_key is not None,
+            "payment_manual_instructions": get_settings().payment_manual_instructions,
         },
     )
 
@@ -338,7 +339,11 @@ def client_transactions_page(
     return templates.TemplateResponse(
         request=request,
         name="transactions.html",
-        context={"csrf_token": request.session["csrf_token"], "client_plans": CLIENT_PLANS},
+        context={
+            "csrf_token": request.session["csrf_token"],
+            "client_plans": CLIENT_PLANS,
+            "payment_manual_instructions": get_settings().payment_manual_instructions,
+        },
     )
 
 

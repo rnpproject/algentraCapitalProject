@@ -60,7 +60,7 @@ Jalankan test dari folder proyek dengan `pytest`.
 
 ## Managed copy dari portal client
 
-Mode ini menyatukan pengaturan follower dengan portal client Algentra. Client memilih **Dikelola server**, menyelesaikan pembayaran, menyimpan password broker di halaman akun, mengatur nama simbol serta batas lot, lalu secara eksplisit memulai penyalinan live. Password terenkripsi di backend dan worker mengambil job aktif melalui `X-Copier-Worker-Key`. Worker harus berjalan pada Windows; MT5 tetap dipakai di sisi server, sedangkan client tidak perlu memasang atau menjalankan MT5 di perangkatnya.
+Mode ini menyatukan pengaturan follower dengan portal client Algentra. Client memilih **Dikelola server**, menyelesaikan pembayaran manual yang disetujui admin, menyimpan password broker di halaman akun, mengatur nama simbol serta batas lot, lalu secara eksplisit memulai penyalinan live. Password terenkripsi di backend dan worker mengambil job aktif melalui `X-Copier-Worker-Key`. Worker harus berjalan pada Windows; worker membuat terminal MT5 terisolasi, memeriksa login tanpa mengirim order, lalu menjalankan copier Python managed. EA tidak dipasang pada terminal tersebut dan client tidak perlu memasang atau menjalankan MT5 di perangkatnya.
 
 Persiapan:
 

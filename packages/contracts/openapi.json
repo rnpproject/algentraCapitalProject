@@ -894,15 +894,37 @@
         ],
         "summary": "Public Performance",
         "operationId": "public_performance_v1_public_performance_get",
+        "parameters": [
+          {
+            "name": "include_equity_curve",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Include Equity Curve"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Public Performance V1 Public Performance Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -917,15 +939,37 @@
         ],
         "summary": "Public Performance",
         "operationId": "public_performance_api_public_performance_get",
+        "parameters": [
+          {
+            "name": "include_equity_curve",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Include Equity Curve"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "type": "object",
+                  "additionalProperties": true,
                   "title": "Response Public Performance Api Public Performance Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -1041,6 +1085,29 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Stats Api Stats Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mt5-live": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Mt5 Live",
+        "operationId": "mt5_live_api_mt5_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mt5 Live Api Mt5 Live Get"
                 }
               }
             }
@@ -1608,6 +1675,29 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Stats V1 Dashboard Stats Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/dashboard/mt5-live": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Mt5 Live",
+        "operationId": "mt5_live_v1_dashboard_mt5_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mt5 Live V1 Dashboard Mt5 Live Get"
                 }
               }
             }
@@ -3817,6 +3907,59 @@
         }
       }
     },
+    "/api/mt5/copier/health": {
+      "get": {
+        "tags": [
+          "mt5"
+        ],
+        "summary": "Managed Copy Worker Health",
+        "operationId": "managed_copy_worker_health_api_mt5_copier_health_get",
+        "parameters": [
+          {
+            "name": "X-Copier-Worker-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Copier-Worker-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Managed Copy Worker Health Api Mt5 Copier Health Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/mt5/copier/jobs/{account_id}/login-check": {
       "post": {
         "tags": [
@@ -4655,6 +4798,59 @@
         }
       }
     },
+    "/v1/mt5/copier/health": {
+      "get": {
+        "tags": [
+          "mt5"
+        ],
+        "summary": "Managed Copy Worker Health",
+        "operationId": "managed_copy_worker_health_v1_mt5_copier_health_get",
+        "parameters": [
+          {
+            "name": "X-Copier-Worker-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Copier-Worker-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Managed Copy Worker Health V1 Mt5 Copier Health Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/mt5/copier/jobs/{account_id}/login-check": {
       "post": {
         "tags": [
@@ -5410,6 +5606,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_submit_payment_proof_api_payments_orders__order_id__proof_post"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5649,6 +5855,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_submit_payment_proof_v1_payments_orders__order_id__proof_post"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5954,6 +6170,34 @@
   },
   "components": {
     "schemas": {
+      "Body_submit_payment_proof_api_payments_orders__order_id__proof_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_submit_payment_proof_api_payments_orders__order_id__proof_post"
+      },
+      "Body_submit_payment_proof_v1_payments_orders__order_id__proof_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_submit_payment_proof_v1_payments_orders__order_id__proof_post"
+      },
       "CSChatMessageRequest": {
         "properties": {
           "message": {
