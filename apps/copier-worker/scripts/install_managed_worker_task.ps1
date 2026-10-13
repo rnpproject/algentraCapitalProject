@@ -76,6 +76,9 @@ try {
 } catch {
     throw "JSON konfigurasi managed worker tidak valid: $workerConfigPath"
 }
+if ([string]$workerConfig.worker_api_key_env -ne "COPIER_WORKER_API_KEY") {
+    throw "worker_api_key_env harus berisi nama variabel COPIER_WORKER_API_KEY, bukan nilai secret."
+}
 if (-not [string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
     $workerConfig.api_base_url = $ApiBaseUrl.TrimEnd("/")
 }
@@ -188,7 +191,7 @@ $taskName = "Algentra Managed Copy Worker"
 $taskLogDirectory = Join-Path $resolvedRoot "logs"
 New-Item -ItemType Directory -Path $taskLogDirectory -Force | Out-Null
 $taskErrorLog = Join-Path $taskLogDirectory "managed_worker-task-error.log"
-$launcherCommand = "`$env:APP_ENV='production'; `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'User'); if (-not `$workerKey) { `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'Machine') }; if (-not `$workerKey) { throw 'COPIER_WORKER_API_KEY tidak tersedia pada environment akun worker.' }; `$env:COPIER_WORKER_API_KEY = `$workerKey; Remove-Variable workerKey; Set-Location -LiteralPath '$resolvedRoot'; & '$resolvedPython' '$workerScript' '$workerConfig' 2> '$taskErrorLog'"
+$launcherCommand = "`$env:APP_ENV='production'; `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'User'); if (-not `$workerKey) { `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'Machine') }; if (-not `$workerKey) { throw 'COPIER_WORKER_API_KEY tidak tersedia pada environment akun worker.' }; `$env:COPIER_WORKER_API_KEY = `$workerKey; Remove-Variable workerKey; Set-Location -LiteralPath '$resolvedRoot'; & '$resolvedPython' '$workerScript' '$workerConfigPath' 2> '$taskErrorLog'"
 $action = New-ScheduledTaskAction `
     -Execute "powershell.exe" `
     -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"$launcherCommand`"" `
