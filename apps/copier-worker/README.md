@@ -81,13 +81,20 @@ Persiapan:
 
 Worker menjalankan publisher master, memeriksa daftar job aktif tiap beberapa detik, membuat terminal terisolasi, dan melaporkan heartbeat, saldo, posisi terbuka, serta deal MT5 ke portal. Saat job baru mulai, worker mengirim histori deal 30 hari terakhir per batch maksimal 100 deal, kemudian melanjutkan dari cursor terakhir. Untuk VPS, tetap jalankan worker sebagai Scheduled Task/Windows Service dan sediakan `COPIER_WORKER_API_KEY` pada environment akun Windows; jangan jalankan `launcher.py` bersamaan karena worker managed sudah menjalankan publisher master sendiri. File konfigurasi follower di runtime tidak memuat password; password disuntikkan ke environment proses follower saat start. Worker API key dan password akun lain difilter dari environment child process. Log worker tidak mencatat request body atau environment.
 
-Untuk memasang managed worker otomatis saat Windows startup, jalankan PowerShell sebagai akun layanan VPS:
+Untuk menyiapkan worker production pada Windows Server atau Windows desktop khusus, login sebagai akun Windows yang akan menjalankan MT5 lalu jalankan PowerShell. Installer meminta `COPIER_WORKER_API_KEY` secara tersembunyi jika belum ada di environment User/Machine, menyimpannya sebagai environment User, lalu menguji key ke endpoint health worker backend:
 
 ```powershell
-.\scripts\install_managed_worker_task.ps1 -ProjectRoot "C:\Path\To\algentraCapitalProject" -PythonPath "C:\Path\To\python.exe"
+.\scripts\install_managed_worker_task.ps1 `
+  -ProjectRoot "C:\Algentra\algentraCapitalProject" `
+  -ApiBaseUrl "https://api.example.com" `
+  -TerminalTemplateDir "D:\MT5Templates\CleanFollower" `
+  -MasterTerminalPath "C:\Program Files\MetaTrader 5\terminal64.exe" `
+  -SignalDirectory "C:\Algentra\signals"
 ```
 
-Task **Algentra Managed Copy Worker** berjalan dengan hak standar akun Windows yang memasangnya, membaca worker key dari environment akun itu, dan dimulai ulang oleh Task Scheduler jika proses berhenti. Karena MT5 memerlukan sesi desktop interaktif, task dimulai saat akun tersebut login; akun itu harus memiliki izin tulis hanya pada folder konfigurasi/runtime worker dan folder terminal template yang dikelola.
+Jika belum ada, installer membuat `.venv` dengan Python 3.12 64-bit, memasang package copier-worker, membuat config dari contoh, dan meminta URL/path yang belum diberikan. Installer memvalidasi konfigurasi worker/master, folder template MT5, terminal master, folder sinyal, key yang cocok dengan backend, dan koneksi backend sebelum membuat task. `TerminalTemplateDir` harus folder MT5 follower bersih—jangan gunakan folder terminal master atau terminal client yang sudah login. Key tidak dicetak atau ditaruh di argumen command line; Windows menyimpan environment User pada profil akun, jadi batasi akses ke akun worker. `ApiBaseUrl` harus dapat dijangkau dari host worker. Python 3.12 64-bit dan MT5 tetap harus sudah terpasang.
+
+Task **Algentra Managed Copy Worker** berjalan dengan hak standar akun Windows yang memasangnya dan dimulai ulang oleh Task Scheduler jika proses berhenti. Karena MT5 memerlukan sesi desktop interaktif, task dimulai saat akun tersebut login; akun itu harus memiliki izin tulis hanya pada folder konfigurasi/runtime worker dan folder terminal template yang dikelola. Installer memulai worker, tetapi tidak membuat akun follower, menyetujui pembayaran, atau mengaktifkan job trading. Client tetap harus menyelesaikan proses akun dan secara eksplisit menyetujui mulai copy trading. Validasi installer hanya membuktikan konfigurasi dan backend tersedia; pantau status worker di portal setelah task berjalan.
 
 Client dapat menjeda copy kapan saja dari portal. Menjeda atau menghapus profil menghentikan copier, tetapi posisi yang sudah terbuka tetap ada pada akun broker dan tidak ditutup otomatis. Menghapus akun dari portal membuat worker membersihkan folder terminal, state, dan konfigurasi follower milik akun tersebut pada sinkronisasi berikutnya. Uji end-to-end hanya dengan akun demo dahulu; worker aktif akan menggunakan `dry_run: false` setelah client menyetujuinya di portal.
 

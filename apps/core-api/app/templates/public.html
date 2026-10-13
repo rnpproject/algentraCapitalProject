@@ -5,13 +5,13 @@
 <style nonce="{{ request.state.csp_nonce }}">
   /* ---------- Tokens (mengikuti variabel base.html, dengan fallback) ---------- */
   .public-shell {
-    --accent: #a9c5ac;
-    --accent-ink: #0f1a14;
+    --accent: var(--action);
+    --accent-ink: var(--on-action);
     --text: var(--ink, #e4ebe5);
     --text-2: var(--muted, #9aa8a1);
-    --surface: var(--glass-surface, rgba(18, 27, 33, .88));
-    --surface-2: var(--glass-raised, rgba(25, 37, 31, .92));
-    --border: var(--glass-border, #2e3d39);
+    --surface: var(--panel);
+    --surface-2: var(--panel-raised);
+    --border: var(--line);
     --radius: var(--radius-panel, 18px);
     --shadow: var(--shadow-soft, 0 18px 50px rgba(0, 0, 0, .22));
     --pos: #7fd3a0;
@@ -23,8 +23,6 @@
     color: var(--text); font-size: 15px; line-height: 1.6;
   }
   :root[data-theme="light"] .public-shell {
-    --accent: var(--action, #2f6f4f);
-    --accent-ink: #fff;
     --pos: #18794e; --neg: #c0392b; --warn: #9a6b00;
     --line: color-mix(in srgb, var(--text) 24%, transparent);
   }
@@ -35,8 +33,7 @@
   .section-kicker { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
   .hero, .public-section, .community-card, .approach-card, .contact-card, .closing {
     border: 1px solid var(--border); border-radius: var(--radius);
-    background: var(--surface); box-shadow: var(--shadow);
-    backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    background: var(--surface); box-shadow: none;
   }
   .public-section { margin: 24px 0; padding: clamp(22px, 3.5vw, 36px); }
   .section-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 22px; }
@@ -44,8 +41,8 @@
   .section-heading p { max-width: 660px; margin: 0; color: var(--text-2); font-size: 14px; }
   #performance, #approach, #contact { scroll-margin-top: 96px; }
 
-  .status-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; color: var(--text-2); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
-  .status-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .8; }
+  .status-pill { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; color: var(--text-2); font-size: 11px; font-weight: 700; letter-spacing: .08em; line-height: 1.35; text-transform: uppercase; white-space: normal; overflow-wrap: anywhere; }
+  .status-pill::before { content: ""; width: 7px; height: 7px; flex: none; border-radius: 50%; background: currentColor; opacity: .8; }
   .status-pill[data-state="live"] { color: var(--pos); }
   .status-pill[data-state="live"]::before { box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 22%, transparent); }
   .status-pill[data-state="warn"] { color: var(--warn); }
@@ -82,7 +79,7 @@
   .community-copy h2 { margin: 4px 0 2px; font-size: clamp(18px, 2.2vw, 22px); font-weight: 600; letter-spacing: -.02em; }
   .community-copy p { margin: 0; color: var(--text-2); font-size: 13px; }
   .community-count { display: flex; align-items: baseline; justify-content: flex-end; gap: 8px; min-width: 140px; }
-  .community-count strong { color: var(--accent); font-size: clamp(38px, 5.5vw, 54px); font-weight: 600; line-height: 1; letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
+  .community-count strong { color: var(--accent); font-size: clamp(24px, 3vw, 32px); font-weight: 600; line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
   .community-count span { color: var(--text-2); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
 
   /* ---------- Performa ---------- */
@@ -159,7 +156,7 @@
   .contact-email-cs .cs-chat-widget--only { grid-column: 1 / -1; }
   .cs-chat-launcher.contact-link { min-height: 62px; justify-content: flex-start; padding: 10px 14px; border-color: var(--border); border-radius: 12px; color: var(--text); background: var(--surface); box-shadow: none; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
   .cs-chat-launcher.contact-link:hover { border-color: var(--accent); transform: translateY(-1px); }
-  .cs-chat-launcher.contact-link svg.cs-contact-mascot { width: 36px; height: 36px; }
+  .cs-chat-launcher.contact-link svg.cs-contact-mascot { width: 22px; height: 22px; }
   .contact-link { display: flex; min-width: 0; min-height: 62px; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px; color: var(--text); background: var(--surface); font-size: 14px; font-weight: 600; transition: border-color .2s ease, transform .2s ease; }
   .contact-link:hover { border-color: var(--accent); transform: translateY(-1px); }
   .contact-link svg { width: 22px; height: 22px; flex: none; color: var(--accent); }
@@ -175,7 +172,7 @@
   .registration-launch > p { margin:0; color:var(--text-2); }
   .registration-countdown { display:grid; width:min(620px, 100%); grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; }
   .registration-countdown-unit { display:grid; place-items:center; padding:14px 8px; border:1px solid var(--border); border-radius:12px; background:var(--surface-2); }
-  .registration-countdown-unit strong { font-size:clamp(24px, 4vw, 38px); font-variant-numeric:tabular-nums; line-height:1.1; }
+  .registration-countdown-unit strong { font-size:clamp(16px, 2.4vw, 24px); font-variant-numeric:tabular-nums; line-height:1.1; }
   .registration-countdown-unit span { color:var(--text-2); font-size:11px; text-transform:uppercase; letter-spacing:.1em; }
   .risk-copy { max-width: 860px; margin: 16px auto 0; color: var(--text-2); font-size: 12px; line-height: 1.7; text-align: center; }
 
@@ -211,10 +208,13 @@
     .visual-caption { font-size: 10px; }
     .public-section { margin: 16px 0; padding: 20px 16px; }
     .section-heading { margin-bottom: 16px; }
+    .watchlist-panel .panel-head { flex-wrap: wrap; align-items: flex-start; }
+    .watchlist-panel .status-pill { margin-left: auto; }
     .section-heading h2 { font-size: 23px; }
     .community-card { grid-template-columns: auto minmax(0, 1fr); gap: 12px 14px; padding: 16px; }
     .community-emblem { width: 48px; height: 48px; border-radius: 14px; }
     .community-count { grid-column: 1 / -1; justify-content: flex-start; }
+    .community-count strong { font-size: 20px; }
     .panel { padding: 16px; }
     .chart-wrap { height: 190px; max-height: 190px; }
     .quote-list { grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -230,6 +230,57 @@
     .contact-links { grid-template-columns: minmax(0, 1fr); }
     .closing { padding: 22px 18px; }
     .closing .public-button { width: 100%; }
+  }
+
+  /* ---------- Polish ---------- */
+  #cs-chat-open.contact-link { color: var(--text); background: var(--surface); border-color: var(--border); }
+  #cs-chat-open.contact-link:hover { border-color: var(--accent); filter: none; }
+  #cs-chat-open.contact-link small { color: var(--text-2); }
+  .public-shell { overflow-x: clip; }
+  .public-shell h1, .public-shell h2, .public-shell h3 { font-family: var(--font-heading); }
+  .hero { min-height: 440px; border-radius: 20px; }
+  .hero h1 { font-weight: 700; letter-spacing: -.035em; }
+  .public-section, .registration-launch, .community-card, .closing { border-radius: 16px; }
+  .public-section { margin: 20px 0; }
+  .section-kicker { font-size: 11px; letter-spacing: .16em; }
+  .section-heading h2 { font-weight: 700; }
+  .public-button { min-height: 44px; border-radius: 10px; }
+  .public-button:hover, .approach-card:hover, .contact-card:hover, .contact-link:hover { transform: none; filter: none; }
+  .approach-card:hover, .contact-card:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+  .panel, .approach-card, .contact-card, .quote-card, .registration-countdown-unit { box-shadow: none; }
+  .community-count strong { font-weight: 700; }
+  @media (max-width: 600px) {
+    .public-shell { padding: 12px 10px 36px; }
+    .hero { min-height: 0; padding: 20px 16px; gap: 0; }
+    .hero h1 { margin: 10px 0 12px; font-size: clamp(26px, 8vw, 32px); }
+    .hero-text { font-size: 14px; line-height: 1.6; }
+    .hero-actions { gap: 8px; margin-top: 16px; }
+    .hero-actions .public-button { min-height: 42px; }
+    .hero-visual { display: none; }
+    .hero::after { display: none; }
+    .public-section, .registration-launch, .community-card, .closing { margin: 10px 0; padding: 16px 14px; }
+    .section-heading { gap: 8px; margin-bottom: 12px; }
+    .section-heading h2 { margin: 4px 0; font-size: 20px; }
+    .section-heading p { font-size: 13px; }
+    .equity-value { margin: 4px 0 12px; font-size: 30px; }
+    .stat { padding: 9px 0; }
+    .panel { padding: 14px; }
+    .chart-wrap { height: 160px; max-height: 160px; }
+    .registration-countdown { gap: 6px; }
+    .registration-countdown-unit { padding: 10px 4px; }
+    .registration-countdown-unit strong { font-size: 14px; }
+    .approach-grid { gap: 10px; }
+    .approach-card { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 12px; padding: 14px; }
+    .approach-top { grid-row: span 2; display: block; margin: 0; }
+    .approach-top .index { display: none; }
+    .approach-icon { width: 38px; height: 38px; }
+    .approach-card h3 { margin: 0 0 2px; font-size: 16px; }
+    .approach-card p { font-size: 13px; line-height: 1.55; }
+    .contact-grid { gap: 10px; }
+    .contact-card { padding: 14px; }
+    .contact-link, .cs-chat-launcher.contact-link { min-height: 54px; }
+    .contact-email-cs { grid-template-columns: minmax(0, 1fr); }
+    .risk-copy { margin-top: 10px; font-size: 11px; }
   }
 </style>
 {% endblock %}
@@ -332,7 +383,7 @@
         </div>
       </article>
       <article class="panel watchlist-panel">
-        <div class="panel-head"><span class="section-kicker">Watchlist harga</span><span id="market-status" class="status-pill">Menunggu harga</span></div>
+        <div class="panel-head"><span class="section-kicker">Watchlist harga</span><span id="market-status" class="status-pill" data-state="warn">RECONNECT</span></div>
         <div id="market-prices" class="quote-list"></div>
       </article>
     </div>
@@ -528,9 +579,10 @@
       gapLabel.removeAttribute("hidden");
       gapLabel.setAttribute("x", padLeft + gapWidth / 2);
       gapLabel.setAttribute("y", padTop + plotH / 2);
+      const firstReportTime = wib(new Date(times[0]), { hour: "2-digit", minute: "2-digit" });
       gapLabel.textContent = gapWidth > 220
-        ? `Belum ada data sebelum ${wib(new Date(times[0]), { hour: "2-digit", minute: "2-digit" })}`
-        : "Belum ada data";
+        ? `Data tersedia mulai ${firstReportTime}`
+        : `Mulai ${firstReportTime}`;
     } else {
       gap.setAttribute("hidden", ""); gapLabel.setAttribute("hidden", "");
     }
@@ -620,16 +672,16 @@
     });
     if (quoteState.disconnected) return;
     const status = $("#market-status");
-    if (liveCount) { setStatus(status, `${liveCount}/4 live`, "live"); status.title = "Harga diterima langsung dari EA"; }
-    else if (cards.length) {
-      if (!quoteState.online) {
-        setStatus(status, "EA offline", "warn");
-        status.title = "EA utama tidak mengirim laporan. Harga yang tampil adalah harga terakhir yang diterima.";
-      } else {
-        const oldest = Math.max(...[...cards].map((c) => Date.now() - Number(c.dataset.updated)));
-        setStatus(status, `${ageText(oldest).replace(" lalu", "")}`, "warn");
-        status.title = "Harga belum diperbarui dalam 2 menit terakhir. Pasar mungkin tutup.";
-      }
+    if (quoteState.online) {
+      setStatus(status, "ONLINE", "live");
+      status.title = liveCount
+        ? "Koneksi EA aktif dan harga diterima langsung."
+        : "Koneksi EA aktif; belum ada tick harga baru.";
+    } else {
+      setStatus(status, "RECONNECT", "warn");
+      status.title = cards.length
+        ? "Koneksi harga EA terputus. Nilai yang tampil adalah harga terakhir."
+        : "Menunggu laporan harga EA.";
     }
   };
   const renderQuotes = (quotes, reportOnline) => {
@@ -734,20 +786,46 @@
   };
 
   /* ---------- Koneksi live ---------- */
+  let performancePollTimer = null;
+  let performanceRetryTimer = null;
+  const pollPublicPerformance = async () => {
+    try {
+      const response = await fetch("/api/public/performance", {cache:"no-store"});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      renderPerformance(await response.json());
+    } catch (error) {
+      const status = $("#market-status");
+      setStatus(status, "RECONNECT", "warn");
+      status.title = `Data performa gagal dimuat: ${error.message}`;
+    }
+  };
+  const startPerformancePolling = () => {
+    if (performancePollTimer) return;
+    pollPublicPerformance();
+    performancePollTimer = setInterval(pollPublicPerformance, 30000);
+  };
   const connectPerformance = () => {
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${location.host}/ws/public/performance`);
-    setStatus($("#market-status"), "Menghubungkan", "warn");
+    setStatus($("#market-status"), "RECONNECT", "warn");
     const heartbeat = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.send("ping"); }, 25000);
     socket.addEventListener("message", (event) => {
-      try { renderPerformance(JSON.parse(event.data)); }
-      catch (_) { setStatus($("#market-status"), "Data tidak valid", "warn"); }
+      try {
+        renderPerformance(JSON.parse(event.data));
+        if (performancePollTimer) {
+          clearInterval(performancePollTimer);
+          performancePollTimer = null;
+        }
+      }
+      catch (_) { setStatus($("#market-status"), "RECONNECT", "warn"); }
     });
     socket.addEventListener("close", () => {
       clearInterval(heartbeat);
       quoteState.disconnected = true;
-      setStatus($("#market-status"), "Terputus · menyambung ulang", "warn");
-      setTimeout(connectPerformance, 3000);
+      setStatus($("#market-status"), "RECONNECT", "warn");
+      startPerformancePolling();
+      if (performanceRetryTimer) clearTimeout(performanceRetryTimer);
+      performanceRetryTimer = setTimeout(connectPerformance, 30000);
     });
     socket.addEventListener("error", () => socket.close());
   };

@@ -46,6 +46,7 @@ from .core.security import (
     require_csrf,
 )
 from .services.stats_service import get_dashboard_stats
+from .services.risk_controls import risk_state
 from .core.time_utils import wib_iso
 from .services.payment_bot import payment_review_bot
 from .state import ea_heartbeat_state, master_snapshot_state
@@ -242,6 +243,19 @@ include_versioned_router(mt5_router.router, "/v1")
 include_versioned_router(payments_router.router, "/v1")
 
 
+def websocket_origin_allowed(origin: str | None, host: str | None, allowed_origins: str) -> bool:
+    if not origin or not host:
+        return True
+    try:
+        parsed_origin = urlsplit(origin)
+    except ValueError:
+        return False
+    if parsed_origin.netloc.casefold() == host.casefold():
+        return True
+    origin_key = f"{parsed_origin.scheme.casefold()}://{parsed_origin.netloc.casefold()}"
+    return origin_key in {value.strip().casefold() for value in allowed_origins.split(",") if value.strip()}
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "algentra-capital"}
@@ -396,19 +410,37 @@ async def dashboard_websocket(websocket: WebSocket) -> None:
         return
     origin = websocket.headers.get("origin")
     host = websocket.headers.get("host")
-    if origin and host and urlsplit(origin).netloc.casefold() != host.casefold():
+    if not websocket_origin_allowed(origin, host, get_settings().websocket_allowed_origins):
         await websocket.close(code=1008)
         return
     await websocket.accept()
+    def load_dashboard_snapshot():
+        with SessionLocal() as db:
+            stats = get_dashboard_stats(db)
+            stats.update(risk_state(db))
+            latest = db.execute(
+                select(Signal.id, Signal.status, Signal.created_at)
+                .order_by(Signal.created_at.desc(), Signal.id.desc())
+                .limit(1)
+            ).first()
+        return stats, latest
+
     try:
         while True:
-            with SessionLocal() as db:
-                stats = get_dashboard_stats(db)
-                latest = db.execute(
-                    select(Signal.id, Signal.status, Signal.created_at)
-                    .order_by(Signal.created_at.desc(), Signal.id.desc())
-                    .limit(1)
-                ).first()
+            stats, latest = await asyncio.to_thread(load_dashboard_snapshot)
+            telegram = await telegram_manager.status()
+            settings = get_settings()
+            stats.update(
+                {
+                    "telegram_connected": bool(telegram["connected"]),
+                    "telegram_status": telegram["state"],
+                    "telegram_account": telegram["account_name"],
+                    "gemini_configured": bool(
+                        settings.gemini_api_key and settings.gemini_api_key.get_secret_value()
+                    ),
+                    "gemini_model": settings.gemini_model,
+                }
+            )
             await websocket.send_json(
                 {
                     "type": "dashboard_refresh",
@@ -417,8 +449,8 @@ async def dashboard_websocket(websocket: WebSocket) -> None:
                     "server_time": wib_iso(utc_now()),
                 }
             )
-            await asyncio.sleep(3)
-    except WebSocketDisconnect:
+            await asyncio.sleep(2)
+    except (WebSocketDisconnect, RuntimeError):
         return
 
 
@@ -426,14 +458,17 @@ async def dashboard_websocket(websocket: WebSocket) -> None:
 async def public_performance_websocket(websocket: WebSocket) -> None:
     origin = websocket.headers.get("origin")
     host = websocket.headers.get("host")
-    if origin and host and urlsplit(origin).netloc.casefold() != host.casefold():
+    if not websocket_origin_allowed(origin, host, get_settings().websocket_allowed_origins):
         await websocket.close(code=1008)
         return
 
     await public_performance_hub.connect(websocket)
     try:
-        with SessionLocal() as db:
-            initial_payload = public_performance_payload(db)
+        def load_initial_payload():
+            with SessionLocal() as db:
+                return public_performance_payload(db)
+
+        initial_payload = await asyncio.to_thread(load_initial_payload)
         await websocket.send_json(initial_payload)
         public_performance_hub.mark_history_published()
         while True:

@@ -110,6 +110,17 @@ Tidak ada kredensial migrator, perintah Alembic, atau DDL pada langkah deploy ap
 
 Web berada di `apps/web` dan memakai API same-origin `/api/core/*`. Vercel harus diarahkan ke folder tersebut sebagai Root Directory. Isi environment server-only `CORE_API_ORIGIN` dengan origin API yang dilindungi Cloudflare Access, `CF_ACCESS_CLIENT_ID` dan `CF_ACCESS_CLIENT_SECRET` dengan service token khusus Vercel, serta `BFF_HMAC_SECRET` yang sama dengan secret pada Windows Server. Browser tidak menerima nilai-nilai tersebut dan tidak menghubungi Supabase. Core API mewajibkan HMAC dengan timestamp, nonce sekali pakai, method, path/query, dan SHA-256 body untuk request `/v1`; endpoint lama `/api` tetap tersedia selama klien berpindah.
 
+#### Langkah deploy Vercel
+
+1. Impor repository ini dari dashboard Vercel dan pilih framework **Next.js**.
+2. Atur **Root Directory** ke `apps/web`. Gunakan `npm ci` sebagai Install Command dan `npm run build` sebagai Build Command; biarkan Output Directory memakai default Next.js.
+3. Tambahkan environment variable server-side untuk Production (dan Preview bila preview akan diuji):
+   - `CORE_API_ORIGIN`: origin HTTPS Core API di belakang Cloudflare Access, misalnya `https://api.example.com` (tanpa path `/api`).
+   - `CF_ACCESS_CLIENT_ID` dan `CF_ACCESS_CLIENT_SECRET`: service token Cloudflare khusus Vercel yang diizinkan oleh policy Access pada hostname API.
+   - `BFF_HMAC_SECRET`: nilai acak minimal 32 karakter yang sama dengan `BFF_HMAC_SECRET` pada Windows Server.
+4. Deploy Preview terlebih dahulu. Pastikan Core API, tunnel bernama, policy Cloudflare Access, dan konfigurasi environment server sudah aktif; uji login admin, dashboard, dan request API dari preview.
+5. Setelah validasi berhasil, deploy ke Production dan pasang domain web. Jika environment variable diubah, buat deployment baru agar rewrite memakai `CORE_API_ORIGIN` terbaru.
+
 Web lokal memakai [contoh environment web](apps/web/.env.example). Atur `CORE_API_ORIGIN=http://127.0.0.1:8000` dan gunakan `BFF_HMAC_SECRET` yang sama pada root `.env.local` dan `apps/web/.env.local`. Jalankan `npm ci` lalu `npm run dev` dari `apps/web`. Service token Cloudflare hanya diperlukan pada production.
 
 Deploy Vercel production, DNS, service token Cloudflare, dan integrasi penuh halaman portal belum divalidasi pada akun hosting. Jangan arahkan domain live sebelum semua environment Vercel dan allow-list Access diuji di preview deployment.
@@ -125,6 +136,22 @@ py -3.12 -m venv .venv
 
 ### Menjalankan backend, tunnel, dan backup
 
+Urutan pemasangan ringkas di Windows Server:
+
+1. Siapkan Windows Server, Python 3.12 64-bit, NSSM, Cloudflare Tunnel, dan koneksi ke Supabase production. Provision skema database dengan prosedur DBA di atas; aplikasi tidak menjalankan migrasi production saat start.
+2. Letakkan rilis pada path tetap, buat virtual environment dan pasang dependency dari PowerShell administrator:
+
+   ```powershell
+   py -3.12 -m venv .venv
+   .\.venv\Scripts\python.exe -m pip install --upgrade pip
+   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+   .\.venv\Scripts\python.exe -m pip install -e .\apps\copier-worker
+   ```
+
+3. Buat file environment di luar repo, batasi ACL-nya, lalu isi variabel production sesuai `.env.example`. Jangan salin `.env.local` development ke server. Pertahankan direktori `backend\data` saat memperbarui rilis.
+4. Pasang dan mulai service API memakai installer NSSM di bawah. Pastikan `/health` dan `/ready` lolos sebelum mengarahkan trafik.
+5. Pasang named Cloudflare Tunnel dengan origin `http://127.0.0.1:8000`, lalu konfigurasi `CORE_API_ORIGIN` dan service token di Vercel. Jangan membuka port API langsung ke internet.
+
 1. Pasang NSSM, lalu dari PowerShell administrator jalankan `infra\windows\install-core-api-service.ps1 -EnvironmentFile 'D:\AlgentraSecure\core-api.env' -NssmPath 'C:\Tools\nssm\win64\nssm.exe'`. Script memasang service `AlgentraCoreApi` dengan akun virtual terbatas `NT SERVICE\AlgentraCoreApi`, memberi akses minimum ke kode, data, log, dan environment file, lalu mengatur restart otomatis. Setelah database, environment, izin folder, dan tunnel siap, mulai dengan `Start-Service AlgentraCoreApi`. Service bind ke `127.0.0.1:8000`, memakai satu worker, dan tanpa reload. Jangan jalankan development launcher atau instance backend lain di production.
 2. Pasang named Cloudflare Tunnel sebagai service/task terpisah dengan ingress ke `http://127.0.0.1:8000`. Aktifkan TLS dan HSTS di Cloudflare. Jangan buka port 8000 pada firewall atau bind backend ke alamat publik.
 3. Pasang PostgreSQL client tools (`pg_dump`, `pg_restore`) dan `age` pada host backup. Buat environment file backup terpisah dan batasi ACL kepada akun task backup; isinya mencakup `BACKUP_DIR`, `BACKUP_DATABASE_URL` (role backup read-only), `BACKUP_AGE_RECIPIENT` (public key age), dan `DATABASE_URL`. Jadwalkan `infra\windows\run-backup.ps1 -EnvironmentFile 'D:\AlgentraSecure\backup.env'` setiap hari dengan Task Scheduler pada akun backup. Script membuat custom dump schema `app`, mengenkripsinya, menghapus dump plaintext sementara, dan merotasi 14 file terenkripsi. Simpan private key age di luar server dan uji restore ke project staging. Untuk tes manual:
@@ -134,7 +161,19 @@ py -3.12 -m venv .venv
    ```
 
    Simpan salinan tambahan di lokasi terpisah dari host dan Supabase; folder backup pada disk yang sama bukan perlindungan terhadap kerusakan host.
-4. Jika managed copy digunakan, siapkan `apps\copier-worker\config\managed-worker.json`, `master.json`, terminal master, template follower yang bersih, dan folder runtime. Jalankan helper sekali untuk menyalin file contoh konfigurasi, lalu isi path lokal yang valid sebelum menjalankan worker. Installer task worker memakai akun standar dan trigger **AtLogOn** karena MT5 membutuhkan sesi desktop interaktif; setelah reboot worker baru berjalan saat akun masuk ke Windows. Untuk pemulihan otomatis tanpa operator, siapkan akun terminal khusus dengan auto-logon terbatas dan kontrol fisik server. Pastikan akun memiliki izin tulis hanya pada direktori worker/runtime dan terminal yang dipakai. Jangan menyalakan managed worker bersamaan dengan standalone launcher.
+4. Managed copier dapat dipasang pada Windows Server atau desktop Windows khusus menggunakan satu installer PowerShell. Host harus sudah memiliki Python 3.12, MT5 master yang login, folder sinyal, dan folder template follower MT5 yang bersih (bukan folder master atau terminal client yang sudah login). Dari PowerShell, isi path deployment lalu jalankan:
+
+   ```powershell
+   .\apps\copier-worker\scripts\install_managed_worker_task.ps1 `
+     -ProjectRoot "C:\Algentra\algentraCapitalProject" `
+     -PythonPath "C:\Algentra\algentraCapitalProject\.venv\Scripts\python.exe" `
+     -ApiBaseUrl "https://api.example.com" `
+     -TerminalTemplateDir "D:\MT5Templates\CleanFollower" `
+     -MasterTerminalPath "C:\Program Files\MetaTrader 5\terminal64.exe" `
+     -SignalDirectory "C:\Algentra\signals"
+   ```
+
+   Jika belum ada, installer membuat `.venv` dengan Python 3.12 64-bit, memasang package copier-worker, membuat config dari contoh, dan meminta nilai URL/path yang belum diberikan. Installer meminta `COPIER_WORKER_API_KEY` secara tersembunyi bila belum tersedia pada environment Windows User/Machine, memeriksa terminal/path/API/key, lalu memasang dan memulai Scheduled Task. Python 3.12 64-bit dan MT5 tetap harus terpasang. Task berjalan saat akun Windows login (MT5 memerlukan sesi desktop interaktif); setelah reboot, worker otomatis berjalan lagi setelah akun layanan login. Installer tidak membuat order, mengaktifkan akun follower, atau membuka pembayaran. Client tetap perlu memvalidasi akun dan menyetujui **Mulai copy trading** secara eksplisit. Jangan menyalakan managed worker bersamaan dengan standalone launcher.
 5. Installer NSSM mengatur restart otomatis dan rotasi stdout/stderr core API saat mencapai 10 MB per file. Pantau kapasitas folder log, hasil Task Scheduler worker, dan status `cloudflared`; alert terpusat belum dikonfigurasi di repo.
 
 ### Prosedur setiap rilis dan aktivasi live
@@ -189,7 +228,7 @@ OpenAPI versi baru tersedia pada `packages/contracts/openapi.json` dan tipe Type
 - `GET /api/logs?limit=100&offset=0&level=INFO&search=...`
 - `GET /api/settings` dan `PUT /api/settings` dengan body `{"values":{"confidence_threshold":0.75}}`
 - `POST /api/parser/test` untuk menguji klasifikasi dan validasi. Halaman admin tersedia di `/parser-test`.
-- Telegram: `GET /api/tg/status`, `POST /api/tg/send-code`, `POST /api/tg/verify-code`, `POST /api/tg/verify-2fa`, `POST /api/tg/logout`, `POST /api/tg/reconnect`, `GET /api/tg/groups`, dan `POST /api/tg/groups/select`.
+- Telegram: `GET /api/telegram/status`, `POST /api/telegram/send-code`, `POST /api/telegram/verify-code`, `POST /api/telegram/verify-2fa`, `POST /api/telegram/logout`, `POST /api/telegram/reconnect`, `GET /api/telegram/groups`, dan `POST /api/telegram/groups/select`.
 - EA: `GET /api/ea/pending`, `POST /api/ea/report`, `POST /api/ea/result`, `POST /api/ea/heartbeat`, dan `POST /api/ea/master/snapshot` memakai header `X-API-Key` yang nilainya sama dengan `EA_API_KEY`.
 
 ## Website publik dan workspace operasi

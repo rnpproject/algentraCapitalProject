@@ -73,7 +73,7 @@ def test_process_message_normalizes_persists_and_deduplicates():
     engine.dispose()
 
 
-def test_process_message_rejects_inverted_prices_and_logs_ignored_messages():
+def test_process_message_rejects_inverted_prices_and_does_not_store_ignored_messages():
     engine = create_engine("sqlite://", poolclass=StaticPool)
     Base.metadata.create_all(engine)
     invalid_service = SignalService(FixedParser(classification(sl=2410.0)))
@@ -83,11 +83,50 @@ def test_process_message_rejects_inverted_prices_and_logs_ignored_messages():
         invalid = asyncio.run(invalid_service.process_message(
             db, group_id="g", group_name="Group", message_id="1", raw_text="BUY 2400 SL 2410 TP 2420"
         ))
-        ignored = asyncio.run(ignored_service.process_message(
-            db, group_id="g", group_name="Group", message_id="2", raw_text="good morning"
+        parser_ignored = asyncio.run(ignored_service.process_message(
+            db, group_id="g", group_name="Group", message_id="2", raw_text="buy 2400 sl 2390 tp 2420"
         ))
         assert invalid.status == "REJECTED"
-        assert ignored.status == "IGNORED"
-        assert db.query(Signal).count() == 2
+        assert parser_ignored.status == "IGNORED" and parser_ignored.signal_id is None
+        for index, chatter in enumerate(["good morning", "gol", "xauusd", "buy buyy sell sell", "filtering", "buy now"]):
+            result = asyncio.run(ignored_service.process_message(
+                db, group_id="g", group_name="Group", message_id=f"c{index}", raw_text=chatter
+            ))
+            assert result.status == "IGNORED" and result.signal_id is None
+        assert db.query(Signal).count() == 1
+
+    engine.dispose()
+
+
+def test_process_message_accepts_market_now_followed_by_attached_timestamp():
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    service = SignalService(
+        FixedParser(
+            classification(
+                symbol="XAUUSD",
+                entry=None,
+                tp=None,
+                sl=None,
+            )
+        )
+    )
+
+    with Session(engine, expire_on_commit=False) as db:
+        result = asyncio.run(
+            service.process_message(
+                db,
+                group_id="-1001",
+                group_name="Gold Signals",
+                message_id="market-now-time",
+                raw_text="XAUUSD BUY NOW10:23",
+            )
+        )
+        row = db.get(Signal, result.signal_id)
+
+        assert result.status == "PENDING"
+        assert result.normalized_text == "BUY : MARKET"
+        assert row is not None
+        assert row.raw_text == "XAUUSD BUY NOW10:23"
 
     engine.dispose()

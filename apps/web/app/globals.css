@@ -51,4 +51,52 @@ h2 { letter-spacing: -.035em; font-size: 30px; margin: 0 0 14px; }
 table { width: 100%; border-collapse: collapse; text-align: left; }
 th, td { padding: 13px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.telegram-page { padding: 46px 0 88px; }
+.telegram-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; margin-bottom: 28px; }
+.telegram-heading h1 { font-size: clamp(34px, 5vw, 48px); margin: 10px 0 8px; }
+.telegram-heading .muted { margin: 0; }
+.telegram-status { display: grid; gap: 4px; min-width: 160px; margin: 0 0 5px; color: var(--muted); font-size: 13px; }
+.telegram-status strong { color: var(--text); font-size: 15px; text-transform: capitalize; }
+.telegram-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr); align-items: start; gap: 18px; }
+.telegram-card { min-width: 0; padding: 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.telegram-card h2 { font-size: 21px; margin: 0 0 8px; }
+.telegram-card-heading { margin-bottom: 20px; }
+.telegram-card-heading .muted { margin: 0; font-size: 14px; }
+.telegram-login-forms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.telegram-card form { min-width: 0; }
+.telegram-card .field { margin: 0 0 14px; color: var(--text); }
+.telegram-card .field input { width: 100%; min-width: 0; margin-top: 2px; }
+.telegram-card .button { min-height: 44px; }
+.telegram-message { margin: 0 0 16px; overflow-wrap: anywhere; }
+.mt5-live-panel { margin: 26px 0 40px; }
+.mt5-live-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 20px; }
+.mt5-live-heading h2 { font-size: 25px; margin: 6px 0 0; }
+.mt5-live-status { display: grid; gap: 4px; text-align: right; color: var(--muted); font-size: 13px; }
+.mt5-live-status strong { color: var(--danger); text-transform: capitalize; }
+.mt5-live-status strong.is-online { color: var(--accent); }
+.mt5-account-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 26px; }
+.mt5-account-item { min-width: 0; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); }
+.mt5-account-item strong { overflow-wrap: anywhere; }
+.mt5-live-columns { display: grid; gap: 24px; }
+.mt5-live-columns h3 { font-size: 16px; margin: 0 0 10px; }
+.mt5-live-columns th, .mt5-live-columns td { padding: 10px 9px; }
+@media (max-width: 900px) {
+  .telegram-layout { grid-template-columns: minmax(0, 1fr); }
+  .telegram-twofa-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: 24px; }
+  .telegram-twofa-card .telegram-card-heading { margin-bottom: 14px; }
+}
+@media (max-width: 600px) {
+  .telegram-page { padding: 32px 0 60px; }
+  .telegram-heading { align-items: flex-start; flex-direction: column; gap: 18px; margin-bottom: 22px; }
+  .telegram-heading h1 { font-size: 36px; }
+  .telegram-status { grid-template-columns: auto 1fr; align-items: baseline; column-gap: 8px; min-width: 0; }
+  .telegram-status span:last-child { grid-column: 2; }
+  .telegram-card { padding: 20px; }
+  .telegram-login-forms { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .telegram-twofa-card { display: block; }
+  .telegram-card .button { width: 100%; }
+  .mt5-account-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mt5-live-heading { align-items: flex-start; }
+  .mt5-live-columns { gap: 20px; }
+}
 @media (max-width: 760px) { .nav { gap: 12px; font-size: 12px; } .cards { grid-template-columns: 1fr; } .hero { padding-top: 74px; } .topbar { height: 66px; } }

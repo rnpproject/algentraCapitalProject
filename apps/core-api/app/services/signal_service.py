@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from .gemini_parser import GeminiParser, SignalClassification, not_signal
+from .gemini_parser import GeminiParser, MARKET_NOW_PATTERN, SignalClassification, not_signal
 from ..models import Signal, SystemLog, utc_now
 from ..repositories.signals import SignalRepository
 from ..repositories.settings import SettingsRepository
@@ -19,6 +19,9 @@ _SIGNAL_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 _PRICE_RE = re.compile(r"(?<![A-Za-z])\d+(?:[.,]\d+)?")
+# Level harga nyata minimal tiga digit (mis. 2425 atau 4158.5); angka kecil seperti "TP1" tidak dihitung.
+_LEVEL_RE = re.compile(r"(?<![\w.])\d{3,}(?:[.,]\d+)?(?![\w])")
+_GOLD_SYMBOL_RE = re.compile(r"\b(?:XAUUSD(?:[A-Z0-9]{1,8}|[._-][A-Z0-9]+)?|GOLD|XAU|EMAS)\b", re.IGNORECASE)
 _TRADE_RESULT_RE = re.compile(
     r"\b(?:TP\s*[\d⁰¹²³⁴⁵⁶⁷⁸⁹]*|SL|STOP\s*LOSS)\s*(?:HIT|KEN[A]?|REACHED|TERCAPAI)\b|"
     r"\b(?:CLOSED|CLOSE|PROFIT|LOSS)\s+(?:TRADE|POSITION|POSISI)\b|"
@@ -29,17 +32,20 @@ _TRADE_RESULT_RE = re.compile(
 
 
 def _signal_candidate(raw_text: str, context: str | None) -> tuple[bool, str]:
-    """Pass trade-shaped messages to the parser regardless of the instrument."""
+    """Strict pre-filter: only messages shaped like a trade call reach the parser and the database."""
     text = raw_text.strip()
     if not text:
         return False, "Pesan kosong"
     if _TRADE_RESULT_RE.search(text):
         return False, "Laporan hasil trade, bukan sinyal baru"
-    if not _TRADE_ACTION_RE.search(text) and not (context and _TRADE_ACTION_RE.search(context)):
+    direction_in_text = bool(_TRADE_ACTION_RE.search(text))
+    if not direction_in_text and not (context and _TRADE_ACTION_RE.search(context)):
         return False, "Tidak ada arah BUY/SELL"
-    if not _PRICE_RE.search(text) and not re.search(r"\b(?:NOW|MARKET)\b", text, re.IGNORECASE):
-        return False, "Tidak ada harga atau instruksi market"
-    if not _SIGNAL_MARKER_RE.search(text) and not _TRADE_ACTION_RE.search(text):
+    if not _LEVEL_RE.search(text) and not (
+        MARKET_NOW_PATTERN.search(text) and _GOLD_SYMBOL_RE.search(text)
+    ):
+        return False, "Tidak ada harga/level sinyal"
+    if not direction_in_text and not _SIGNAL_MARKER_RE.search(text):
         return False, "Tidak ada format harga/level sinyal"
     return True, "Kandidat sinyal trading"
 
@@ -300,6 +306,10 @@ class SignalService:
         stamp = created_at or utc_now()
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=timezone.utc)
+        should_parse, filter_reason = _signal_candidate(raw_text, context)
+        if not should_parse:
+            return ProcessResult("IGNORED", None, not_signal(f"Dilewati: {filter_reason}"), None, filter_reason)
+
         signals = SignalRepository(db)
         existing = signals.find_by_message(str(group_id), str(message_id))
         if existing:
@@ -321,31 +331,27 @@ class SignalService:
                 True,
             )
 
-        should_parse, filter_reason = _signal_candidate(raw_text, context)
-        if not should_parse:
-            classification = not_signal(f"Gemini dilewati: {filter_reason}")
-        else:
-            try:
-                classification = await self.parser.parse(raw_text, context)
-            except Exception as exc:
-                row = Signal(
-                    group_id=str(group_id),
-                    group_name=group_name,
-                    message_id=str(message_id),
-                    sender_id=str(sender_id) if sender_id is not None else None,
-                    sender_name=sender_name,
-                    raw_text=raw_text[:12000],
-                    content_hash=content_hash,
-                    status="FAILED",
-                    created_at=stamp,
-                )
-                signals.save_failed(
-                    row,
-                    SystemLog(
-                        level="ERROR", source="Gemini", message=f"Parser gagal: {exc}"[:2000], created_at=utc_now()
-                    ),
-                )
-                return ProcessResult("FAILED", row.id, None, None, "Parser tidak tersedia")
+        try:
+            classification = await self.parser.parse(raw_text, context)
+        except Exception as exc:
+            row = Signal(
+                group_id=str(group_id),
+                group_name=group_name,
+                message_id=str(message_id),
+                sender_id=str(sender_id) if sender_id is not None else None,
+                sender_name=sender_name,
+                raw_text=raw_text[:12000],
+                content_hash=content_hash,
+                status="FAILED",
+                created_at=stamp,
+            )
+            signals.save_failed(
+                row,
+                SystemLog(
+                    level="ERROR", source="Gemini", message=f"Parser gagal: {exc}"[:2000], created_at=utc_now()
+                ),
+            )
+            return ProcessResult("FAILED", row.id, None, None, "Parser tidak tersedia")
 
         classification = _prefer_farthest_target_when_needed(classification)
 
@@ -364,6 +370,8 @@ class SignalService:
             max_market_deviation_pct=max_deviation,
         )
         saved_classification = classification.model_copy(update={"symbol": validation.symbol or classification.symbol})
+        if validation.status == "IGNORED":
+            return ProcessResult("IGNORED", None, saved_classification, None, validation.reason)
         row = Signal(
             group_id=str(group_id),
             group_name=group_name,
@@ -381,7 +389,7 @@ class SignalService:
         row, is_duplicate = signals.save_processed(
             row,
             SystemLog(
-                level="INFO" if validation.status in {"PENDING", "IGNORED"} else "WARN",
+                level="INFO" if validation.status == "PENDING" else "WARN",
                 source="Signal",
                 message=f"{group_name}: {validation.status} — {validation.reason}"[:2000],
                 created_at=utc_now(),

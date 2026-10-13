@@ -14,7 +14,7 @@ enum ENUM_LOT_MODE
    LOT_RISK_PERCENT = 1
   };
 
-input string ServerURL = "https://algentracapital.my.id";
+input string ServerURL = "http://127.0.0.1:8000";
 input string ApiKey = "";
 input int PollIntervalMs = 1000;
 input long MagicNumber = 26093001;

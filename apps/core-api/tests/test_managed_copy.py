@@ -48,6 +48,11 @@ def test_managed_copy_client_setup_worker_auth_and_live_acknowledgement(monkeypa
         csrf = {"X-CSRF-Token": login.json()["csrf_token"]}
         worker_headers = {"X-Copier-Worker-Key": worker_key}
 
+        worker_health = client.get("/api/mt5/copier/health", headers=worker_headers)
+        assert worker_health.status_code == 200
+        assert worker_health.json() == {"status": "ok"}
+        assert client.get("/api/mt5/copier/health").status_code == 401
+
         managed_order = {
             "label": "Second managed follower",
             "server": "Broker-Demo",

@@ -2,7 +2,7 @@
 {% from "_cs_mascot.html" import algentra_mascot %}
 {% block title %}Akun Copy Trading | Algentra Capital{% endblock %}
 {% block content %}
-<main id="main" tabindex="-1" class="page-shell">
+<main id="main" tabindex="-1" class="page-shell dashboard-page">
   <div class="page-heading">
     <div><span class="eyebrow">PORTAL KLIEN / COPY TRADING</span><h1>Akun Copy Trading</h1>
       <p class="page-description">Daftarkan akun follower dan atur layanan salin posisi dari portal ini.</p>
@@ -17,9 +17,10 @@
       <fieldset class="plan-picker">
         <legend>Cara menjalankan copy trading</legend>
         <div class="plan-options">
-          <label class="plan-option" for="execution-managed">
+          <label class="plan-option{% if not managed_copy_enabled %} plan-option--disabled{% endif %}" for="execution-managed" {% if not managed_copy_enabled %}aria-disabled="true" title="Layanan dikelola server sedang offline"{% endif %}>
             <input id="execution-managed" type="radio" name="execution_mode" value="MANAGED" {% if managed_copy_enabled %}checked{% else %}disabled{% endif %} required>
             <span class="plan-option__name">Dikelola server</span>
+            {% if not managed_copy_enabled %}<span class="plan-option__availability">Belum tersedia</span>{% endif %}
             <span>Pengaturan melalui website. MT5 berjalan di server layanan, bukan di komputer Anda.</span>
           </label>
           <label class="plan-option" for="execution-ea">
@@ -44,14 +45,13 @@
           </label>
           {% endfor %}
         </div>
-        <p class="field-help">Pembelian paket dan pembayaran QRIS akan segera tersedia. Jangan transfer dana atau mengunggah bukti pembayaran saat ini.</p>
+        <p class="field-help">Total mengikuti harga paket yang dipilih. Pembayaran QRIS segera tersedia; jangan transfer dana atau mengunggah bukti pembayaran saat ini.</p>
       </fieldset>
       <label>Nama akun<input name="label" maxlength="80" placeholder="Copy Trading 1" required></label>
       <label>Server broker<input name="server" maxlength="128" placeholder="BrokerName-Live" required></label>
       <label>Nomor akun broker<input name="login" maxlength="32" inputmode="numeric" pattern="[0-9]+" title="Nomor akun MT5 hanya boleh berisi angka" aria-describedby="account-login-help" required><span id="account-login-help" class="field-help">Masukkan nomor login MT5 berupa angka saja, tanpa spasi.</span></label>
-      <div><button type="button" disabled aria-describedby="payment-coming-soon">Segera tersedia</button></div>
+      <div><button type="submit">Lanjutkan ke pembayaran</button></div>
     </form>
-    <p id="payment-coming-soon" class="status" role="status">Pembelian akun belum dibuka. Pesanan dan pembayaran baru belum dapat dibuat.</p>
     <p id="account-message" class="status" role="status"></p>
     <div id="new-token" hidden></div>
     <div class="toolbar"><a class="workspace-tag" href="/transactions">Buka riwayat transaksi dan nota</a></div>
@@ -333,6 +333,13 @@ function addAccountCard(account) {
   controls.append(edit, active, rotate, remove); card.append(title, detail, accountBalance, accountBalanceTime, state, connectionState, controls); accountsBox.append(card);
 }
 
+function renderEmptyState(container, message) {
+  const emptyState = document.createElement("p");
+  emptyState.className = "empty-state";
+  emptyState.textContent = message;
+  container.replaceChildren(emptyState);
+}
+
 function renderClientSummary(data) {
   balanceGroupsBox.replaceChildren();
   performanceGroupsBox.replaceChildren();
@@ -344,7 +351,7 @@ function renderClientSummary(data) {
     const seen = document.createElement("small"); seen.className = "muted"; seen.textContent = `${group.online_accounts} dari ${group.reported_accounts} akun melapor · ${group.updated_at ? new Date(group.updated_at).toLocaleString("id-ID", {timeZone:"Asia/Jakarta"}) + " WIB" : "belum ada pembaruan"}`;
     card.append(heading, balance, equity, seen); balanceGroupsBox.append(card);
   }
-  if (!balanceGroupsBox.childElementCount) balanceGroupsBox.textContent = "Saldo akan tampil setelah EA Copy Trading mengirim laporan dari MT5.";
+  if (!balanceGroupsBox.childElementCount) renderEmptyState(balanceGroupsBox, "Saldo akan tampil setelah EA Copy Trading mengirim laporan dari MT5.");
   for (const group of data.performance_groups || []) {
     const card = document.createElement("article"); card.className = "card";
     const heading = document.createElement("h3"); heading.textContent = `Performa ${modeLabel(group.trade_mode)} · ${group.currency}`;
@@ -352,7 +359,7 @@ function renderClientSummary(data) {
     const activity = document.createElement("p"); activity.className = "muted"; activity.textContent = `${group.closed_trades} transaksi ditutup · ${group.wins} menang · ${group.losses} kalah · tingkat kemenangan ${group.win_rate}%`;
     card.append(heading, pnl, activity); performanceGroupsBox.append(card);
   }
-  if (!performanceGroupsBox.childElementCount) performanceGroupsBox.textContent = "Belum ada transaksi tertutup yang dilaporkan oleh MT5.";
+  if (!performanceGroupsBox.childElementCount) renderEmptyState(performanceGroupsBox, "Belum ada transaksi tertutup yang dilaporkan oleh MT5.");
   performanceUpdated.textContent = data.updated_at ? `Pembaruan MT5 terakhir ${new Date(data.updated_at).toLocaleString("id-ID", {timeZone:"Asia/Jakarta"})} WIB.` : "Belum menerima data saldo MT5.";
 }
 
@@ -367,6 +374,23 @@ async function loadAccounts() {
     const managedMode = document.querySelector("#execution-managed");
     const eaMode = document.querySelector("#execution-ea");
     managedMode.disabled = !managedWorkerReady;
+    const managedOption = managedMode.closest(".plan-option");
+    const availabilityBadge = managedOption.querySelector(".plan-option__availability");
+    managedOption.classList.toggle("plan-option--disabled", !managedWorkerReady);
+    if (managedWorkerReady) {
+      managedOption.removeAttribute("aria-disabled");
+      managedOption.removeAttribute("title");
+      availabilityBadge?.remove();
+    } else {
+      managedOption.setAttribute("aria-disabled", "true");
+      managedOption.title = "Layanan dikelola server sedang offline";
+      if (!availabilityBadge) {
+        const badge = document.createElement("span");
+        badge.className = "plan-option__availability";
+        badge.textContent = "Belum tersedia";
+        managedOption.querySelector(".plan-option__name").after(badge);
+      }
+    }
     if (!managedWorkerReady && managedMode.checked) eaMode.checked = true;
     document.querySelector("#managed-copy-service-status").textContent = managedWorkerReady
       ? "Worker managed copy online. Akun managed dapat didaftarkan dan dijalankan."
@@ -377,7 +401,7 @@ async function loadAccounts() {
     accountsBox.replaceChildren();
     const eaSection = document.querySelector("#ea-install-section");
     eaSection.hidden = !accounts.some((account) => account.execution_mode !== "MANAGED");
-    if (!accounts.length) { accountsBox.textContent = "Belum ada akun MT5."; return; }
+    if (!accounts.length) { renderEmptyState(accountsBox, "Belum ada akun MT5."); return; }
     accounts.forEach(addAccountCard);
   } catch (error) { statusBox.textContent = error.message; }
 }

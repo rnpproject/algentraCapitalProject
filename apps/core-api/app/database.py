@@ -25,7 +25,7 @@ def _make_engine():
     engine_options = {"poolclass": StaticPool} if is_memory_database else {}
     if database_url.startswith("postgresql+psycopg://"):
         connect_args = {"connect_timeout": 10}
-        engine_options.update({"pool_size": 3, "max_overflow": 0, "pool_timeout": 30})
+        engine_options.update({"pool_size": 5, "max_overflow": 5, "pool_timeout": 10})
     return create_engine(database_url, connect_args=connect_args, pool_pre_ping=True, **engine_options)
 
 

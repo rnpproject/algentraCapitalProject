@@ -346,6 +346,13 @@ def list_managed_copy_jobs(
     return {"jobs": jobs, "login_checks": login_checks, "managed_account_ids": managed_ids}
 
 
+def managed_copy_worker_health(
+    x_copier_worker_key: str | None = Header(default=None, alias="X-Copier-Worker-Key"),
+) -> dict[str, str]:
+    _require_copier_worker(x_copier_worker_key)
+    return {"status": "ok"}
+
+
 def report_managed_copy_login_check(
     account_id: int,
     payload: ManagedCopyLoginCheckResult,

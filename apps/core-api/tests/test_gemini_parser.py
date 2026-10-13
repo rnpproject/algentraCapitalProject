@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.core.config import Settings
-from app.services.gemini_parser import GeminiParser, SignalClassification, regex_fallback
-from app.services.signal_service import _prefer_farthest_target_when_needed, validate_classification
+from app.services.gemini_parser import GeminiParser, MARKET_NOW_PATTERN, SignalClassification, regex_fallback
+from app.services.signal_service import _prefer_farthest_target_when_needed, _signal_candidate, validate_classification
 
 
 def signal(action=None, *, order="MARKET", symbol=None, entry=None, tp=None, sl=None, confidence=0.96):
@@ -98,7 +98,17 @@ def test_mock_gemini_structured_output_reference_cases(message, expected, expect
     assert parsed.action == expected["action"]
     assert parsed.type == expected["type"]
     assert validation.status == expected_status
-    if "abaikan semua instruksi" in message:
+    local_market_call = (
+        parsed.symbol is not None
+        and MARKET_NOW_PATTERN.search(message)
+        and parsed.order_type == "MARKET"
+        and parsed.entry is None
+        and parsed.entry_low is None
+        and parsed.entry_high is None
+        and not parsed.tp
+        and parsed.sl is None
+    )
+    if "abaikan semua instruksi" in message or local_market_call:
         assert models.calls == []
     else:
         assert len(models.calls) == 1
@@ -128,6 +138,93 @@ def test_regex_fallback_parses_market_signal_and_reply_context():
     assert parsed.entry is None
     assert parsed.tp == [2410.0]
     assert parsed.sl == 2390.0
+
+
+def test_loose_multitarget_entry_zone_signal_is_parsed_without_gemini():
+    message = (
+        "XAUUSD BUY NOW : 4192-4188\n"
+        "TP1 : 4197\n"
+        "TP² : 4202\n"
+        "TP³ : 4207\n"
+        "TP⁴ : 4212\n"
+        "TP⁵ : 4217 (Open)\n"
+        "SL : 4178\n"
+        "Use Proper Money Management"
+    )
+    parser = GeminiParser(settings(GEMINI_API_KEY=None), retry_delay=0)
+
+    parsed = asyncio.run(parser.parse(message))
+    validation = validate_classification(_prefer_farthest_target_when_needed(parsed))
+
+    assert parsed.action == "BUY"
+    assert parsed.order_type == "AUTO"
+    assert parsed.symbol == "XAUUSD"
+    assert parsed.entry_low == 4188
+    assert parsed.entry_high == 4192
+    assert parsed.tp == [4197, 4202, 4207, 4212, 4217]
+    assert parsed.sl == 4178
+    assert validation.status == "PENDING"
+    assert validation.normalized_text is not None
+    assert "ENTRY ZONE" in validation.normalized_text
+    assert "TP : 4217" in validation.normalized_text
+
+
+def test_entry_zone_accepts_colon_separator_and_ignores_trailing_advice():
+    parsed = regex_fallback("BUY NOW XAUUSD : 4192-4188 TP1 4197 SL 4178")
+    assert parsed.entry_low == 4188
+    assert parsed.entry_high == 4192
+    assert parsed.tp == [4197]
+    assert parsed.sl == 4178
+
+
+def test_market_signal_with_attached_timestamp_is_not_filtered_or_parsed_as_entry():
+    message = "XAUUSD BUY NOW10:23"
+    parser = GeminiParser(settings(GEMINI_API_KEY=None), retry_delay=0)
+
+    should_parse, reason = _signal_candidate(message, None)
+    parsed = asyncio.run(parser.parse(message))
+    validation = validate_classification(parsed)
+
+    assert should_parse is True, reason
+    assert parsed.action == "BUY"
+    assert parsed.order_type == "MARKET"
+    assert parsed.symbol == "XAUUSD"
+    assert parsed.entry is None
+    assert parsed.entry_low is None
+    assert parsed.entry_high is None
+    assert validation.status == "PENDING"
+
+
+@pytest.mark.parametrize(
+    ("message", "action", "symbol"),
+    [
+        ("XAUUSD BUY NOW", "BUY", "XAUUSD"),
+        ("XAUUSD SELL NOW", "SELL", "XAUUSD"),
+        ("GOLD SELL NOW", "SELL", "GOLD"),
+        ("GOLD BUY NOW", "BUY", "GOLD"),
+        ("SELL NOW XAUUSD", "SELL", "XAUUSD"),
+        ("BUY NOW XAUUSD", "BUY", "XAUUSD"),
+    ],
+)
+def test_bare_gold_market_now_phrases_parse_without_gemini(message, action, symbol):
+    parser = GeminiParser(settings(GEMINI_API_KEY=None), retry_delay=0)
+
+    candidate, reason = _signal_candidate(message, None)
+    parsed = asyncio.run(parser.parse(message))
+    validation = validate_classification(parsed)
+
+    assert candidate is True, reason
+    assert parsed.action == action
+    assert parsed.symbol == symbol
+    assert parsed.order_type == "MARKET"
+    assert parsed.entry is None
+    assert validation.status == "PENDING"
+    assert validation.symbol == "XAUUSD"
+
+
+def test_market_now_without_price_requires_an_explicit_gold_symbol():
+    assert _signal_candidate("BUY NOW", None)[0] is False
+    assert _signal_candidate("EURUSD BUY NOW", None)[0] is False
 
 
 def test_symbol_mapping_preserves_broker_suffix_and_rejects_low_confidence():
