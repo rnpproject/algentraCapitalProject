@@ -110,6 +110,8 @@ Tidak ada kredensial migrator, perintah Alembic, atau DDL pada langkah deploy ap
 
 Web berada di `apps/web` dan memakai API same-origin `/api/core/*`. Vercel harus diarahkan ke folder tersebut sebagai Root Directory. Isi environment server-only `CORE_API_ORIGIN` dengan origin API yang dilindungi Cloudflare Access, `CF_ACCESS_CLIENT_ID` dan `CF_ACCESS_CLIENT_SECRET` dengan service token khusus Vercel, serta `BFF_HMAC_SECRET` yang sama dengan secret pada Windows Server. Browser tidak menerima nilai-nilai tersebut dan tidak menghubungi Supabase. Core API mewajibkan HMAC dengan timestamp, nonce sekali pakai, method, path/query, dan SHA-256 body untuk request `/v1`; endpoint lama `/api` tetap tersedia selama klien berpindah.
 
+Next middleware memeriksa `CORE_API_ORIGIN/health` sebelum meneruskan request. Jika Core API tidak dapat dijangkau atau health check gagal, halaman web menampilkan maintenance dengan HTTP 503; request API mendapat JSON 503. Detail status dan error upstream hanya disertakan pada development, tidak pada production.
+
 #### Langkah deploy Vercel
 
 1. Impor repository ini dari dashboard Vercel dan pilih framework **Next.js**.
