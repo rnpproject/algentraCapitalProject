@@ -1,6 +1,7 @@
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -26,8 +27,11 @@ templates = Jinja2Templates(
 
 @router.get("/api/public/performance")
 @router.get("/v1/public/performance")
-def public_performance(db: Session = Depends(get_db)) -> dict[str, object]:
-    return public_performance_payload(db)
+def public_performance(
+    db: Session = Depends(get_db),
+    include_equity_curve: bool = Query(default=True),
+) -> dict[str, object]:
+    return public_performance_payload(db, include_equity_curve=include_equity_curve)
 
 
 @router.get("/api/public/registration-status")
@@ -41,6 +45,11 @@ def site_music() -> RedirectResponse:
     music_url = get_settings().public_music_url
     if not music_url:
         raise HTTPException(status_code=404, detail="Audio publik belum dikonfigurasi")
+    parsed_url = urlsplit(music_url)
+    path_segments = parsed_url.path.strip("/").split("/")
+    if parsed_url.hostname == "github.com" and len(path_segments) >= 5 and path_segments[2] == "blob":
+        raw_path = "/" + "/".join((path_segments[0], path_segments[1], *path_segments[3:]))
+        music_url = urlunsplit(("https", "raw.githubusercontent.com", raw_path, parsed_url.query, ""))
     return RedirectResponse(music_url, status_code=307)
 
 

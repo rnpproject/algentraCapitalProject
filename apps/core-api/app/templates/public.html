@@ -746,7 +746,7 @@
       balance.title = money(master.balance, master.currency);
       floating.title = money(fp, master.currency);
       floating.dataset.tone = tone(fp);
-      updated.textContent = master.updated_at ? `Diperbarui ${wib(master.updated_at, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : "";
+      updated.textContent = master.updated_at ? `Diperbarui ${wib(master.updated_at, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "";
     } else {
       label.textContent = "Equity akun utama";
       value.textContent = "—";
@@ -788,21 +788,33 @@
   /* ---------- Koneksi live ---------- */
   let performancePollTimer = null;
   let performanceRetryTimer = null;
+  let historyRefreshAt = 0;
+  let performancePollInFlight = false;
   const pollPublicPerformance = async () => {
+    if (performancePollInFlight) return;
+    performancePollInFlight = true;
     try {
-      const response = await fetch("/api/public/performance", {cache:"no-store"});
+      const refreshHistory = Date.now() >= historyRefreshAt;
+      const endpoint = refreshHistory
+        ? "/api/public/performance"
+        : "/api/public/performance?include_equity_curve=false";
+      const response = await fetch(endpoint, {cache:"no-store"});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      renderPerformance(await response.json());
+      const data = await response.json();
+      renderPerformance(data);
+      if (refreshHistory && Array.isArray(data.equity_curve)) historyRefreshAt = Date.now() + 60000;
     } catch (error) {
       const status = $("#market-status");
       setStatus(status, "RECONNECT", "warn");
       status.title = `Data performa gagal dimuat: ${error.message}`;
+    } finally {
+      performancePollInFlight = false;
     }
   };
   const startPerformancePolling = () => {
     if (performancePollTimer) return;
     pollPublicPerformance();
-    performancePollTimer = setInterval(pollPublicPerformance, 30000);
+    performancePollTimer = setInterval(pollPublicPerformance, 1000);
   };
   const connectPerformance = () => {
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -811,7 +823,9 @@
     const heartbeat = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.send("ping"); }, 25000);
     socket.addEventListener("message", (event) => {
       try {
-        renderPerformance(JSON.parse(event.data));
+        const data = JSON.parse(event.data);
+        renderPerformance(data);
+        if (Array.isArray(data.equity_curve)) historyRefreshAt = Date.now() + 60000;
         if (performancePollTimer) {
           clearInterval(performancePollTimer);
           performancePollTimer = null;

@@ -30,6 +30,7 @@ def test_application_security_headers_and_api_docs_are_disabled():
         assert response.status_code == 200
         csp = response.headers["content-security-policy"]
         assert "script-src 'self' 'nonce-" in csp
+        assert "media-src 'self'" in csp
         assert "'unsafe-inline'" not in csp
         nonce = csp.split("'nonce-", 1)[1].split("'", 1)[0]
         assert f'nonce="{nonce}"' in response.text
