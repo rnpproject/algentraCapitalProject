@@ -670,7 +670,6 @@
       const age = card.querySelector(".quote-age");
       if (age) { const t = ageText(Date.now() - updatedAt); age.textContent = live || !t ? t : `Terakhir ${t}`; }
     });
-    if (quoteState.disconnected) return;
     const status = $("#market-status");
     if (quoteState.online) {
       setStatus(status, "ONLINE", "live");
@@ -686,7 +685,6 @@
   };
   const renderQuotes = (quotes, reportOnline) => {
     quoteState.online = !!reportOnline;
-    quoteState.disconnected = false;
     const list = (quotes || []).map((quote) => ({ ...quote, key: String(quote.symbol || "").toUpperCase() }));
     pricesBox.replaceChildren();
     for (const symbol of watchlist) {
@@ -787,7 +785,6 @@
 
   /* ---------- Koneksi live ---------- */
   let performancePollTimer = null;
-  let performanceRetryTimer = null;
   let historyRefreshAt = 0;
   let performancePollInFlight = false;
   const pollPublicPerformance = async () => {
@@ -816,40 +813,13 @@
     pollPublicPerformance();
     performancePollTimer = setInterval(pollPublicPerformance, 1000);
   };
-  const connectPerformance = () => {
-    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(`${protocol}//${location.host}/ws/public/performance`);
-    setStatus($("#market-status"), "RECONNECT", "warn");
-    const heartbeat = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.send("ping"); }, 25000);
-    socket.addEventListener("message", (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        renderPerformance(data);
-        if (Array.isArray(data.equity_curve)) historyRefreshAt = Date.now() + 60000;
-        if (performancePollTimer) {
-          clearInterval(performancePollTimer);
-          performancePollTimer = null;
-        }
-      }
-      catch (_) { setStatus($("#market-status"), "RECONNECT", "warn"); }
-    });
-    socket.addEventListener("close", () => {
-      clearInterval(heartbeat);
-      quoteState.disconnected = true;
-      setStatus($("#market-status"), "RECONNECT", "warn");
-      startPerformancePolling();
-      if (performanceRetryTimer) clearTimeout(performanceRetryTimer);
-      performanceRetryTimer = setTimeout(connectPerformance, 30000);
-    });
-    socket.addEventListener("error", () => socket.close());
-  };
 
   let resizeFrame = 0;
   window.addEventListener("resize", () => {
     cancelAnimationFrame(resizeFrame);
     resizeFrame = requestAnimationFrame(() => { if (lastCurve.length) showEquityChart(lastCurve); });
   });
-  connectPerformance();
+  startPerformancePolling();
 })();
 </script>
 {% endblock %}

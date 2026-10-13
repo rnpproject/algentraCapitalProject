@@ -1,4 +1,6 @@
 from datetime import timedelta
+import smtplib
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -6,9 +8,20 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.auth import hash_password, seed_admin, verify_password
-from app.core.config import Settings
+from app.core.config import PROJECT_ROOT, Settings
 from app.database import Base, SessionLocal
-from app.models import AdminUser, AuthSession, ClientUser, EAExecution, MT5Account, MT5AccountState, PasswordResetCode, Signal, Trade, utc_now
+from app.models import (
+    AdminUser,
+    AuthSession,
+    ClientUser,
+    EAExecution,
+    MT5Account,
+    MT5AccountState,
+    PasswordResetCode,
+    Signal,
+    Trade,
+    utc_now,
+)
 from app.services.dashboard_service import _csv_text
 from app.main import app
 from app.services import auth_service
@@ -47,16 +60,47 @@ def test_password_reset_request_does_not_disclose_account_existence(monkeypatch)
     monkeypatch.setattr(auth_service, "send_verification_code", lambda *_args, **_kwargs: None)
     with TestClient(app) as client:
         with SessionLocal() as db:
-            db.add(ClientUser(
-                email="privacy-check@example.com",
-                password_hash=hash_password("A-Strong-Test-Password-123"),
-                verified_at=utc_now(),
-            ))
+            db.add(
+                ClientUser(
+                    email="privacy-check@example.com",
+                    password_hash=hash_password("A-Strong-Test-Password-123"),
+                    verified_at=utc_now(),
+                )
+            )
             db.commit()
         known = client.post("/api/auth/password-reset/request", json={"email": "privacy-check@example.com"})
         unknown = client.post("/api/auth/password-reset/request", json={"email": "not-registered@example.com"})
         assert known.status_code == unknown.status_code == 202
         assert known.json() == unknown.json()
+
+
+def test_registration_smtp_failure_is_logged_without_server_response(monkeypatch, caplog):
+    monkeypatch.setattr(
+        auth_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            email_configured=True,
+            app_secret_key=SimpleNamespace(get_secret_value=lambda: "test-app-secret-key-at-least-thirty-two-chars"),
+        ),
+    )
+    monkeypatch.setattr(auth_service, "registration_is_open", lambda _db: True)
+
+    def reject_email(*_args, **_kwargs):
+        raise smtplib.SMTPAuthenticationError(535, b"private SMTP response")
+
+    monkeypatch.setattr(auth_service, "send_verification_code", reject_email)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/auth/register",
+            json={"email": "smtp-failure@example.com", "password": "Valid-Password-123"},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Email verifikasi gagal dikirim; coba lagi nanti"}
+    assert "Verification email delivery failed" in caplog.text
+    assert "SMTPAuthenticationError" in caplog.text
+    assert "535" in caplog.text
+    assert "private SMTP response" not in caplog.text
 
 
 def test_password_reset_revokes_existing_client_session():
@@ -71,17 +115,21 @@ def test_password_reset_revokes_existing_client_session():
         old_cookie = login.headers["set-cookie"].split(";", 1)[0]
         now = utc_now()
         with SessionLocal() as db:
-            db.add(PasswordResetCode(
-                email_hash=auth_service._password_reset_email_key(email),
-                code_hash=auth_service._password_reset_hash(email, code),
-                expires_at=now + timedelta(minutes=10),
-                resend_after=now,
-                attempts=0,
-                send_count=1,
-                last_activity_at=now,
-            ))
+            db.add(
+                PasswordResetCode(
+                    email_hash=auth_service._password_reset_email_key(email),
+                    code_hash=auth_service._password_reset_hash(email, code),
+                    expires_at=now + timedelta(minutes=10),
+                    resend_after=now,
+                    attempts=0,
+                    send_count=1,
+                    last_activity_at=now,
+                )
+            )
             db.commit()
-        reset = client.post("/api/auth/password-reset/confirm", json={"email": email, "code": code, "password": "New-Test-Password-456"})
+        reset = client.post(
+            "/api/auth/password-reset/confirm", json={"email": email, "code": code, "password": "New-Test-Password-456"}
+        )
         assert reset.status_code == 200
         assert client.get("/api/mt5/accounts", headers={"Cookie": old_cookie}).status_code == 401
         with SessionLocal() as db:
@@ -93,7 +141,9 @@ def test_public_performance_never_exposes_follower_balance():
     email = "public-privacy-check@example.com"
     with TestClient(app) as client:
         with SessionLocal() as db:
-            user = ClientUser(email=email, password_hash=hash_password("A-Strong-Test-Password-789"), verified_at=utc_now())
+            user = ClientUser(
+                email=email, password_hash=hash_password("A-Strong-Test-Password-789"), verified_at=utc_now()
+            )
             db.add(user)
             db.flush()
             account = MT5Account(
@@ -107,23 +157,25 @@ def test_public_performance_never_exposes_follower_balance():
             db.add(account)
             db.flush()
             account_id = account.id
-            db.add(MT5AccountState(
-                account_id=account_id,
-                balance=91357.41,
-                equity=91357.41,
-                floating_profit=0.0,
-                margin=0.0,
-                free_margin=91357.41,
-                currency="USD",
-                trade_mode="real",
-                allow_live_trading=False,
-                terminal_trade_allowed=False,
-                expert_trade_allowed=False,
-                open_position_ids_json="[]",
-                history_cursor="0",
-                history_cursor_msc=0,
-                observed_at=utc_now(),
-            ))
+            db.add(
+                MT5AccountState(
+                    account_id=account_id,
+                    balance=91357.41,
+                    equity=91357.41,
+                    floating_profit=0.0,
+                    margin=0.0,
+                    free_margin=91357.41,
+                    currency="USD",
+                    trade_mode="real",
+                    allow_live_trading=False,
+                    terminal_trade_allowed=False,
+                    expert_trade_allowed=False,
+                    open_position_ids_json="[]",
+                    history_cursor="0",
+                    history_cursor_msc=0,
+                    observed_at=utc_now(),
+                )
+            )
             db.commit()
 
         response = client.get("/api/public/performance")
@@ -139,14 +191,19 @@ def test_public_performance_never_exposes_follower_balance():
 
 
 def test_settings_endpoint_reads_and_updates_values_after_login():
+    ea_source = PROJECT_ROOT / "mt5" / "experts" / "TelegramSignalEA.mq5"
+    ea_binary = PROJECT_ROOT / "mt5" / "experts" / "TelegramSignalEA.ex5"
+    binary_is_current = ea_binary.is_file() and ea_binary.stat().st_mtime >= ea_source.stat().st_mtime
     with TestClient(app) as client:
         login = client.post(
             "/api/auth/login",
             json={"username": "admin", "password": "M1-Testing-Password-123"},
         )
         assert login.status_code == 200
-        stale_binary = client.get("/downloads/TelegramSignalEA.ex5")
-        assert stale_binary.status_code == 410
+        binary_response = client.get("/downloads/TelegramSignalEA.ex5")
+        assert binary_response.status_code == (200 if binary_is_current else 410)
+        if binary_is_current:
+            assert binary_response.content == ea_binary.read_bytes()
         current_source = client.get("/downloads/TelegramSignalEA.mq5")
         assert current_source.status_code == 200
         assert "DemoMode" not in current_source.text
@@ -159,7 +216,11 @@ def test_settings_endpoint_reads_and_updates_values_after_login():
             json={"values": {"demo_mode": True}},
         )
         assert invalid_demo_setting.status_code == 422
-        update = client.put("/api/settings", headers={"X-CSRF-Token": login.json()["csrf_token"]}, json={"values": {"confidence_threshold": 0.8}})
+        update = client.put(
+            "/api/settings",
+            headers={"X-CSRF-Token": login.json()["csrf_token"]},
+            json={"values": {"confidence_threshold": 0.8}},
+        )
         assert update.status_code == 200
         assert client.get("/api/settings").json()["confidence_threshold"] == 0.8
 
@@ -209,17 +270,23 @@ def test_dashboard_mutations_require_csrf_and_validate_risk_settings():
         )
         assert login.status_code == 200
         csrf = login.json()["csrf_token"]
-        payload = {"values": {"kill_switch": True, "max_market_deviation_pct": 50, "symbol_mapping": {"GOLD": "XAUUSDm"}}}
+        payload = {
+            "values": {"kill_switch": True, "max_market_deviation_pct": 50, "symbol_mapping": {"GOLD": "XAUUSDm"}}
+        }
         assert client.put("/api/settings", json=payload).status_code == 403
         response = client.put("/api/settings", headers={"X-CSRF-Token": csrf}, json=payload)
         assert response.status_code == 200
         assert response.json()["max_market_deviation_pct"] == 50.0
-        invalid = client.put("/api/settings", headers={"X-CSRF-Token": csrf}, json={"values": {"max_market_deviation_pct": 0}})
+        invalid = client.put(
+            "/api/settings", headers={"X-CSRF-Token": csrf}, json={"values": {"max_market_deviation_pct": 0}}
+        )
         assert invalid.status_code == 422
         restored = client.put(
             "/api/settings",
             headers={"X-CSRF-Token": csrf},
-            json={"values": {"kill_switch": False, "max_market_deviation_pct": 5, "symbol_mapping": {"GOLD": "XAUUSD"}}},
+            json={
+                "values": {"kill_switch": False, "max_market_deviation_pct": 5, "symbol_mapping": {"GOLD": "XAUUSD"}}
+            },
         )
         assert restored.status_code == 200
 
