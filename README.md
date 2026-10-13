@@ -77,7 +77,7 @@ Quick Tunnel untuk pengembangan membuat URL sementara pada domain trycloudflare.
 
 Quick Tunnel ditujukan untuk pengembangan. Untuk domain tetap, buat named tunnel di Cloudflare, atur public hostname menuju http://127.0.0.1:8000, lalu jalankan **cloudflared tunnel run --token TOKEN_DARI_DASHBOARD** dengan token dari dashboard Cloudflare. Atur `COOKIE_SECURE=true` pada environment Windows Service untuk akses HTTPS production. Backend tetap mendengarkan di localhost; tunnel meneruskan trafik tanpa membuka port 8000 ke internet. Lihat [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) dan [panduan tunnel bernama](https://developers.cloudflare.com/tunnel/features/locally-managed-tunnels/create-local-tunnel/).
 
-Musik latar tidak dikirim dari server aplikasi. Jika ingin menampilkannya, unggah audio ke CDN/object storage publik dan isi `PUBLIC_MUSIC_URL` dengan URL HTTPS di `.env.local` untuk development atau environment Windows Service untuk production; kosongkan nilainya untuk menyembunyikan pemutar. Audio menggunakan `preload="none"` dan hanya diputar setelah pengunjung menekan tombol.
+Musik latar tidak dikirim dari server aplikasi. Jika ingin menampilkannya, unggah audio ke CDN/object storage publik dan isi `PUBLIC_MUSIC_URL` dengan URL HTTPS langsung ke berkas audio di `.env.local` untuk development atau environment Windows Service untuk production; URL halaman GitHub untuk berkas `.mp3` juga dikonversi otomatis ke URL raw. Kosongkan nilainya untuk menyembunyikan pemutar. Audio hanya diputar setelah pengunjung menekan tombol.
 
 ## Live production di Windows Server
 

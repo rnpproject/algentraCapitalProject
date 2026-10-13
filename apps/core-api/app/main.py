@@ -128,14 +128,17 @@ class SecurityHeadersMiddleware:
 
     def __init__(self, app):
         self.app = app
-        self.media_source = "'none'"
+        media_sources = ["'self'"]
         if config.public_music_url:
             music_url = urlsplit(config.public_music_url)
             music_host = music_url.hostname.encode("idna").decode("ascii")
             if ":" in music_host:
                 music_host = f"[{music_host}]"
             music_port = f":{music_url.port}" if music_url.port else ""
-            self.media_source = f"https://{music_host}{music_port}"
+            media_sources.append(f"https://{music_host}{music_port}")
+            if music_host == "github.com":
+                media_sources.append("https://raw.githubusercontent.com")
+        self.media_sources = " ".join(dict.fromkeys(media_sources))
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -151,7 +154,7 @@ class SecurityHeadersMiddleware:
                     [
                         (
                             b"content-security-policy",
-                            f"default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; font-src 'self' data:; media-src {self.media_source}; connect-src 'self' ws: wss:; script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; style-src 'self' 'nonce-{nonce}'; form-action 'self'".encode(
+                            f"default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; font-src 'self' data:; media-src {self.media_sources}; connect-src 'self' ws: wss:; script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; style-src 'self' 'nonce-{nonce}'; form-action 'self'".encode(
                                 "ascii"
                             ),
                         ),
