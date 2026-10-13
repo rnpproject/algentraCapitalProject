@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     contact_youtube: str | None = Field(default=None, validation_alias="CONTACT_YOUTUBE")
     contact_tiktok: str | None = Field(default=None, validation_alias="CONTACT_TIKTOK")
     public_music_url: str | None = Field(default=None, validation_alias="PUBLIC_MUSIC_URL")
+    websocket_allowed_origins: str = Field(default="", validation_alias="WEBSOCKET_ALLOWED_ORIGINS")
     database_url: SecretStr | None = Field(default=None, validation_alias="DATABASE_URL")
     migration_database_url: SecretStr | None = Field(default=None, validation_alias="MIGRATION_DATABASE_URL")
     supabase_dev_project_ref: str | None = Field(default=None, validation_alias="SUPABASE_DEV_PROJECT_REF")
@@ -113,6 +114,28 @@ class Settings(BaseSettings):
                     raise ValueError("PUBLIC_MUSIC_URL harus berupa URL HTTPS yang valid") from exc
                 if music_url.scheme != "https" or not music_url.hostname or music_url.username or music_url.password:
                     raise ValueError("PUBLIC_MUSIC_URL harus berupa URL HTTPS yang valid")
+        allowed_origins: list[str] = []
+        for value in self.websocket_allowed_origins.split(","):
+            origin = value.strip().rstrip("/")
+            if not origin:
+                continue
+            parsed_origin = urlsplit(origin)
+            try:
+                parsed_origin.port
+            except ValueError as exc:
+                raise ValueError("WEBSOCKET_ALLOWED_ORIGINS berisi origin yang tidak valid") from exc
+            if (
+                parsed_origin.scheme not in {"http", "https"}
+                or not parsed_origin.hostname
+                or parsed_origin.username
+                or parsed_origin.password
+                or parsed_origin.path
+                or parsed_origin.query
+                or parsed_origin.fragment
+            ):
+                raise ValueError("WEBSOCKET_ALLOWED_ORIGINS harus berupa origin HTTP(S) tanpa path")
+            allowed_origins.append(f"{parsed_origin.scheme.casefold()}://{parsed_origin.netloc.casefold()}")
+        self.websocket_allowed_origins = ",".join(dict.fromkeys(allowed_origins))
         if (self.telegram_api_id is None) != (self.telegram_api_hash is None):
             raise ValueError("TELEGRAM_API_ID dan TELEGRAM_API_HASH harus diisi bersamaan")
         if (self.telegram_bot_token is None) != (self.telegram_admin_chat_id is None):

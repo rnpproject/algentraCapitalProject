@@ -1,4 +1,5 @@
-from datetime import datetime
+import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -16,6 +17,9 @@ from ...services.dashboard_service import (
 )
 from ...services.risk_controls import risk_state
 from ...services.stats_service import get_dashboard_stats, get_group_stats
+from ...state import master_snapshot_state
+from ...models import utc_now
+from ...core.time_utils import wib_iso
 from .tg import telegram_manager
 
 
@@ -38,6 +42,59 @@ async def stats(db: Session = Depends(get_db)) -> dict[str, object]:
         }
     )
     return payload
+
+
+@router.get("/mt5-live")
+def mt5_live() -> dict[str, object]:
+    snapshot = master_snapshot_state.current()
+    if snapshot is None:
+        return {
+            "available": False,
+            "online": False,
+            "observed_at": None,
+            "account": None,
+            "positions": [],
+            "market_quotes": [],
+        }
+
+    now = utc_now()
+    observed_at = snapshot.observed_at
+    if observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=timezone.utc)
+    online = now >= observed_at and now - observed_at <= timedelta(seconds=20)
+    account = snapshot.account
+    account_data = (
+        {
+            "balance": account.balance,
+            "equity": account.equity,
+            "floating_profit": account.floating_profit,
+            "currency": account.currency,
+            "trade_mode": account.trade_mode,
+            "observed_at": wib_iso(account.observed_at),
+        }
+        if account is not None
+        else None
+    )
+    market_quotes = json.loads(snapshot.market_quotes_json) if snapshot.market_quotes_json else []
+    return {
+        "available": True,
+        "online": online,
+        "observed_at": wib_iso(snapshot.observed_at),
+        "account": account_data,
+        "positions": [
+            {
+                "ticket": position.ticket,
+                "symbol": position.symbol,
+                "action": position.action,
+                "lots": position.lots,
+                "entry_price": position.entry_price,
+                "sl": position.sl,
+                "tp": position.tp,
+            }
+            for position in snapshot.positions
+        ],
+        "market_quotes": market_quotes,
+    }
 
 
 @router.get("/signals", response_model=list[SignalResponse])

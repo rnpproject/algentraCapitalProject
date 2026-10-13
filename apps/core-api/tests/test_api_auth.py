@@ -12,6 +12,7 @@ from app.models import AdminUser, AuthSession, ClientUser, EAExecution, MT5Accou
 from app.services.dashboard_service import _csv_text
 from app.main import app
 from app.services import auth_service
+from app.state import MasterAccountSnapshot, MasterPosition, master_snapshot_state
 
 
 def test_qris_endpoint_reports_payment_feature_unavailable():
@@ -286,6 +287,20 @@ def test_dashboard_endpoints_csv_and_websocket_after_login():
         stats = client.get("/api/stats")
         assert stats.status_code == 200
         assert {"telegram_connected", "gemini_configured", "ea_online", "winrate"} <= stats.json().keys()
+        observed_at = utc_now()
+        master_snapshot_state.publish(
+            [MasterPosition("live-ticket", "XAUUSD", "BUY", 0.1, 2400.0, 2390.0, 2420.0)],
+            observed_at,
+            account=MasterAccountSnapshot(1000.0, 1010.0, 10.0, "USD", "demo", observed_at),
+            market_quotes_json='[{"symbol":"XAUUSD","bid":2400.0,"ask":2400.2,"time_msc":1800000000000}]',
+        )
+        live = client.get("/api/mt5-live")
+        versioned_live = client.get("/v1/dashboard/mt5-live")
+        assert live.status_code == versioned_live.status_code == 200
+        assert live.json()["online"] is True
+        assert live.json()["account"]["equity"] == 1010.0
+        assert live.json()["positions"][0]["ticket"] == "live-ticket"
+        assert versioned_live.json()["market_quotes"][0]["symbol"] == "XAUUSD"
         assert client.get("/api/signals?limit=10").status_code == 200
         assert client.get("/api/groups/stats").status_code == 200
         assert client.get("/api/logs?level=ERROR&search=missing").status_code == 200
@@ -297,6 +312,15 @@ def test_dashboard_endpoints_csv_and_websocket_after_login():
             event = websocket.receive_json()
             assert event["type"] == "dashboard_refresh"
             assert "stats" in event
+            assert {
+                "telegram_connected",
+                "telegram_status",
+                "gemini_configured",
+                "gemini_model",
+                "kill_switch",
+                "daily_loss",
+                "open_trades",
+            } <= event["stats"].keys()
 
 
 def test_signal_endpoint_includes_execution_ticket_and_profit():

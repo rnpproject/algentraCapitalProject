@@ -5,7 +5,7 @@
 {% endblock %}
 {% block content %}
 <main id="main" tabindex="-1" class="page-shell dashboard-page">
-    <div class="page-heading"><div><span class="eyebrow">Algentra Capital / Operations</span><h1>Operations workspace</h1><p class="page-description">Pantau sinyal, hasil eksekusi, performa trade, dan batas risiko dalam satu tampilan.</p></div><div class="heading-aside">Internal workspace · access controlled</div></div>
+    <div class="page-heading"><div><span class="eyebrow">Algentra Capital / Operations</span><h1>Operations workspace</h1><p class="page-description">Pantau sinyal, hasil eksekusi, performa trade, dan batas risiko dalam satu tampilan.</p></div><div class="heading-aside"><button id="refresh-all" class="secondary" type="button">Muat ulang data</button><label class="auto-refresh-toggle" title="Perbarui ringkasan dan sinyal terbaru otomatis"><input type="checkbox" id="auto-refresh" checked> Auto refresh</label></div></div>
     <section id="registration-controls" aria-labelledby="registration-controls-heading">
       <span class="eyebrow">Public site</span><h2 id="registration-controls-heading">Pendaftaran client</h2>
       <p id="registration-state" class="section-help" role="status">Memuat status pendaftaran...</p>
@@ -33,6 +33,21 @@
       <div class="card"><span>Rugi terealisasi hari ini</span><b id="daily-loss">&mdash;</b><small class="muted">Informasi saja; tidak membatasi trading.</small></div>
     </div>
 
+    <section id="mt5-live-section" aria-live="polite">
+      <div class="page-heading"><div><h2>Data MT5 live</h2><p id="mt5-live-updated" class="section-help">Menunggu snapshot terminal...</p></div><strong id="mt5-live-status" role="status">Menghubungkan</strong></div>
+      <div class="cards">
+        <div class="card"><span>Balance</span><b id="mt5-balance">&mdash;</b></div>
+        <div class="card"><span>Equity</span><b id="mt5-equity">&mdash;</b></div>
+        <div class="card"><span>Floating P/L</span><b id="mt5-floating">&mdash;</b></div>
+        <div class="card"><span>Mode akun</span><b id="mt5-mode">&mdash;</b></div>
+        <div class="card"><span>Posisi terbuka</span><b id="mt5-position-count">0</b></div>
+      </div>
+      <div class="grid">
+        <section><h3>Posisi terminal</h3><div class="table-wrap"><table><thead><tr><th>Ticket</th><th>Simbol</th><th>Arah</th><th>Lot</th><th>Entry</th><th>SL</th><th>TP</th></tr></thead><tbody id="mt5-positions-table"></tbody></table></div></section>
+        <section><h3>Harga pasar</h3><div class="table-wrap"><table><thead><tr><th>Simbol</th><th>Bid</th><th>Ask</th><th>Update</th></tr></thead><tbody id="mt5-quotes-table"></tbody></table></div></section>
+      </div>
+    </section>
+
     <section>
       <h2>Signal terbaru</h2>
       <p class="section-help">Lima pesan terbaru beserta hasil parsing, confidence, status pemrosesan, dan ticket order.</p>
@@ -47,38 +62,42 @@
     <section>
       <h2>Log sistem</h2>
       <p class="section-help">Lima log terbaru. Gunakan filter untuk mempersempit level atau kata kunci.</p>
-      <div class="toolbar"><select id="log-level" title="Batasi log ke level tertentu"><option value="">Semua level</option><option>INFO</option><option>WARN</option><option>ERROR</option></select><input id="log-search" placeholder="Cari log" title="Cari kata di sumber atau pesan log"><button id="filter-logs">Filter log</button><a id="logs-export" href="/api/logs/export.csv">Export CSV</a><label title="Muat ulang ringkasan saat ada pembaruan"><input type="checkbox" id="auto-refresh" checked> Auto refresh</label></div>
+      <div class="toolbar"><select id="log-level" title="Batasi log ke level tertentu"><option value="">Semua level</option><option>INFO</option><option>WARN</option><option>ERROR</option></select><input id="log-search" placeholder="Cari log" title="Cari kata di sumber atau pesan log"><button id="filter-logs">Filter log</button><a id="logs-export" href="/api/logs/export.csv">Export CSV</a></div>
       <div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Level</th><th>Sumber</th><th>Pesan</th></tr></thead><tbody id="logs-table"></tbody></table></div>
     </section>
 
     <section>
       <h2>Riwayat trade</h2>
-      <p class="section-help">Filter transaksi yang telah dilaporkan EA menurut tanggal, grup, simbol, atau hasil; unduh CSV untuk analisis.</p>
+      <p class="section-help">Filter transaksi yang telah dilaporkan EA; tabel menampilkan 10 per halaman (satu query per halaman). Unduh CSV untuk data lengkap.</p>
       <div class="toolbar"><input type="date" id="date-from" title="Tanggal awal trade"><input type="date" id="date-to" title="Tanggal akhir trade"><input id="trade-group" placeholder="Group ID" title="Filter berdasarkan ID grup Telegram"><input id="trade-symbol" placeholder="Symbol" title="Filter berdasarkan simbol"><select id="trade-result" title="Filter hasil trade"><option value="">Semua hasil</option><option>WIN</option><option>LOSS</option><option>BE</option></select><button id="filter-trades">Filter trade</button><a id="trades-export" href="/api/trades/export.csv">Export CSV</a></div>
       <div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Grup</th><th>Ticket</th><th>Symbol</th><th>Arah</th><th>Lot</th><th>Entry</th><th>Profit</th><th>Hasil</th></tr></thead><tbody id="trades-table"></tbody></table></div>
+      <div class="pager"><button id="trades-prev" class="secondary" type="button" disabled>Sebelumnya</button><span id="trades-page">Halaman 1</span><button id="trades-next" class="secondary" type="button" disabled>Berikutnya</button></div>
     </section>
 
     <section id="settings">
       <span class="eyebrow">Risk & configuration</span><h2>Settings</h2>
-      <p class="section-help">Pengaturan ini memengaruhi validasi sinyal dan guard backend. Trading berjalan live saat sinyal dieksekusi; gunakan kill switch untuk menjeda distribusi sinyal.</p>
-      <p class="muted">API key Gemini dan Telegram dikelola di environment backend, tidak dikirim ke browser. Gunakan `.env.local` hanya untuk development; di production atur environment Windows Service.</p>
-      <form id="gemini-form" class="form-grid">
-        <p class="field-help">API key Gemini dikelola melalui environment layanan. Ubah key di konfigurasi layanan lalu mulai ulang aplikasi.</p>
-        <label>Model<small class="field-help">ID model Gemini yang menangani klasifikasi dan ekstraksi signal.</small><input id="gemini-model-input" placeholder="gemini-3.8-flash"></label>
-        <div><button type="submit">Simpan konfigurasi Gemini</button><p id="gemini-message" class="status"></p></div>
-      </form>
-      <hr>
-      <form id="settings-form">
-        <div class="form-grid">
-          <label>Confidence threshold<small class="field-help">Nilai minimum keyakinan parser agar sinyal boleh diteruskan.</small><input type="number" id="confidence-threshold" min="0" max="1" step="0.01"></label>
-          <label>Symbol mapping (JSON)<small class="field-help">Alias simbol pesan ke nama simbol broker, misalnya GOLD ke XAUUSD.</small><textarea id="symbol-mapping"></textarea></label>
-          <p class="field-help">Signal hanya diproses untuk XAUUSD. Signal yang belum masuk posisi kedaluwarsa setelah satu jam.</p>
-          <label>Deviasi harga maksimal (%)<small class="field-help">Tolak market entry jika harganya terlalu jauh dari harga sinyal.</small><input type="number" id="max-market-deviation" min="0.1" step="0.1"></label>
-          <label>Mode entry<small class="field-help">Single membuka satu order (zona entry memakai harga tengah dan TP pertama). Partial membagi order sesuai beberapa TP atau dua sisi zona entry.</small><select id="entry-mode"><option value="PARTIAL">Partial entry</option><option value="SINGLE">Single entry</option></select></label>
-          <label><input type="checkbox" id="allow-updates"> Izinkan update signal<small class="field-help">Aktifkan instruksi pengelolaan posisi seperti close atau geser SL.</small></label>
-          <label><input type="checkbox" id="kill-switch"> Pause trading / kill switch<small class="field-help">Hentikan distribusi sinyal ke EA sampai dimatikan kembali.</small></label>
+      <p class="section-help">Memengaruhi validasi sinyal dan guard backend. Trading berjalan live; gunakan kill switch untuk menjeda distribusi sinyal. API key Gemini dan Telegram dikelola lewat environment layanan, tidak dikirim ke browser.</p>
+      <form id="gemini-form" class="settings-block">
+        <h3>Parser Gemini</h3>
+        <div class="settings-row">
+          <label>Model<small class="field-help">ID model yang menangani klasifikasi dan ekstraksi signal.</small><input id="gemini-model-input" placeholder="gemini-3.8-flash"></label>
+          <div class="settings-action"><button type="submit">Simpan model</button></div>
         </div>
-        <button type="submit">Simpan settings</button><span id="settings-message" class="status"></span>
+        <p id="gemini-message" class="status"></p>
+      </form>
+      <form id="settings-form" class="settings-block">
+        <h3>Aturan sinyal</h3>
+        <div class="settings-grid">
+          <label>Confidence threshold<small class="field-help">Minimum keyakinan parser agar sinyal diteruskan.</small><input type="number" id="confidence-threshold" min="0" max="1" step="0.01"></label>
+          <label>Deviasi harga maksimal (%)<small class="field-help">Tolak market entry yang terlalu jauh dari harga sinyal.</small><input type="number" id="max-market-deviation" min="0.1" step="0.1"></label>
+          <label>Mode entry<small class="field-help">Single: satu order. Partial: dibagi sesuai TP atau sisi zona entry.</small><select id="entry-mode"><option value="PARTIAL">Partial entry</option><option value="SINGLE">Single entry</option></select></label>
+          <label class="span-2">Symbol mapping (JSON)<small class="field-help">Alias simbol pesan ke simbol broker. Hanya XAUUSD yang diproses; sinyal belum masuk posisi kedaluwarsa setelah satu jam.</small><textarea id="symbol-mapping" rows="5"></textarea></label>
+        </div>
+        <div class="toggle-list">
+          <label class="toggle"><input type="checkbox" id="allow-updates"><span><b>Izinkan update signal</b><small class="field-help">Aktifkan pengelolaan posisi seperti close atau geser SL.</small></span></label>
+          <label class="toggle"><input type="checkbox" id="kill-switch"><span><b>Pause trading (kill switch)</b><small class="field-help">Hentikan distribusi sinyal ke EA sampai dimatikan.</small></span></label>
+        </div>
+        <div class="settings-footer"><button type="submit">Simpan settings</button><span id="settings-message" class="status"></span></div>
       </form>
     </section>
     <p id="connection" class="status">Menghubungkan realtime…</p>
@@ -111,35 +130,75 @@ const $ = (selector) => document.querySelector(selector);
       for (const [key,value] of Object.entries(values)) if (value) params.set(key, value);
       return params.size ? `${base}?${params}` : base;
     }
-    async function loadStatsAndSignals() {
-      const [stats, signals] = await Promise.all([api("/api/stats"), api("/api/signals?limit=5")]);
+    function applyStats(stats) {
       for (const key of ["signals_total","signals_executed","signals_pending","signals_rejected","signals_ignored","active_clients","winrate","total_profit"]) {
+        if (stats[key] == null) continue;
         const el = $(`#${key.replaceAll("_", "-")}`); if (el) el.textContent = key === "winrate" ? `${stats[key]}%` : key === "total_profit" ? Number(stats[key]).toFixed(2) : stats[key];
       }
-      $("#wins-losses").textContent = `${stats.wins} / ${stats.losses}`;
-      $("#ea-status").textContent = stats.ea_online ? "ONLINE" : "OFFLINE";
-      $("#ea-heartbeat").textContent = stats.ea_last_heartbeat ? displayTime(stats.ea_last_heartbeat) : "Belum ada heartbeat";
-      $("#telegram-status").textContent = stats.telegram_connected ? "CONNECTED" : "DISCONNECTED";
-      $("#telegram-account").textContent = stats.telegram_account || "";
-      $("#gemini-status").textContent = stats.gemini_configured ? "READY" : "KEY BELUM DIATUR";
-      $("#gemini-model").textContent = stats.gemini_model;
-      $("#trading-mode").textContent = stats.kill_switch ? "PAUSED" : "LIVE";
-      $("#trading-guard").textContent = stats.kill_switch ? "Trading dijeda oleh kill switch" : `${stats.open_trades} posisi EA terbuka · tanpa batas jumlah`;
-      $("#daily-loss").textContent = Number(stats.daily_loss).toFixed(2);
+      if (stats.wins != null && stats.losses != null) $("#wins-losses").textContent = `${stats.wins} / ${stats.losses}`;
+      if ("ea_online" in stats) $("#ea-status").textContent = stats.ea_online ? "ONLINE" : "OFFLINE";
+      if ("ea_last_heartbeat" in stats) $("#ea-heartbeat").textContent = stats.ea_last_heartbeat ? displayTime(stats.ea_last_heartbeat) : "Belum ada heartbeat";
+      if ("telegram_connected" in stats) $("#telegram-status").textContent = stats.telegram_connected ? "CONNECTED" : "DISCONNECTED";
+      if ("telegram_account" in stats) $("#telegram-account").textContent = stats.telegram_account || "";
+      if ("gemini_configured" in stats) $("#gemini-status").textContent = stats.gemini_configured ? "READY" : "KEY BELUM DIATUR";
+      if ("gemini_model" in stats) $("#gemini-model").textContent = stats.gemini_model || "";
+      if ("kill_switch" in stats) $("#trading-mode").textContent = stats.kill_switch ? "PAUSED" : "LIVE";
+      if ("kill_switch" in stats && "open_trades" in stats) {
+        $("#trading-guard").textContent = stats.kill_switch ? "Trading dijeda oleh kill switch" : `${stats.open_trades} posisi EA terbuka · tanpa batas jumlah`;
+      }
+      if (stats.daily_loss != null && Number.isFinite(Number(stats.daily_loss))) $("#daily-loss").textContent = Number(stats.daily_loss).toFixed(2);
+    }
+    async function loadStats() { applyStats(await api("/api/stats")); }
+    async function loadMt5Live() {
+      const live = await api("/api/mt5-live");
+      const account = live.account;
+      $("#mt5-live-status").textContent = live.online ? "ONLINE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL";
+      $("#mt5-live-updated").textContent = live.observed_at ? `Snapshot terakhir ${displayTime(live.observed_at)}` : "Belum menerima snapshot dari MT5.";
+      $("#mt5-balance").textContent = account ? `${Number(account.balance).toFixed(2)} ${account.currency}` : "—";
+      $("#mt5-equity").textContent = account ? `${Number(account.equity).toFixed(2)} ${account.currency}` : "—";
+      $("#mt5-floating").textContent = account ? `${Number(account.floating_profit).toFixed(2)} ${account.currency}` : "—";
+      $("#mt5-mode").textContent = account?.trade_mode || "—";
+      $("#mt5-position-count").textContent = live.positions.length;
+      draw("#mt5-positions-table", ["ticket","symbol","action","lots","entry_price","sl","tp"], live.positions);
+      draw("#mt5-quotes-table", ["symbol","bid","ask","updated"], live.market_quotes.map((quote) => ({
+        ...quote,
+        updated: displayTime(new Date(Number(quote.time_msc)).toISOString())
+      })));
+    }
+    async function loadSignals() {
+      const signals = await api("/api/signals?limit=5");
       draw("#signals-table", ["time","group","raw","parsed","confidence","status","ticket","profit"], signals.map((signal) => ({
         time: displayTime(signal.created_at), group: signal.group_name || signal.group_id || "—", raw: signal.raw_text,
         parsed: signal.normalized_text || "—", confidence: signal.confidence == null ? "—" : Number(signal.confidence).toFixed(2), status: signal.status,
         ticket: signal.ticket || "—", profit: signal.profit == null ? "—" : Number(signal.profit).toFixed(2)
       })));
     }
+    const loadStatsAndSignals = () => Promise.all([loadStats(), loadSignals()]);
     async function loadGroups() {
-      const groups = await api("/api/groups/stats");
+      const groups = (await api("/api/groups/stats")).sort((a, b) => b.signals_total - a.signals_total).slice(0, 8);
       draw("#groups-table", ["group_name","signals_total","wins","losses","winrate","profit"], groups.map((g) => ({...g, winrate:`${g.winrate}%`, profit:Number(g.profit).toFixed(2)})));
       if (typeof Chart === "undefined") return;
       const labels = groups.map((g) => g.group_name);
-      const data = {labels, datasets:[{label:"Win",data:groups.map((g)=>g.wins),backgroundColor:"#1f9d72"},{label:"Loss",data:groups.map((g)=>g.losses),backgroundColor:"#d85858"}]};
+      const data = {labels, datasets:[
+        {label:"Win",data:groups.map((g)=>g.wins),backgroundColor:"#1f9d72",barPercentage:.72,categoryPercentage:.65,maxBarThickness:24},
+        {label:"Loss",data:groups.map((g)=>g.losses),backgroundColor:"#d85858",barPercentage:.72,categoryPercentage:.65,maxBarThickness:24}
+      ]};
       if (groupChart) { groupChart.data=data; groupChart.update(); }
-      else groupChart = new Chart($("#group-chart"), {type:"bar",data,options:{responsive:true,scales:{y:{beginAtZero:true}}}});
+      else groupChart = new Chart($("#group-chart"), {type:"bar",data,options:{
+        responsive:true,
+        onResize(chart,size) {
+          const mobile = size.width <= 600;
+          chart.options.scales.x.ticks.display = !mobile;
+          chart.options.scales.x.ticks.maxRotation = mobile ? 0 : 45;
+          chart.options.scales.x.ticks.minRotation = 0;
+        },
+        interaction:{mode:"index",intersect:false},
+        plugins:{legend:{position:"top",labels:{boxWidth:14,boxHeight:8,padding:12,font:{size:11}}}},
+        scales:{
+          x:{ticks:{display:window.innerWidth>600,maxRotation:45,minRotation:0,font:{size:10}},grid:{display:false}},
+          y:{beginAtZero:true,ticks:{precision:0,padding:4,font:{size:10}}}
+        }
+      }});
     }
     async function loadLogs() {
       const values = {level:$("#log-level").value,search:$("#log-search").value};
@@ -147,19 +206,29 @@ const $ = (selector) => document.querySelector(selector);
       draw("#logs-table", ["time","level","source","message"], logs.map((log)=>({...log,time:displayTime(log.created_at)})));
       $("#logs-export").href = queryWithFilters("/api/logs/export.csv", values);
     }
-    async function loadTrades() {
+    const TRADE_PAGE_SIZE = 10;
+    let tradePage = 0;
+    async function loadTrades(page = 0) {
+      tradePage = Math.max(0, page);
       const values = {
         date_from:$("#date-from").value ? `${$("#date-from").value}T00:00:00` : "",
         date_to:$("#date-to").value ? `${$("#date-to").value}T23:59:59` : "",
         group_id:$("#trade-group").value,symbol:$("#trade-symbol").value,result:$("#trade-result").value
       };
-      const trades = await api(queryWithFilters("/api/trades", {...values,limit:100}));
+      const rows = await api(queryWithFilters("/api/trades", {...values,limit:TRADE_PAGE_SIZE + 1,offset:tradePage * TRADE_PAGE_SIZE}));
+      const hasNext = rows.length > TRADE_PAGE_SIZE, trades = rows.slice(0, TRADE_PAGE_SIZE);
       draw("#trades-table", ["opened_at","group_name","ticket","symbol","action","lots","entry","profit","result"], trades.map((t)=>({...t,opened_at:displayTime(t.opened_at),lots:t.lots==null?"—":t.lots,entry:t.entry==null?"—":t.entry,profit:Number(t.profit).toFixed(2)})));
       $("#trades-export").href = queryWithFilters("/api/trades/export.csv", values);
+      $("#trades-page").textContent = `Halaman ${tradePage + 1}`;
+      $("#trades-prev").disabled = tradePage === 0;
+      $("#trades-next").disabled = !hasNext;
+    }
+    async function loadProfitChart() {
       if (typeof Chart === "undefined") return;
+      const trades = await api("/api/trades?limit=30");
       const closed=trades.filter((t)=>t.closed_at).sort((a,b)=>new Date(a.closed_at)-new Date(b.closed_at));
       let total=0; const points=closed.map((t)=>({x:displayTime(t.closed_at),y:(total+=Number(t.profit))}));
-      const data={labels:points.map(p=>p.x),datasets:[{label:"Profit kumulatif",data:points.map(p=>p.y),borderColor:"#2458d3",tension:.2}]};
+      const data={labels:points.map(p=>p.x),datasets:[{label:"Profit kumulatif",data:points.map(p=>p.y),borderColor:"#4da3e8",tension:.2}]};
       if(profitChart){profitChart.data=data;profitChart.update();}
       else profitChart=new Chart($("#profit-chart"),{type:"line",data,options:{responsive:true,scales:{y:{beginAtZero:false}}}});
     }
@@ -193,16 +262,15 @@ const $ = (selector) => document.querySelector(selector);
         buttons.forEach((button)=>button.disabled=false);
       }
     }
-    setInterval(async()=>{
-      try { const status=await api("/api/public/registration-status"); renderRegistrationState(status.registration_open); }
-      catch(_) {}
-    },10000);
     async function refresh() {
-      try { await Promise.all([loadStatsAndSignals(),loadGroups(),loadLogs(),loadTrades()]); }
+      try { await Promise.all([loadStatsAndSignals(),loadMt5Live(),loadGroups(),loadLogs(),loadTrades(),loadProfitChart()]); }
       catch(error) { $("#connection").textContent=`Gagal memuat: ${error.message}`; }
     }
+    $("#refresh-all")?.addEventListener("click",refresh);
     $("#filter-logs").addEventListener("click",loadLogs);
-    $("#filter-trades").addEventListener("click",loadTrades);
+    $("#filter-trades").addEventListener("click",()=>loadTrades(0));
+    $("#trades-prev").addEventListener("click",()=>loadTrades(tradePage-1));
+    $("#trades-next").addEventListener("click",()=>loadTrades(tradePage+1));
     $("#registration-open").addEventListener("click",()=>setRegistrationOpen(true));
     $("#registration-close").addEventListener("click",()=>setRegistrationOpen(false));
     $("#settings-form").addEventListener("submit",async(event)=>{
@@ -221,21 +289,41 @@ const $ = (selector) => document.querySelector(selector);
 
     let socket;
     let pollingTimer;
+    let mt5PollingTimer;
+    let lastSignalId = null;
+    // Tab tersembunyi tidak memuat apa pun; hanya statistik ringan yang diperbarui otomatis.
     function startPolling() {
       if (pollingTimer) return;
-      $("#connection").textContent="Realtime tidak tersedia; dashboard diperbarui berkala.";
-      pollingTimer=setInterval(()=>{if($("#auto-refresh").checked) refresh();},10000);
+      $("#connection").textContent="Realtime tidak tersedia; ringkasan diperbarui tiap 5 detik.";
+      pollingTimer=setInterval(()=>{if($("#auto-refresh").checked && !document.hidden) loadStatsAndSignals().catch(()=>{});},5000);
+    }
+    function startMt5Polling() {
+      if (mt5PollingTimer) return;
+      mt5PollingTimer=setInterval(()=>{
+        if($("#auto-refresh").checked && !document.hidden) {
+          loadMt5Live().catch((error)=>{ $("#mt5-live-status").textContent=`GAGAL: ${error.message}`; });
+        }
+      },2000);
     }
     function connectSocket() {
       const protocol=location.protocol==="https:"?"wss:":"ws:";
       socket=new WebSocket(protocol+"//"+location.host+"/ws");
       const fallback=setTimeout(()=>{if(socket.readyState!==WebSocket.OPEN){startPolling();socket.close();}},8000);
       socket.onopen=()=>{clearTimeout(fallback);if(pollingTimer){clearInterval(pollingTimer);pollingTimer=null;}$("#connection").textContent="Realtime tersambung.";};
-      socket.onmessage=()=>{if($("#auto-refresh").checked) refresh();};
+      socket.onmessage=(event)=>{
+        if(!$("#auto-refresh").checked || document.hidden) return;
+        const message=JSON.parse(event.data);
+        if(message.stats) applyStats(message.stats);
+        if(message.latest_signal_id!==lastSignalId){
+          const firstMessage=lastSignalId===null; lastSignalId=message.latest_signal_id;
+          if(!firstMessage) loadSignals().catch(()=>{});
+        }
+      };
       socket.onerror=()=>{clearTimeout(fallback);startPolling();};
       socket.onclose=()=>{clearTimeout(fallback);if(!pollingTimer){$("#connection").textContent="Realtime terputus; mencoba sambung ulang…";setTimeout(connectSocket,3000);}};
     }
     refresh();
+    startMt5Polling();
     loadSettings().catch((error)=>{ $("#settings-message").textContent=`Gagal memuat: ${error.message}`; });
     connectSocket();
 </script>

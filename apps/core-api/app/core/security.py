@@ -1,3 +1,4 @@
+import asyncio
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 import hmac
@@ -99,6 +100,44 @@ class DatabaseSessionMiddleware:
             attrs.append("Secure")
         return "; ".join(attrs).encode("latin-1")
 
+    def _load_session(self, session_hash: str, user_type: str) -> tuple[str, dict | None, AuthSession | None]:
+        with SessionLocal() as db:
+            record = db.get(AuthSession, session_hash)
+            now = datetime.now(timezone.utc)
+            expires_at = record.expires_at if record is not None else None
+            if expires_at is not None and expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if (
+                record is None
+                or record.revoked_at is not None
+                or expires_at <= now
+                or record.user_type != user_type
+            ):
+                return "expired", None, None
+            try:
+                decoded = json.loads(record.session_data)
+            except (TypeError, json.JSONDecodeError):
+                decoded = None
+            if not isinstance(decoded, dict):
+                return "expired", None, None
+            record.last_seen_at = now
+            db.commit()
+            return "ok", decoded, record
+
+    @staticmethod
+    def _revoke_session(session_hash: str) -> None:
+        with SessionLocal() as db:
+            record = db.get(AuthSession, session_hash)
+            if record is not None and record.revoked_at is None:
+                record.revoked_at = datetime.now(timezone.utc)
+                db.commit()
+
+    @staticmethod
+    def _store_session(auth_session: AuthSession) -> None:
+        with SessionLocal() as db:
+            db.add(auth_session)
+            db.commit()
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] not in {"http", "websocket"}:
             await self.app(scope, receive, send)
@@ -114,32 +153,13 @@ class DatabaseSessionMiddleware:
             if not token:
                 continue
             session_hash = self._session_hash(token)
-            with SessionLocal() as db:
-                record = db.get(AuthSession, session_hash)
-                now = datetime.now(timezone.utc)
-                expires_at = record.expires_at if record is not None else None
-                if expires_at is not None and expires_at.tzinfo is None:
-                    expires_at = expires_at.replace(tzinfo=timezone.utc)
-                if (
-                    record is None
-                    or record.revoked_at is not None
-                    or expires_at <= now
-                    or record.user_type != user_type
-                ):
-                    expired_cookies.append(cookie_name)
-                    continue
-                try:
-                    decoded = json.loads(record.session_data)
-                except (TypeError, json.JSONDecodeError):
-                    decoded = None
-                if not isinstance(decoded, dict):
-                    expired_cookies.append(cookie_name)
-                    continue
-                session = decoded
-                loaded_record = record
-                loaded_cookie = cookie_name
-                record.last_seen_at = now
-                db.commit()
+            outcome, decoded, record = await asyncio.to_thread(self._load_session, session_hash, user_type)
+            if outcome == "expired":
+                expired_cookies.append(cookie_name)
+                continue
+            session = decoded
+            loaded_record = record
+            loaded_cookie = cookie_name
             break
 
         scope["session"] = session
@@ -154,11 +174,7 @@ class DatabaseSessionMiddleware:
                     response_headers.append((b"set-cookie", self._expired_cookie(name)))
                 if changed:
                     if loaded_record is not None:
-                        with SessionLocal() as db:
-                            record = db.get(AuthSession, loaded_record.session_hash)
-                            if record is not None and record.revoked_at is None:
-                                record.revoked_at = datetime.now(timezone.utc)
-                                db.commit()
+                        await asyncio.to_thread(self._revoke_session, loaded_record.session_hash)
                     user_type = (
                         "admin"
                         if isinstance(session.get("admin_username"), str)
@@ -182,19 +198,18 @@ class DatabaseSessionMiddleware:
                             int(session.get(AUTH_EXPIRES_SESSION_KEY, now.timestamp() + max_age)), timezone.utc
                         )
                         user_id = session["admin_username"] if user_type == "admin" else str(session["client_user_id"])
-                        with SessionLocal() as db:
-                            db.add(
-                                AuthSession(
-                                    session_hash=session_hash,
-                                    user_type=user_type,
-                                    user_id=str(user_id),
-                                    session_data=json.dumps(session, separators=(",", ":")),
-                                    created_at=now,
-                                    last_seen_at=now,
-                                    expires_at=expires_at,
-                                )
-                            )
-                            db.commit()
+                        await asyncio.to_thread(
+                            self._store_session,
+                            AuthSession(
+                                session_hash=session_hash,
+                                user_type=user_type,
+                                user_id=str(user_id),
+                                session_data=json.dumps(session, separators=(",", ":")),
+                                created_at=now,
+                                last_seen_at=now,
+                                expires_at=expires_at,
+                            ),
+                        )
                         new_cookie = self.cookie_names[user_type]
                         if loaded_cookie and loaded_cookie != new_cookie:
                             response_headers.append((b"set-cookie", self._expired_cookie(loaded_cookie)))
@@ -227,7 +242,7 @@ class RateLimitMiddleware:
             return 10, 60
         if path in {"/api/ea/master/snapshot", "/api/mt5/follower/positions", "/api/mt5/follower/report"}:
             return 720, 60
-        if path.startswith("/api/tg/"):
+        if path.startswith("/api/telegram/"):
             return 12, 60
         if path == "/api/parser/test":
             return 20, 60

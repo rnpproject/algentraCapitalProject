@@ -4,7 +4,7 @@
 <style nonce="{{ request.state.csp_nonce }}">.phone-input { width: min(320px, 100%); }</style>
 {% endblock %}
 {% block content %}
-<main id="main" tabindex="-1" class="page-shell">
+<main id="main" tabindex="-1" class="page-shell dashboard-page">
     <div class="page-heading"><div><span class="eyebrow">Signal sources</span><h1>Telegram Setup</h1><p class="page-description">Hubungkan akun sumber, pilih grup yang boleh dibaca, dan beri alias agar sinyal mudah dilacak.</p></div><p id="status" class="heading-aside">Status: memeriksa...</p></div>
     <section id="login">
       <h2>Hubungkan akun</h2>
@@ -54,7 +54,7 @@ const notice = document.querySelector("#notice");
     }
     async function refreshStatus() {
       try {
-        const status = await request("/api/tg/status");
+        const status = await request("/api/telegram/status");
         document.querySelector("#status").textContent = status.connected
           ? `Status: connected — ${status.account_name || "akun Telegram"}`
           : `Status: ${status.state}${status.configured ? "" : " (API ID/HASH belum diatur pada environment backend)"}`;
@@ -63,7 +63,7 @@ const notice = document.querySelector("#notice");
     }
     async function loadGroups() {
       try {
-        const groups = await request("/api/tg/groups");
+        const groups = await request("/api/telegram/groups");
         const container = document.querySelector("#groups");
         container.replaceChildren();
         if (!groups.length) { container.textContent = "Tidak ada grup atau channel."; return; }
@@ -78,14 +78,14 @@ const notice = document.querySelector("#notice");
     }
     document.querySelector("#send-code").addEventListener("click", async () => {
       try {
-        const result = await request("/api/tg/send-code", { method: "POST", body: JSON.stringify({ phone: document.querySelector("#phone").value }) });
+        const result = await request("/api/telegram/send-code", { method: "POST", body: JSON.stringify({ phone: document.querySelector("#phone").value }) });
         document.querySelector("#code-step").hidden = false;
         notice.textContent = `Kode dikirim ke ${result.phone}.`;
       } catch (error) { notice.textContent = error.message; }
     });
     document.querySelector("#verify-code").addEventListener("click", async () => {
       try {
-        const result = await request("/api/tg/verify-code", { method: "POST", body: JSON.stringify({ code: document.querySelector("#code").value }) });
+        const result = await request("/api/telegram/verify-code", { method: "POST", body: JSON.stringify({ code: document.querySelector("#code").value }) });
         if (result.requires_2fa) document.querySelector("#password-step").hidden = false;
         else await refreshStatus();
         notice.textContent = result.requires_2fa ? "Masukkan password 2FA Telegram." : "Login Telegram berhasil.";
@@ -93,17 +93,17 @@ const notice = document.querySelector("#notice");
     });
     document.querySelector("#verify-password").addEventListener("click", async () => {
       try {
-        await request("/api/tg/verify-2fa", { method: "POST", body: JSON.stringify({ password: document.querySelector("#password").value }) });
+        await request("/api/telegram/verify-2fa", { method: "POST", body: JSON.stringify({ password: document.querySelector("#password").value }) });
         document.querySelector("#password").value = "";
         await refreshStatus(); notice.textContent = "Login Telegram berhasil.";
       } catch (error) { notice.textContent = error.message; }
     });
     document.querySelector("#reconnect").addEventListener("click", async () => {
-      try { await request("/api/tg/reconnect", { method: "POST" }); await refreshStatus(); }
+      try { await request("/api/telegram/reconnect", { method: "POST" }); await refreshStatus(); }
       catch (error) { notice.textContent = error.message; }
     });
     document.querySelector("#telegram-logout").addEventListener("click", async () => {
-      try { await request("/api/tg/logout", { method: "POST" }); await refreshStatus(); notice.textContent = "Telegram logout."; }
+      try { await request("/api/telegram/logout", { method: "POST" }); await refreshStatus(); notice.textContent = "Telegram logout."; }
       catch (error) { notice.textContent = error.message; }
     });
     document.querySelector("#refresh-groups").addEventListener("click", loadGroups);
@@ -118,7 +118,7 @@ const notice = document.querySelector("#notice");
           enabled: checkbox.checked,
           alias: document.querySelector(`[data-alias-for="${CSS.escape(checkbox.dataset.chatId)}"]`).value || null
         }));
-        const result = await request("/api/tg/groups/select", { method: "POST", body: JSON.stringify({ groups: rows }) });
+        const result = await request("/api/telegram/groups/select", { method: "POST", body: JSON.stringify({ groups: rows }) });
         await loadGroups();
         notice.textContent = result.disabled
           ? `Whitelist tersimpan; ${result.disabled} sumber lama dinonaktifkan.`

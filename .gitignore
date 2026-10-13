@@ -1,19 +1,21 @@
 .env
 .env.*
 !.env.example
-old-env
 .venv/
 venv/
 node_modules/
 .next/
 __pycache__/
 *.py[cod]
+*.egg-info/
+*.tsbuildinfo
 .pytest_cache/
 backend/data/
 backend/*.session
 backend/*.session-journal
 *.log
 task.md
-/BLACKLIST GRUP.xlsx
 *.ex5
-*.mp3
+/apps/copier-worker/config/managed-worker.json
+/apps/copier-worker/config/master.json
+/apps/copier-worker/runtime/
