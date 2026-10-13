@@ -38,7 +38,7 @@
 <main id="main" tabindex="-1" class="page-shell dashboard-page">
   <div class="page-heading">
     <div><span class="eyebrow">PORTAL KLIEN / PEMBAYARAN</span><h1>Riwayat transaksi</h1>
-      <p class="page-description">Lihat status pesanan serta buka nota dan bukti transaksi. Pembayaran QRIS segera tersedia.</p>
+      <p class="page-description">Lihat status pesanan, instruksi pembayaran manual, nota, dan bukti transaksi.</p>
     </div>
     <a class="workspace-tag" href="/account">Kembali ke akun MT5</a>
   </div>
@@ -79,6 +79,7 @@ const transactionFilter = document.querySelector("#transaction-filter");
 const receiptDialog = document.querySelector("#receipt-dialog");
 const receiptContent = document.querySelector("#receipt-content");
 const clientPlans = {{ client_plans | tojson }};
+const manualPaymentInstructions = {{ payment_manual_instructions | tojson }};
 const requestedOrderId = Number(new URLSearchParams(location.search).get("order")) || null;
 let orders = [];
 let expandedPaymentOrderId = requestedOrderId;
@@ -227,11 +228,9 @@ function renderOrders(force = false) {
     if (actions.childElementCount) card.append(actions);
 
     if (order.status === "PENDING_PAYMENT" && expandedPaymentOrderId === order.id) {
-      const qr = document.createElement("img"); qr.className = "transaction-qr"; qr.src = "/api/payments/qris.jpeg";
-      qr.alt = "QRIS pembayaran Algentra Capital";
       const warning = document.createElement("p"); warning.className = "transaction-note";
-      warning.textContent = "Pindai QRIS ini untuk membayar dan pastikan jumlah pembayaran sesuai total pesanan.";
-      card.append(qr, warning);
+      warning.textContent = manualPaymentInstructions || "Hubungi admin melalui kanal resmi untuk mendapatkan rekening tujuan. Jangan transfer sebelum detail rekening dan nominal dikonfirmasi.";
+      card.append(warning);
       if (showProofFormForOrderId !== order.id) {
         addButton(card, "Saya sudah bayar", () => { showProofFormForOrderId = order.id; renderOrders(true); });
       } else {

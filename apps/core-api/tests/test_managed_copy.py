@@ -4,9 +4,10 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.auth import hash_password
+from app.api.v1 import payments as payments_api
 from app.database import SessionLocal
 from app.main import app
-from app.models import AppSetting, ClientUser, ManagedCopyProfile, MT5Account, utc_now
+from app.models import AuthSession, AppSetting, ClientUser, ManagedCopyProfile, MT5Account, PaymentOrder, utc_now
 from app.services import mt5_service
 from app.core.token_crypto import decrypt_managed_copy_password
 
@@ -15,6 +16,11 @@ def test_managed_copy_client_setup_worker_auth_and_live_acknowledgement(monkeypa
     worker_key = "m5-managed-copy-worker-key-at-least-32-characters"
     monkeypatch.setattr(
         mt5_service,
+        "get_settings",
+        lambda: SimpleNamespace(copier_worker_api_key=SecretStr(worker_key)),
+    )
+    monkeypatch.setattr(
+        payments_api,
         "get_settings",
         lambda: SimpleNamespace(copier_worker_api_key=SecretStr(worker_key)),
     )
@@ -61,15 +67,17 @@ def test_managed_copy_client_setup_worker_auth_and_live_acknowledgement(monkeypa
             "execution_mode": "MANAGED",
         }
         offline_order = client.post("/api/payments/orders", headers=csrf, json=managed_order)
-        assert offline_order.status_code == 503
+        assert offline_order.status_code == 200
+        assert offline_order.json()["status"] == "PENDING_PAYMENT"
+        assert offline_order.json()["total_idr"] == 150_000
         assert client.get("/api/mt5/copier/jobs", headers=worker_headers).status_code == 200
         order_response = client.post(
             "/api/payments/orders",
             headers=csrf,
-            json=managed_order,
+            json={**managed_order, "login": "555222"},
         )
-        assert order_response.status_code == 503
-        assert client.post("/api/payments/orders/999/proof", headers=csrf).status_code == 503
+        assert order_response.status_code == 200
+        assert client.post("/api/payments/orders/999/proof", headers=csrf).status_code == 422
 
         account_list = client.get("/api/mt5/accounts")
         assert account_list.status_code == 200
@@ -251,6 +259,10 @@ def test_managed_copy_client_setup_worker_auth_and_live_acknowledgement(monkeypa
             profile = db.get(ManagedCopyProfile, account_id)
             if profile:
                 db.expunge(profile)
+            user = db.query(ClientUser).filter_by(email=email).one_or_none()
+            if user is not None:
+                db.query(AuthSession).filter_by(user_type="client", user_id=str(user.id)).delete()
+            db.query(PaymentOrder).filter_by(email=email).delete()
             db.query(MT5Account).filter_by(id=account_id).delete()
             db.query(ClientUser).filter_by(email=email).delete()
             db.commit()
