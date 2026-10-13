@@ -270,7 +270,7 @@ Session Telethon berada di `backend/data/telegram_user.session`, tidak disajikan
 
 1. Buat `EA_API_KEY` acak minimal 24 karakter di `.env.local` untuk development atau environment Windows Service untuk production, lalu restart backend.
 2. Login sebagai admin dan unduh source EA utama dari `/downloads/TelegramSignalEA.mq5`.
-3. Buka file `.mq5` dengan MetaEditor dari MT5, tekan **F7** untuk compile, lalu pasang file `.ex5` hasil compile ke `MQL5/Experts`.
+3. Buka file `.mq5` dengan MetaEditor dari MT5, tekan **F7** untuk compile, lalu pasang file `.ex5` hasil compile ke `MQL5/Experts`. EA melaporkan snapshot akun setiap 500 ms secara default (`MasterSnapshotIntervalMs`); interval ini harus di bawah 1000 ms dan terpisah dari `PollIntervalMs` untuk polling sinyal.
 4. Di MT5, buka **Tools > Options > Expert Advisors**, aktifkan **Allow WebRequest for listed URL**, lalu tambahkan URL yang sama dengan `ServerURL` (default publik: `https://algentracapital.my.id`; untuk server lokal: `http://127.0.0.1:8000`).
 5. Pasang EA ke chart akun MT5 live, isi `ApiKey` dengan nilai `EA_API_KEY`, dan tetapkan `LotMode` serta `RiskPercent` sesuai batas risiko yang diinginkan. EA langsung mengirim order live; pastikan pengaturan sinyal, lot, SL/TP, dan izin trading terminal benar sebelum mengaktifkannya.
 6. Periksa tab Experts/Journal untuk heartbeat, status koneksi, dan laporan signal.
@@ -281,7 +281,7 @@ Resolusi simbol mencoba nama persis, akhiran broker yang unik, lalu pemetaan eks
 
 ## Copy posisi dari akun utama ke akun follower
 
-Pendaftaran dan reset kata sandi memakai email OTP enam digit yang berlaku 10 menit. Pengiriman kode dibatasi satu kali per menit dan maksimal tiga kali berturut-turut; setelah pengiriman ketiga, pengiriman berikutnya menunggu satu jam. Kode menerima maksimal tiga percobaan. Gmail bisa dipakai sebagai pengirim: buat akun Gmail khusus, aktifkan 2-Step Verification, lalu buat App Password dari pengaturan Google Account. Atur `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, `EMAIL_FROM`, dan `EMAIL_SMTP_STARTTLS` di `.env.local` untuk development atau environment Windows Service untuk production memakai App Password, bukan password Gmail biasa, lalu restart backend. Endpoint juga dibatasi per alamat IP.
+Pendaftaran dan reset kata sandi memakai email OTP enam digit yang berlaku 10 menit. Pengiriman kode dibatasi satu kali per menit dan maksimal tiga kali berturut-turut; setelah pengiriman ketiga, pengiriman berikutnya menunggu satu jam. Kode menerima maksimal tiga percobaan. Gmail bisa dipakai sebagai pengirim: buat akun Gmail khusus, aktifkan 2-Step Verification, lalu buat App Password dari pengaturan Google Account. Atur `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT`, `EMAIL_SMTP_USERNAME`, `EMAIL_SMTP_PASSWORD`, `EMAIL_FROM`, dan `EMAIL_SMTP_STARTTLS` di `.env.local` untuk development atau environment Windows Service untuk production memakai App Password, bukan password Gmail biasa, lalu restart backend. Jika endpoint pendaftaran mengembalikan HTTP 503, log backend mencatat `error_type` dan `smtp_code` tanpa mencatat isi respons server atau kredensial untuk membantu diagnosis. Endpoint juga dibatasi per alamat IP.
 
 ```env
 EMAIL_SMTP_HOST=smtp.gmail.com

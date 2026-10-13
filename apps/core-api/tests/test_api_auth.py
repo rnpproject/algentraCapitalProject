@@ -1,4 +1,6 @@
 from datetime import timedelta
+import smtplib
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -57,6 +59,35 @@ def test_password_reset_request_does_not_disclose_account_existence(monkeypatch)
         unknown = client.post("/api/auth/password-reset/request", json={"email": "not-registered@example.com"})
         assert known.status_code == unknown.status_code == 202
         assert known.json() == unknown.json()
+
+
+def test_registration_smtp_failure_is_logged_without_server_response(monkeypatch, caplog):
+    monkeypatch.setattr(
+        auth_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            email_configured=True,
+            app_secret_key=SimpleNamespace(get_secret_value=lambda: "test-app-secret-key-at-least-thirty-two-chars"),
+        ),
+    )
+    monkeypatch.setattr(auth_service, "registration_is_open", lambda _db: True)
+
+    def reject_email(*_args, **_kwargs):
+        raise smtplib.SMTPAuthenticationError(535, b"private SMTP response")
+
+    monkeypatch.setattr(auth_service, "send_verification_code", reject_email)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/auth/register",
+            json={"email": "smtp-failure@example.com", "password": "Valid-Password-123"},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Email verifikasi gagal dikirim; coba lagi nanti"}
+    assert "Verification email delivery failed" in caplog.text
+    assert "SMTPAuthenticationError" in caplog.text
+    assert "535" in caplog.text
+    assert "private SMTP response" not in caplog.text
 
 
 def test_password_reset_revokes_existing_client_session():

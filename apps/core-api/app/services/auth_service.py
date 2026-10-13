@@ -48,6 +48,11 @@ CODE_LIFETIME = timedelta(minutes=10)
 CODE_ATTEMPT_LIMIT = 3
 
 
+def _log_email_delivery_failure(action: str, exc: Exception) -> None:
+    smtp_code = exc.smtp_code if isinstance(exc, smtplib.SMTPResponseException) else None
+    logger.warning("%s email delivery failed (error_type=%s, smtp_code=%s)", action, type(exc).__name__, smtp_code)
+
+
 def _set_session_expiry(request: Request, max_age: int, remember_client: bool = False) -> None:
     request.session[AUTH_EXPIRES_SESSION_KEY] = int(utc_now().timestamp()) + max_age
     request.session[REMEMBER_SESSION_KEY] = remember_client
@@ -128,7 +133,7 @@ def _deliver_password_reset(settings, email: str, code: str) -> None:
     try:
         send_verification_code(settings, email, code, purpose="password_reset")
     except (OSError, smtplib.SMTPException) as exc:
-        logger.warning("Password reset email delivery failed (%s)", type(exc).__name__)
+        _log_email_delivery_failure("Password reset", exc)
 
 
 def login(payload: LoginRequest, request: Request, db: Session) -> dict[str, str]:
@@ -188,6 +193,7 @@ def register(payload: RegisterRequest, db: Session) -> dict[str, str | int]:
     try:
         send_verification_code(settings, email, code)
     except (OSError, smtplib.SMTPException) as exc:
+        _log_email_delivery_failure("Verification", exc)
         # Allow an immediate retry if the email provider rejected the message.
         current = db.get(EmailVerification, email)
         if current is not None and hmac.compare_digest(current.code_hash, code_hash):
@@ -232,6 +238,7 @@ def resend_code(payload: ResendCodeRequest, db: Session) -> dict[str, str | int]
     try:
         send_verification_code(settings, email, code)
     except (OSError, smtplib.SMTPException) as exc:
+        _log_email_delivery_failure("Verification resend", exc)
         current = db.get(EmailVerification, email)
         if current is not None and hmac.compare_digest(current.code_hash, code_hash):
             db.delete(current)

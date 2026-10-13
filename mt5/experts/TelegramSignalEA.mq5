@@ -17,6 +17,7 @@ enum ENUM_LOT_MODE
 input string ServerURL = "http://127.0.0.1:8000";
 input string ApiKey = "";
 input int PollIntervalMs = 1000;
+input int MasterSnapshotIntervalMs = 500;
 input long MagicNumber = 26093001;
 input ENUM_LOT_MODE LotMode = LOT_RISK_PERCENT;
 input double FixedLot = 0.01;
@@ -43,6 +44,7 @@ int g_signal_count = 0;
 int g_wins = 0;
 int g_losses = 0;
 ulong g_last_master_snapshot_ms = 0;
+ulong g_last_signal_poll_ms = 0;
 
 string TrimTrailingSlash(string value)
   {
@@ -1387,11 +1389,20 @@ int OnInit()
       Print("[TelegramSignalEA] PollIntervalMs must be >= 100");
       return INIT_PARAMETERS_INCORRECT;
      }
+   if(MasterSnapshotIntervalMs < 100 || MasterSnapshotIntervalMs >= 1000)
+     {
+      Print("[TelegramSignalEA] MasterSnapshotIntervalMs must be between 100 and 999");
+      return INIT_PARAMETERS_INCORRECT;
+     }
    g_trade.SetExpertMagicNumber((ulong)MagicNumber);
    g_trade.SetDeviationInPoints((ulong)MaxSlippage);
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
       Print("[TelegramSignalEA] AutoTrading is off; live signals will wait and retry when MT5 trading is enabled.");
-   EventSetMillisecondTimer(PollIntervalMs);
+   int timer_interval_ms = PollIntervalMs;
+   if(MasterSnapshotIntervalMs < timer_interval_ms)
+      timer_interval_ms = MasterSnapshotIntervalMs;
+   EventSetMillisecondTimer(timer_interval_ms);
+   g_last_signal_poll_ms = GetTickCount64();
    SendHeartbeat();
    PublishMasterSnapshot();
    UpdatePanel();
@@ -1410,9 +1421,13 @@ void OnTimer()
   {
    ExpirePendingOrders();
    ReportExpiredOrdersFromHistory();
-   PollSignals();
    ulong now_ms = GetTickCount64();
-   if(now_ms - g_last_master_snapshot_ms >= 1000)
+   if(now_ms - g_last_signal_poll_ms >= (ulong)PollIntervalMs)
+     {
+      PollSignals();
+      g_last_signal_poll_ms = now_ms;
+     }
+   if(now_ms - g_last_master_snapshot_ms >= (ulong)MasterSnapshotIntervalMs)
       PublishMasterSnapshot();
    if(TimeCurrent() - g_last_heartbeat >= 30)
       SendHeartbeat();
