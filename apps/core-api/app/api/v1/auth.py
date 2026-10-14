@@ -60,3 +60,11 @@ def client_login(payload: ClientLoginRequest, request: Request, db: Session = De
 @router.post("/logout")
 def logout(request: Request) -> dict[str, str]:
     return auth_service.logout(request)
+
+
+@router.get("/session")
+def session_status(request: Request) -> dict[str, bool]:
+    return {
+        "admin": request.session.get("admin_username") is not None,
+        "client": request.session.get("client_user_id") is not None,
+    }
