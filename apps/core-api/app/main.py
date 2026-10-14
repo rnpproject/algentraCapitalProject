@@ -6,8 +6,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -36,7 +35,6 @@ from .api.v1 import (
     tg as tg_router,
 )
 from .api.v1.mt5 import require_client_id
-from .services.registration import registration_is_open
 from .services.public_service import public_performance_payload
 from .services.signal_service import SignalService
 from .core.security import (
@@ -196,21 +194,8 @@ async def validation_error_response(_: Request, exc: RequestValidationError) -> 
     return JSONResponse(status_code=422, content={"detail": errors})
 
 
-templates = Jinja2Templates(
-    directory=str(Path(__file__).resolve().parent / "templates"),
-    context_processors=[public_router.template_context],
-)
-
-
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_response(request: Request, exc: StarletteHTTPException):
-    if exc.status_code == 404 and not request.url.path.startswith("/api/"):
-        return templates.TemplateResponse(
-            request=request,
-            name="404.html",
-            context={"requested_path": request.url.path},
-            status_code=404,
-        )
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
@@ -285,75 +270,6 @@ def readiness() -> JSONResponse:
     return JSONResponse(content={"status": "ready", "checks": {"database": "ok"}})
 
 
-@app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request, db: Session = Depends(get_db)):
-    if isinstance(request.session.get("client_user_id"), int):
-        return RedirectResponse("/account", status_code=303)
-    if request.session.get("admin_username"):
-        return RedirectResponse("/dashboard", status_code=303)
-    return templates.TemplateResponse(
-        request=request,
-        name="login.html",
-        context={"registration_open": registration_is_open(db)},
-    )
-
-
-@app.get("/loginAdmin", response_class=HTMLResponse, include_in_schema=False)
-def admin_login_page(request: Request):
-    if request.session.get("admin_username"):
-        return RedirectResponse("/dashboard", status_code=303)
-    return templates.TemplateResponse(request=request, name="admin_login.html", context={})
-
-
-@app.get("/register", response_class=HTMLResponse)
-def register_page(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
-    if not registration_is_open(db):
-        return RedirectResponse("/#registration-launch", status_code=303)
-    return templates.TemplateResponse(
-        request=request,
-        name="register.html",
-        context={"registration_open": True},
-    )
-
-
-@app.get("/forgot-password", response_class=HTMLResponse)
-def forgot_password_page(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request=request, name="forgot_password.html", context={})
-
-
-@app.get("/account", response_class=HTMLResponse)
-def client_account_page(
-    request: Request,
-    _: int = Depends(require_client_id),
-) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request=request,
-        name="account.html",
-        context={
-            "csrf_token": request.session["csrf_token"],
-            "client_plans": CLIENT_PLANS,
-            "managed_copy_enabled": get_settings().copier_worker_api_key is not None,
-            "payment_manual_instructions": get_settings().payment_manual_instructions,
-        },
-    )
-
-
-@app.get("/transactions", response_class=HTMLResponse)
-def client_transactions_page(
-    request: Request,
-    _: int = Depends(require_client_id),
-) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request=request,
-        name="transactions.html",
-        context={
-            "csrf_token": request.session["csrf_token"],
-            "client_plans": CLIENT_PLANS,
-            "payment_manual_instructions": get_settings().payment_manual_instructions,
-        },
-    )
-
-
 @app.get("/downloads/MT5FollowerCopyEA.mq5", response_class=FileResponse, include_in_schema=False)
 def download_mt5_follower_copy_ea_source(_: int = Depends(require_client_id)) -> FileResponse:
     return FileResponse(
@@ -395,27 +311,6 @@ def _compiled_mt5_ea_download(filename: str) -> FileResponse:
 @app.get("/downloads/MT5FollowerCopyEA.ex5", response_class=FileResponse, include_in_schema=False)
 def download_mt5_follower_copy_ea_binary(_: int = Depends(require_client_id)) -> FileResponse:
     return _compiled_mt5_ea_download("MT5FollowerCopyEA.ex5")
-
-
-@app.get("/parser-test", response_class=HTMLResponse)
-def parser_test_page(request: Request, _: str = Depends(require_admin)) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request=request, name="parser_test.html", context={"csrf_token": request.session["csrf_token"]}
-    )
-
-
-@app.get("/telegram-setup", response_class=HTMLResponse)
-def telegram_setup_page(request: Request, _: str = Depends(require_admin)) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request=request, name="telegram_setup.html", context={"csrf_token": request.session["csrf_token"]}
-    )
-
-
-@app.get("/dashboard", response_class=HTMLResponse)
-def dashboard_page(request: Request, _: str = Depends(require_admin)) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request=request, name="dashboard.html", context={"csrf_token": request.session["csrf_token"]}
-    )
 
 
 @app.websocket("/ws")
