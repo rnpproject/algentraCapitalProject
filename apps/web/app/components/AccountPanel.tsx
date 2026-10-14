@@ -626,6 +626,10 @@ export function AccountPanel() {
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [selectedVps, setSelectedVps] = useState<string | null>(null);
   const [accountMessage, setAccountMessage] = useState("");
+
+  const selectedVpsPrice =
+    pricing?.vps_options.find((v) => v.code === selectedVps)?.price_idr ?? 0;
+  const totalIdr = (pricing?.copy_trading_fee_idr ?? 0) + selectedVpsPrice;
   const [tokenBox, setTokenBox] = useState<TokenBox>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
   const managedFormDirty = useRef(false);
@@ -776,13 +780,15 @@ export function AccountPanel() {
           broker dienkripsi dan hanya dikirim ke worker copier yang terautentikasi.
         </p>
         <form id="account-form" onSubmit={handleConnectSubmit}>
-          <fieldset className="plan-picker">
+          <fieldset className="plan-picker plan-picker--compact">
             <legend>Cara menjalankan copy trading</legend>
-            <div className="plan-options">
+            <div
+              className="price-list"
+              role="radiogroup"
+              aria-label="Cara menjalankan copy trading"
+            >
               <label
-                className={`plan-option${
-                  managedWorkerReady ? "" : " plan-option--disabled"
-                }`}
+                className="price-row"
                 htmlFor="execution-managed"
                 {...(!managedWorkerReady
                   ? {
@@ -804,18 +810,22 @@ export function AccountPanel() {
                     setExecutionMode("MANAGED");
                   }}
                 />
-                <span className="plan-option__name">Dikelola server</span>
-                {!managedWorkerReady && (
-                  <span className="plan-option__availability">
-                    Belum tersedia
+                <span className="price-row__body">
+                  <span className="price-row__name">
+                    Dikelola server
+                    {!managedWorkerReady && (
+                      <span className="plan-option__availability">
+                        Belum tersedia
+                      </span>
+                    )}
                   </span>
-                )}
-                <span>
-                  Pengaturan melalui website. MT5 berjalan di server layanan,
-                  bukan di komputer Anda.
+                  <span className="price-row__desc">
+                    Pengaturan melalui website. MT5 berjalan di server
+                    layanan, bukan di komputer Anda.
+                  </span>
                 </span>
               </label>
-              <label className="plan-option" htmlFor="execution-ea">
+              <label className="price-row" htmlFor="execution-ea">
                 <input
                   id="execution-ea"
                   type="radio"
@@ -828,10 +838,12 @@ export function AccountPanel() {
                     setExecutionMode("EA");
                   }}
                 />
-                <span className="plan-option__name">Pasang EA sendiri</span>
-                <span>
-                  Anda menjalankan terminal MT5 dan EA Copy Trading di
-                  perangkat/VPS sendiri.
+                <span className="price-row__body">
+                  <span className="price-row__name">Pasang EA sendiri</span>
+                  <span className="price-row__desc">
+                    Anda menjalankan terminal MT5 dan EA Copy Trading di
+                    perangkat/VPS sendiri.
+                  </span>
                 </span>
               </label>
             </div>
@@ -844,95 +856,99 @@ export function AccountPanel() {
           >
             {serviceStatus}
           </p>
-          <fieldset className="plan-picker">
+          <fieldset className="plan-picker plan-picker--compact">
             <legend>Biaya layanan</legend>
             {pricing ? (
               executionMode === "MANAGED" ? (
-                <div className="price-cards">
-                  <div className="price-card">
-                    <span className="price-card__name">Biaya pengelolaan akun</span>
-                    <span className="price-card__desc">
-                      MT5 berjalan di server layanan, bukan di komputer Anda.
-                      Termasuk pemantauan worker managed copy.
+                <div className="price-list">
+                  <div className="price-row">
+                    <span className="price-row__body">
+                      <span className="price-row__name">
+                        Biaya pengelolaan akun
+                      </span>
+                      <span className="price-row__desc">
+                        MT5 berjalan di server layanan. Termasuk pemantauan
+                        worker managed copy.
+                      </span>
                     </span>
-                    <strong className="price-card__price">
+                    <span className="price-row__price">
                       Rp {formatInteger(pricing.management_fee_idr)}
-                    </strong>
+                    </span>
                   </div>
                 </div>
               ) : (
                 <>
-                  <div className="price-cards">
-                    <div className="price-card">
-                      <span className="price-card__name">Biaya copy trading</span>
-                      <span className="price-card__desc">
-                        Setengah dari biaya pengelolaan server. EA berjalan di
-                        perangkat/VPS Anda sendiri.
+                  <div className="price-list">
+                    <div className="price-row">
+                      <span className="price-row__body">
+                        <span className="price-row__name">
+                          Biaya copy trading
+                        </span>
+                        <span className="price-row__desc">
+                          Setengah dari biaya pengelolaan server.
+                        </span>
                       </span>
-                      <strong className="price-card__price">
+                      <span className="price-row__price">
                         Rp {formatInteger(pricing.copy_trading_fee_idr)}
-                      </strong>
+                      </span>
                     </div>
                   </div>
                   {pricing.vps_options.length > 0 && (
-                    <div className="vps-picker">
-                      <p className="vps-picker__title">
+                    <>
+                      <p className="mini-title">
                         Tambah VPS{" "}
-                        <span className="price-card__opt">(opsional)</span>
+                        <span className="mini-title__opt">(opsional)</span>
                       </p>
                       <div
-                        className="price-cards price-cards--two"
+                        className="price-list"
                         role="radiogroup"
                         aria-label="Pilihan VPS"
                       >
-                        <label className="price-card price-card--check">
+                        <label className="price-row">
                           <input
                             type="radio"
                             name="vps_option"
                             checked={selectedVps === null}
                             onChange={() => setSelectedVps(null)}
                           />
-                          <span className="price-card__name">Tanpa VPS</span>
-                          <span className="price-card__desc">
-                            Jalankan di perangkat atau VPS Anda sendiri.
+                          <span className="price-row__body">
+                            <span className="price-row__name">Tanpa VPS</span>
+                            <span className="price-row__desc">
+                              Jalankan di perangkat atau VPS Anda sendiri.
+                            </span>
                           </span>
-                          <strong className="price-card__price">Rp 0</strong>
+                          <span className="price-row__price">Rp 0</span>
                         </label>
                         {pricing.vps_options.map((vps) => (
-                          <label
-                            key={vps.code}
-                            className="price-card price-card--check"
-                          >
+                          <label key={vps.code} className="price-row">
                             <input
                               type="radio"
                               name="vps_option"
                               checked={selectedVps === vps.code}
                               onChange={() => setSelectedVps(vps.code)}
                             />
-                            <span className="price-card__name">{vps.name}</span>
-                            <span className="price-card__desc">
-                              {vps.vcpu} · RAM {vps.ram} · Disk {vps.disk}
+                            <span className="price-row__body">
+                              <span className="price-row__name">
+                                {vps.name}
+                              </span>
+                              <span className="price-row__desc">
+                                {vps.vcpu} · RAM {vps.ram} · Disk {vps.disk}
+                              </span>
                             </span>
-                            <strong className="price-card__price">
+                            <span className="price-row__price">
                               Rp {formatInteger(vps.price_idr)}
-                            </strong>
+                            </span>
                           </label>
                         ))}
                       </div>
-                    </div>
+                    </>
                   )}
-                  <p className="price-total">
-                    Total bayar:{" "}
-                    <strong>
-                      Rp{" "}
-                      {formatInteger(
-                        pricing.copy_trading_fee_idr +
-                          (pricing.vps_options.find(
-                            (v) => v.code === selectedVps
-                          )?.price_idr ?? 0)
-                      )}
-                    </strong>
-                  </p>
+                  <div className="price-list price-list--summary">
+                    <div className="price-list__total">
+                      <span>Total bayar</span>
+                      <strong>Rp {formatInteger(totalIdr)}</strong>
+                    </div>
+                  </div>
                 </>
               )
             ) : (

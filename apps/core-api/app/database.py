@@ -108,11 +108,18 @@ def migrate_schema() -> None:
                     connection.execute(text(f"ALTER TABLE mt5_accounts ADD COLUMN {name} {sql_type}"))
     if "payment_orders" in inspector.get_table_names():
         columns = {column["name"] for column in inspector.get_columns("payment_orders")}
-        if "execution_mode" not in columns:
+        additions = {
+            "execution_mode": "VARCHAR(16) NOT NULL DEFAULT 'EA'",
+            "payment_method": "VARCHAR(16) NOT NULL DEFAULT 'MANUAL'",
+            "midtrans_order_id": "VARCHAR(64)",
+            "midtrans_transaction_id": "VARCHAR(64)",
+            "midtrans_status": "VARCHAR(32)",
+        }
+        missing = {name: sql_type for name, sql_type in additions.items() if name not in columns}
+        if missing:
             with engine.begin() as connection:
-                connection.execute(
-                    text("ALTER TABLE payment_orders ADD COLUMN execution_mode VARCHAR(16) NOT NULL DEFAULT 'EA'")
-                )
+                for name, sql_type in missing.items():
+                    connection.execute(text(f"ALTER TABLE payment_orders ADD COLUMN {name} {sql_type}"))
     if "managed_copy_profiles" in inspector.get_table_names():
         columns = {column["name"] for column in inspector.get_columns("managed_copy_profiles")}
         additions = {

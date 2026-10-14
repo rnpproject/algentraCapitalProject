@@ -61,6 +61,11 @@ class BFFSignatureMiddleware:
         if not path.startswith("/v1/"):
             await self.app(scope, receive, send)
             return
+        if path == "/v1/payments/midtrans/notification":
+            # Webhook Midtrans datang langsung dari Midtrans (bukan via BFF);
+            # keamanannya memakai signature SHA512 Midtrans sendiri.
+            await self.app(scope, receive, send)
+            return
 
         body_messages: list[Message] = []
         body_parts: list[bytes] = []

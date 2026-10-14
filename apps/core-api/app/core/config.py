@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     payment_manual_instructions: str = Field(
         default="", validation_alias="PAYMENT_MANUAL_INSTRUCTIONS", max_length=1200
     )
+    midtrans_server_key: SecretStr | None = Field(default=None, validation_alias="MIDTRANS_SERVER_KEY")
+    midtrans_merchant_id: str | None = Field(default=None, validation_alias="MIDTRANS_MERCHANT_ID")
+    midtrans_is_production: bool = Field(default=False, validation_alias="MIDTRANS_IS_PRODUCTION")
+    midtrans_notification_url: str | None = Field(
+        default=None, validation_alias="MIDTRANS_NOTIFICATION_URL", max_length=320
+    )
     management_fee_idr: int = Field(
         default=150_000, validation_alias="MANAGEMENT_FEE_IDR", ge=0
     )

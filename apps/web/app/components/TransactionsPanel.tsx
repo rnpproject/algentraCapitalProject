@@ -22,9 +22,18 @@ type PaymentOrder = {
   execution_mode: string;
   total_idr: number;
   status: string;
+  payment_method: string;
+  midtrans_status: string | null;
   created_at: string;
   has_proof: boolean;
   notification_sent: boolean;
+};
+
+type QrisCharge = {
+  order_id: number;
+  midtrans_order_id: string;
+  qr_code_url: string;
+  gross_amount: number;
 };
 
 const money = (value: number) =>
@@ -73,6 +82,10 @@ function OrderDetails({ order, plans }: { order: PaymentOrder; plans: Record<str
         : "Pasang EA di MT5 sendiri",
     ],
     ["Login broker", `${order.login} - ${order.server}`],
+    [
+      "Metode pembayaran",
+      order.payment_method === "QRIS" ? "QRIS (otomatis)" : "Manual",
+    ],
     ["Tanggal pesanan", orderDate(order.created_at)],
   ];
   return (
@@ -84,6 +97,90 @@ function OrderDetails({ order, plans }: { order: PaymentOrder; plans: Record<str
         </div>
       ))}
     </dl>
+  );
+}
+
+function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () => void }) {
+  const [charge, setCharge] = useState<QrisCharge | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
+  const refreshRef = useRef(onRefresh);
+  refreshRef.current = onRefresh;
+
+  async function createCharge() {
+    setCreating(true);
+    setError("");
+    try {
+      const result = await apiRequest<QrisCharge>(`payments/orders/${order.id}/qris`, {
+        method: "POST",
+      });
+      setCharge(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal membuat QRIS.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  // Selama QR ditampilkan, refresh status order tiap 4 detik.
+  useEffect(() => {
+    if (!charge) return;
+    const timer = setInterval(() => refreshRef.current(), 4000);
+    return () => clearInterval(timer);
+  }, [charge]);
+
+  // QR hangus/dibatalkan di sisi server: kembali ke tombol buat QR.
+  useEffect(() => {
+    if (charge && order.payment_method !== "QRIS") setCharge(null);
+  }, [charge, order.payment_method]);
+
+  if (order.status !== "PENDING_PAYMENT") return null;
+
+  return (
+    <div className="qris-box">
+      <p className="qris-title">Pembayaran otomatis via QRIS</p>
+      {!charge ? (
+        <>
+          <button type="button" onClick={() => void createCharge()} disabled={creating}>
+            {creating ? "Membuat kode QR…" : order.payment_method === "QRIS" ? "Buat QR baru" : "Bayar dengan QRIS"}
+          </button>
+          {error ? (
+            <p className="status" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <p className="transaction-note">
+            Scan kode QR dengan e-wallet atau m-banking apa pun. Akun dibuat
+            otomatis setelah pembayaran terverifikasi — tanpa menunggu admin.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="transaction-note">
+            Scan untuk membayar {money(charge.gross_amount)}. Status pembayaran
+            diperiksa otomatis setiap beberapa detik.
+          </p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            className="qris-code"
+            src={charge.qr_code_url}
+            alt={`Kode QRIS untuk pesanan ${order.id}`}
+            width={220}
+            height={220}
+          />
+          <div className="toolbar">
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => void createCharge()}
+              disabled={creating}
+            >
+              Buat QR baru
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -323,6 +420,10 @@ function TransactionsPanelInner() {
 
                     {order.status === "PENDING_PAYMENT" && expandedOrderId === order.id && (
                       <>
+                        <QrisPayment order={order} onRefresh={() => void loadOrders(true)} />
+                        <div className="payment-divider" aria-hidden="true">
+                          <span>atau bayar manual</span>
+                        </div>
                         <p className="transaction-note">{instructions || instructionFallback}</p>
                         {proofFormOrderId !== order.id ? (
                           <button type="button" onClick={() => setProofFormOrderId(order.id)}>

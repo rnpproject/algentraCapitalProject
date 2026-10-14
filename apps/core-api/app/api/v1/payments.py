@@ -1,7 +1,7 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from ...services.payment_service import (
     retry_admin_notification,
     submit_payment_proof as store_payment_proof,
 )
+from ...services import midtrans_service
 from .mt5 import require_client_id
 
 
@@ -132,3 +133,50 @@ async def retry_admin_notification_endpoint(
 @router.get("/qris.jpeg", include_in_schema=False)
 def qris_image() -> dict[str, str]:
     raise HTTPException(status_code=410, detail=QRIS_UNAVAILABLE_DETAIL)
+
+
+@router.post("/orders/{order_id}/qris")
+def create_qris_payment(
+    order_id: int,
+    owner_id: int = Depends(require_client_id),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Buat transaksi QRIS Midtrans untuk order. Mengembalikan URL kode QR."""
+    try:
+        return midtrans_service.create_qris_charge(db, order_id=order_id, owner_id=owner_id)
+    except midtrans_service.MidtransNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except midtrans_service.MidtransOrderNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except midtrans_service.MidtransOrderConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except midtrans_service.MidtransError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/orders/{order_id}/qris")
+def qris_payment_state(
+    order_id: int,
+    owner_id: int = Depends(require_client_id),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Status QRIS untuk polling frontend."""
+    state = midtrans_service.get_qris_state(db, order_id=order_id, owner_id=owner_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Status QRIS tidak ditemukan")
+    return state
+
+
+@router.post("/midtrans/notification", include_in_schema=False)
+async def midtrans_notification(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
+    """Webhook Midtrans. Tanpa auth BFF — diverifikasi via signature SHA512 Midtrans."""
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"detail": "Payload tidak valid"})
+    if not isinstance(payload, dict):
+        return JSONResponse(status_code=400, content={"detail": "Payload tidak valid"})
+    status, _ = midtrans_service.handle_notification(db, payload)
+    if status == "INVALID_SIGNATURE":
+        return JSONResponse(status_code=403, content={"detail": "Signature tidak valid"})
+    return JSONResponse(status_code=200, content={"status": status})
