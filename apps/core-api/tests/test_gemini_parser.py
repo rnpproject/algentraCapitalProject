@@ -75,7 +75,7 @@ CASES = [
     ("LONG GOLD @ 2400 SL 2380 TARGET 2440", signal("BUY", symbol="GOLD", entry=2400, tp=[2440], sl=2380), "PENDING"),
     ("sell gold limit 2420 stop loss 2435 take profit 2400", signal("SELL", order="LIMIT", symbol="GOLD", entry=2420, tp=[2400], sl=2435), "PENDING"),
     ("XAUUSD BUY STOP 2405 TP 2420 SL 2390", signal("BUY", order="STOP", symbol="XAUUSD", entry=2405, tp=[2420], sl=2390), "PENDING"),
-    ("Sinyal beli EURUSD 1.08 SL 1.075 TP 1.09", signal("BUY", symbol="EURUSD", entry=1.08, tp=[1.09], sl=1.075), "REJECTED"),
+    ("Sinyal beli EURUSD 1.08 SL 1.075 TP 1.09", signal("BUY", symbol="EURUSD", entry=1.08, tp=[1.09], sl=1.075), "PENDING"),
     ("Buy now, tp 1.2345 sl 1.2300 💹", signal("BUY", tp=[1.2345], sl=1.23), "PENDING"),
     ("Masuk sell gold di 2380, TP 2360, SL 2390 ya", signal("SELL", symbol="GOLD", entry=2380, tp=[2360], sl=2390), "PENDING"),
     ("BUY NOW 📈 XAUUSD", signal("BUY", symbol="XAUUSD"), "PENDING"),
@@ -83,7 +83,7 @@ CASES = [
     ("Good morning! semoga cuan", signal(), "IGNORED"),
     ("Admin: entry gold BUY 2333 | TP1 2340 TP2 2345 | SL 2325", signal("BUY", symbol="GOLD", entry=2333, tp=[2340, 2345], sl=2325), "PENDING"),
     ("Sell XAUUSD @ market / take profits 2330 and 2320 / stop 2350", signal("SELL", symbol="XAUUSD", tp=[2330, 2320], sl=2350), "PENDING"),
-    ("GBPUSD buy stop 1.2800, stop loss 1.2750, take profit 1.2900", signal("BUY", order="STOP", symbol="GBPUSD", entry=1.28, tp=[1.29], sl=1.275), "REJECTED"),
+    ("GBPUSD buy stop 1.2800, stop loss 1.2750, take profit 1.2900", signal("BUY", order="STOP", symbol="GBPUSD", entry=1.28, tp=[1.29], sl=1.275), "PENDING"),
 ]
 
 
@@ -222,9 +222,10 @@ def test_bare_gold_market_now_phrases_parse_without_gemini(message, action, symb
     assert validation.symbol == "XAUUSD"
 
 
-def test_market_now_without_price_requires_an_explicit_gold_symbol():
+def test_market_now_without_price_requires_an_explicit_tradable_symbol():
     assert _signal_candidate("BUY NOW", None)[0] is False
-    assert _signal_candidate("EURUSD BUY NOW", None)[0] is False
+    assert _signal_candidate("EURUSD BUY NOW", None)[0] is True
+    assert _signal_candidate("BTCUSDT BUY NOW", None)[0] is True
 
 
 def test_symbol_mapping_preserves_broker_suffix_and_rejects_low_confidence():

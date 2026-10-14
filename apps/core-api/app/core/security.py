@@ -107,12 +107,7 @@ class DatabaseSessionMiddleware:
             expires_at = record.expires_at if record is not None else None
             if expires_at is not None and expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
-            if (
-                record is None
-                or record.revoked_at is not None
-                or expires_at <= now
-                or record.user_type != user_type
-            ):
+            if record is None or record.revoked_at is not None or expires_at <= now or record.user_type != user_type:
                 return "expired", None, None
             try:
                 decoded = json.loads(record.session_data)

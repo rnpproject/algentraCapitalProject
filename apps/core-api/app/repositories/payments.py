@@ -47,14 +47,18 @@ class PaymentRepository:
             self._session.rollback()
             return None, "MISSING"
 
-        account_count = self._session.scalar(
-            select(func.count()).select_from(MT5Account).where(MT5Account.owner_id == owner_id)
-        ) or 0
-        reserved_order_count = self._session.scalar(
-            select(func.count())
-            .select_from(PaymentOrder)
-            .where(PaymentOrder.owner_id == owner_id, PaymentOrder.status.in_(ACTIVE_ORDER_STATUSES))
-        ) or 0
+        account_count = (
+            self._session.scalar(select(func.count()).select_from(MT5Account).where(MT5Account.owner_id == owner_id))
+            or 0
+        )
+        reserved_order_count = (
+            self._session.scalar(
+                select(func.count())
+                .select_from(PaymentOrder)
+                .where(PaymentOrder.owner_id == owner_id, PaymentOrder.status.in_(ACTIVE_ORDER_STATUSES))
+            )
+            or 0
+        )
         if account_count + reserved_order_count >= 10:
             self._session.rollback()
             return None, "ACCOUNT_LIMIT"

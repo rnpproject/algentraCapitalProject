@@ -4,6 +4,6 @@
   "master_config": "master.json",
   "terminal_template_dir": "C:/Path/To/Clean/MT5FollowerTemplate",
   "runtime_dir": "runtime",
-  "poll_seconds": 5,
+  "poll_seconds": 1,
   "heartbeat_timeout_seconds": 45
 }

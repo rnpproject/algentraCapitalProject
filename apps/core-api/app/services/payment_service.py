@@ -88,9 +88,7 @@ def _proof_extension(content: bytes) -> str | None:
     return None
 
 
-async def submit_payment_proof(
-    db: Session, order_id: int, owner_id: int, content: bytes
-) -> dict[str, object]:
+async def submit_payment_proof(db: Session, order_id: int, owner_id: int, content: bytes) -> dict[str, object]:
     if not content:
         raise PaymentOrderConflict("File bukti pembayaran kosong.")
     if len(content) > MAX_PROOF_BYTES:

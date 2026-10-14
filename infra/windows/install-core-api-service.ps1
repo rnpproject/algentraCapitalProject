@@ -22,6 +22,9 @@ $ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
 $EnvironmentFile = (Resolve-Path -LiteralPath $EnvironmentFile).Path
 $python = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw "Virtual environment tidak ditemukan: $python" }
+if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+    throw "Service $ServiceName sudah terdaftar. Installer tidak menimpa service yang ada; verifikasi dan hapus instalasi parsial sebelum mencoba lagi."
+}
 
 $serviceAccount = "NT SERVICE\$ServiceName"
 $powershellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
@@ -40,6 +43,7 @@ function Set-NssmSetting([string[]] $Arguments) {
 
 & $NssmPath install $ServiceName $powershellExe
 if ($LASTEXITCODE -ne 0) { throw 'NSSM gagal mendaftarkan service.' }
+Set-NssmSetting @($ServiceName, 'Start', 'SERVICE_DISABLED')
 Set-NssmSetting @($ServiceName, 'AppDirectory', $ProjectRoot)
 $parameters = @(
     '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
@@ -49,14 +53,12 @@ $parameters = @(
 Set-NssmSetting @($ServiceName, 'AppParameters', $parameters)
 Set-NssmSetting @($ServiceName, 'DisplayName', 'Algentra Capital Core API')
 Set-NssmSetting @($ServiceName, 'Description', 'FastAPI core service; schema must be provisioned before release.')
-Set-NssmSetting @($ServiceName, 'Start', 'SERVICE_AUTO_START')
 Set-NssmSetting @($ServiceName, 'AppExit', 'Default', 'Restart')
 Set-NssmSetting @($ServiceName, 'AppRestartDelay', '5000')
 Set-NssmSetting @($ServiceName, 'AppStdout', (Join-Path $logDirectory 'stdout.log'))
 Set-NssmSetting @($ServiceName, 'AppStderr', (Join-Path $logDirectory 'stderr.log'))
 Set-NssmSetting @($ServiceName, 'AppRotateFiles', '1')
 Set-NssmSetting @($ServiceName, 'AppRotateBytes', '10485760')
-Set-NssmSetting @($ServiceName, 'AppKillProcessTree', '1')
 Set-NssmSetting @($ServiceName, 'ObjectName', $serviceAccount, '')
 
 & sc.exe sidtype $ServiceName unrestricted | Out-Null
@@ -96,6 +98,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Gagal memberi hak traversal pada folder backen
 if ($LASTEXITCODE -ne 0) { throw 'Gagal memberi hak tulis pada backend\data.' }
 & icacls.exe $logDirectory /grant "${serviceAccount}:(OI)(CI)M" /T /C | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Gagal memberi hak tulis pada folder log.' }
+
+Set-NssmSetting @($ServiceName, 'Start', 'SERVICE_AUTO_START')
 
 Write-Output "Service $ServiceName terpasang dengan akun virtual $serviceAccount. Pastikan ACL environment file hanya memberi akses kepada administrator dan akun service."
 Write-Output 'Jalankan service setelah DNS, kredensial, schema production, dan health check diverifikasi.'
