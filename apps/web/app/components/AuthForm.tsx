@@ -105,6 +105,7 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
   const [forgotEmail, setForgotEmail] = useState("");
   const [clientMessage, setClientMessage] = useState("");
   const [registerMessage, setRegisterMessage] = useState("");
+  const [registerMessageState, setRegisterMessageState] = useState<"success" | "error" | "">("");
   const [resetMessage, setResetMessage] = useState("");
   const [adminMessage, setAdminMessage] = useState("");
   const registerSubmitRef = useRef<CountdownButton | null>(null);
@@ -137,17 +138,20 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
     setPendingEmail(nextEmail);
     setPendingPassword(password);
     setRegisterMessage("");
+    setRegisterMessageState("");
     if (submitButton) submitButton.disabled = true;
     try {
       const result = await post("auth/register", { email: nextEmail, password });
       setRegisterStep("verify");
       startResendCountdown(resendRef.current, result.retry_after_seconds, "Kirim ulang kode");
+      setRegisterMessageState("success");
       setRegisterMessage(
-        "Jika email memenuhi syarat, kode verifikasi sudah dikirim. Periksa kotak masuk dan folder spam."
+        "Succes: Check your inbox. if you can't find the message, check your spam folder."
       );
     } catch (error) {
       const err = error as PostError;
-      setRegisterMessage(err.message);
+      setRegisterMessageState("error");
+      setRegisterMessage(`Failled: ${err.message}`);
       if (err.retryAfter) {
         const target = registerStep === "verify" ? resendRef.current : submitButton;
         startResendCountdown(
@@ -164,13 +168,15 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
   async function handleVerifySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setRegisterMessage("");
+    setRegisterMessageState("");
     try {
       const result = await post("auth/verify-email", { email: pendingEmail, code });
       saveCsrfToken(result);
       window.location.assign("/account");
     } catch (error) {
       const err = error as PostError;
-      setRegisterMessage(err.message);
+      setRegisterMessageState("error");
+      setRegisterMessage(`Failled: ${err.message}`);
       if (err.retryAfter) startResendCountdown(resendRef.current, err.retryAfter, "Kirim ulang kode");
     }
   }
@@ -185,12 +191,14 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
         password: pendingPassword
       });
       startResendCountdown(resendButton, result.retry_after_seconds, "Kirim ulang kode");
+      setRegisterMessageState("success");
       setRegisterMessage(
-        "Jika email memenuhi syarat, kode verifikasi sudah dikirim. Periksa kotak masuk dan folder spam."
+        "Succes: Check your inbox. If you can't find the message, check your spam folder."
       );
     } catch (error) {
       const err = error as PostError;
-      setRegisterMessage(err.message);
+      setRegisterMessageState("error");
+      setRegisterMessage(`Failled: ${err.message}`);
       if (err.retryAfter) startResendCountdown(resendButton, err.retryAfter, "Kirim ulang kode");
       else resendButton.disabled = false;
     }
@@ -390,7 +398,7 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
                 Kirim ulang kode
               </button>
             </form>
-            <p id="message" className="status" role="status">
+            <p id="message" className="status" data-state={registerMessageState} role="status" aria-live="polite">
               {registerMessage}
             </p>
             <p className="muted">

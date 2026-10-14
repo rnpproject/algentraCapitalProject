@@ -114,8 +114,8 @@ def _record_code_send(record: EmailVerification | PasswordResetCode, now: dateti
     record.attempts = 0
     if isinstance(record, PasswordResetCode):
         record.last_activity_at = now
-    if record.send_count >= SEND_LIMIT:
-        record.locked_until = now + SEND_WINDOW
+    # Send limits are enforced by _send_wait_seconds. Do not use locked_until
+    # here: verification must remain available for the latest valid code.
     return _send_wait_seconds(record, now)
 
 
@@ -254,13 +254,17 @@ def verify_email(payload: VerifyEmailRequest, request: Request, db: Session) -> 
         db.rollback()
         raise HTTPException(status_code=400, detail="Kode tidak valid atau kedaluwarsa")
     locked_for = _seconds_until(pending.locked_until, now)
-    if locked_for:
-        db.rollback()
-        raise HTTPException(
-            status_code=429,
-            detail="Kesempatan memasukkan kode habis. Coba lagi dalam 1 jam.",
-            headers={"Retry-After": str(locked_for)},
-        )
+    if pending.attempts >= CODE_ATTEMPT_LIMIT:
+        if locked_for:
+            db.rollback()
+            raise HTTPException(
+                status_code=429,
+                detail="Kesempatan memasukkan kode habis. Coba lagi dalam 1 jam.",
+                headers={"Retry-After": str(locked_for)},
+            )
+        # Clear a completed lock after its hour has elapsed.
+        pending.attempts = 0
+        pending.locked_until = None
     if _utc(pending.expires_at) <= now:
         db.rollback()
         raise HTTPException(status_code=400, detail="Kode tidak valid atau kedaluwarsa")

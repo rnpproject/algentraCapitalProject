@@ -338,6 +338,8 @@
       .form-actions button { width:100%; }
     }
     p#message { min-height: 1.4em; color: var(--danger); }
+    .login-card p#message[data-state="success"] { color: var(--pos); }
+    .login-card p#message[data-state="error"] { color: var(--danger); }
     .music-toggle { position:fixed; right:20px; bottom:18px; z-index:20; display:flex; min-height:46px; align-items:center; gap:10px; padding:0 15px; border:1px solid var(--glass-border); border-radius:999px; color:var(--ink); background:var(--glass-surface); box-shadow:var(--shadow-soft); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); font-size:11px; font-weight:750; letter-spacing:.02em; }
     .music-toggle:hover { border-color:#bdd6c0; color:#eff8f0; }
     .music-toggle[aria-pressed="true"] { border-color:#b0cdb388; background:linear-gradient(140deg,#2a4033ed,#14221ff2); }
