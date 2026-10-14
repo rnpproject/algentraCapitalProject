@@ -225,8 +225,10 @@ def test_csrf_admin_access_and_expired_history_cleanup(monkeypatch):
 
     monkeypatch.setattr(cs_router.customer_service, "reply", fake_reply)
     with TestClient(app) as public_client:
-        assert public_client.get("/").status_code == 200
-        assert 'id="cs-chat-widget"' in public_client.get("/").text
+        # Web publik sudah pindah ke Vercel; Core API hanya melayani API JSON.
+        landing = public_client.get("/")
+        assert landing.status_code == 404
+        assert landing.json() == {"detail": "Not Found"}
         assert public_client.post("/api/cs/chat/message", json={"message": "Hai"}).status_code == 200
 
     with TestClient(app) as admin_client:
@@ -235,7 +237,8 @@ def test_csrf_admin_access_and_expired_history_cleanup(monkeypatch):
             "password": "M1-Testing-Password-123",
         })
         assert admin_login.status_code == 200
-        assert 'id="cs-chat-widget"' not in admin_client.get("/dashboard").text
+        # Dashboard web sudah pindah ke Vercel; Core API hanya melayani API JSON.
+        assert admin_client.get("/dashboard").status_code == 404
         assert admin_client.get("/api/cs/chat/history").status_code == 403
 
     with SessionLocal() as db:

@@ -76,8 +76,9 @@ def test_manual_payment_review_provisions_managed_account_only_after_approval(mo
         assert order["email"] == email
 
         page = client.get("/transactions")
-        assert page.status_code == 200
-        assert "instruksi pembayaran manual" in page.text
+        # Halaman /transactions sudah pindah ke Vercel; Core API hanya melayani API JSON.
+        assert page.status_code == 404
+        assert page.json() == {"detail": "Not Found"}
 
         proof = b"\x89PNG\r\n\x1a\n" + b"manual-payment-proof"
         proof_response = client.post(

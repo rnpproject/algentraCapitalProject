@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ALLOWED_PREFIXES = new Set([
-  "auth", "public", "payments", "mt5", "dashboard", "settings", "parser", "cs", "telegram"
+  "auth", "public", "payments", "mt5", "dashboard", "settings", "parser", "cs", "telegram", "downloads"
 ]);
 const RESPONSE_HOP_HEADERS = new Set([
   "connection", "content-encoding", "content-length", "keep-alive", "transfer-encoding"
@@ -68,7 +68,11 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
   }
 
   const incomingUrl = new URL(request.url);
-  const target = `/v1/${path.map(encodeURIComponent).join("/")}${incomingUrl.search}`;
+  // Unduhan file dilayani langsung di /downloads/* (tidak memakai signature /v1).
+  const isDownload = path[0] === "downloads";
+  const target = isDownload
+    ? `/${path.map(encodeURIComponent).join("/")}${incomingUrl.search}`
+    : `/v1/${path.map(encodeURIComponent).join("/")}${incomingUrl.search}`;
   let body: Uint8Array;
   try {
     body = request.method === "GET" || request.method === "HEAD"
@@ -100,10 +104,13 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
   const headers = new Headers({
     accept: request.headers.get("accept") ?? "application/json",
     origin: apiOrigin.origin,
-    "x-algentra-timestamp": timestamp,
-    "x-algentra-nonce": nonce,
-    "x-algentra-signature": signature
   });
+  if (!isDownload) {
+    // BFF HMAC hanya diwajibkan untuk path /v1/* di Core API.
+    headers.set("x-algentra-timestamp", timestamp);
+    headers.set("x-algentra-nonce", nonce);
+    headers.set("x-algentra-signature", signature);
+  }
   for (const name of ["content-type", "cookie", "x-csrf-token"]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
