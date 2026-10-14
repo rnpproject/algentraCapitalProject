@@ -1,3 +1,5 @@
+import hashlib
+
 import bcrypt
 from sqlalchemy.orm import Session
 
@@ -18,11 +20,24 @@ def seed_admin(db: Session, settings: Settings) -> None:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
+    encoded = password.encode("utf-8")
     try:
-        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("ascii"))
+        stored = password_hash.encode("ascii")
     except (ValueError, UnicodeEncodeError):
+        return False
+    try:
+        if bcrypt.checkpw(encoded, stored):
+            return True
+    except ValueError:
+        # Existing bcrypt hashes reject inputs over 72 bytes; still try the new format.
+        pass
+    try:
+        return bcrypt.checkpw(hashlib.sha256(encoded).digest(), stored)
+    except ValueError:
         return False
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("ascii")
+    # Pre-hash with SHA-256 so bcrypt's 72-byte input limit does not truncate passwords.
+    prehashed = hashlib.sha256(password.encode("utf-8")).digest()
+    return bcrypt.hashpw(prehashed, bcrypt.gensalt(rounds=12)).decode("ascii")

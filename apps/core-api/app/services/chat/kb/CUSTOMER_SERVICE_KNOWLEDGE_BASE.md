@@ -79,7 +79,7 @@ Situs juga menampilkan jumlah akun klien yang telah menyelesaikan verifikasi ema
 ### A. Membuat akun portal
 
 1. Buka `/register` dari situs resmi.
-2. Masukkan email yang dapat diakses dan buat kata sandi minimal **12 karakter** (maksimal 72 byte).
+2. Masukkan email yang dapat diakses dan buat kata sandi minimal **8 karakter**.
 3. Masukkan kode verifikasi enam digit yang dikirim ke email. Kode berlaku **10 menit**.
 4. Jika email belum menerima kode, periksa folder spam/promosi dan pastikan alamat email benar. Pengiriman ulang dibatasi jeda satu menit dan hingga tiga pengiriman dalam satu jam; setelah batas tercapai, tunggu satu jam. Maksimal tiga percobaan memasukkan kode sebelum terkunci satu jam.
 5. Setelah verifikasi, masuk melalui `/login`. Pilihan “Biarkan saya tetap masuk selama 30 hari” bersifat opsional.
@@ -119,7 +119,7 @@ Jika broker memakai nama simbol berbeda, misalnya menambahkan akhiran pada nama 
 
 1. Buka `/forgot-password` dan masukkan email akun.
 2. Masukkan kode enam digit yang dikirim ke email; kode berlaku 10 menit.
-3. Buat kata sandi baru minimal 12 karakter (maksimal 72 byte), lalu masuk kembali.
+3. Buat kata sandi baru minimal 8 karakter, lalu masuk kembali.
 
 ## Arti status dan bantuan awal
 

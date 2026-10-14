@@ -154,8 +154,6 @@ def register(payload: RegisterRequest, db: Session) -> dict[str, str | int]:
             status_code=403, detail="Pendaftaran client sedang ditutup. Silakan tunggu pengumuman launching."
         )
     email = _normalized_email(payload.email)
-    if len(payload.password.encode("utf-8")) > 72:
-        raise HTTPException(status_code=422, detail="Kata sandi maksimal 72 byte")
     settings = get_settings()
     if not settings.email_configured:
         raise HTTPException(status_code=503, detail="Pendaftaran belum tersedia karena email SMTP belum dikonfigurasi")
@@ -211,8 +209,6 @@ def _utc(value):
 
 def resend_code(payload: ResendCodeRequest, db: Session) -> dict[str, str | int]:
     email = _normalized_email(payload.email)
-    if len(payload.password.encode("utf-8")) > 72:
-        raise HTTPException(status_code=422, detail="Kata sandi maksimal 72 byte")
     settings = get_settings()
     if not settings.email_configured:
         raise HTTPException(status_code=503, detail="Pendaftaran belum tersedia karena email SMTP belum dikonfigurasi")
@@ -342,9 +338,6 @@ def request_password_reset(
 
 def confirm_password_reset(payload: PasswordResetConfirmRequest, db: Session) -> dict[str, str]:
     email = _normalized_email(payload.email)
-    if len(payload.password.encode("utf-8")) > 72:
-        raise HTTPException(status_code=422, detail="Kata sandi maksimal 72 byte")
-
     email_hash = _password_reset_email_key(email)
     begin_serialized_write(db, f"password-reset:{email_hash}")
     challenge = db.get(PasswordResetCode, email_hash)

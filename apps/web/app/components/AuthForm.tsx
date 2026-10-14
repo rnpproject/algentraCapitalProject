@@ -353,14 +353,13 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
               />
               <label htmlFor="password">
                 Kata sandi
-                <small className="field-help">Minimal 12 karakter; maksimal 72 byte.</small>
+                <small className="field-help">Minimal 8 karakter.</small>
               </label>
               <input
                 id="password"
                 type="password"
                 autoComplete="new-password"
-                minLength={12}
-                maxLength={72}
+                minLength={8}
                 required
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -443,14 +442,13 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
               />
               <label htmlFor="new-password">
                 Kata sandi baru
-                <small className="field-help">Minimal 12 karakter; maksimal 72 byte.</small>
+                <small className="field-help">Minimal 8 karakter.</small>
               </label>
               <input
                 id="new-password"
                 type="password"
                 autoComplete="new-password"
-                minLength={12}
-                maxLength={72}
+                minLength={8}
                 required
                 value={newPassword}
                 onChange={(event) => setNewPassword(event.target.value)}
@@ -460,8 +458,7 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
                 id="confirm-password"
                 type="password"
                 autoComplete="new-password"
-                minLength={12}
-                maxLength={72}
+                minLength={8}
                 required
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
