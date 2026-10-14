@@ -44,6 +44,11 @@ h2 { letter-spacing: -.035em; font-size: 30px; margin: 0 0 14px; }
 .form-card .button { width: 100%; margin-top: 10px; }
 .error { color: var(--danger); }
 .success { color: var(--accent); }
+.tone-pos { color: #4ade80; }
+.tone-neg { color: #ff7b7b; }
+.tone-warn { color: #facc15; }
+.tone-info { color: #6db4ff; }
+.tone-muted { color: var(--muted, #8aa0a8); }
 .table-wrap { overflow-x: auto; }
 .chat-log { max-height: 420px; overflow-y: auto; display: grid; gap: 10px; margin: 20px 0; }
 .chat-message { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; max-width: 88%; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-raised); }

@@ -26,7 +26,7 @@ export function TransactionsPanel() {
     <p className="muted">Jangan melakukan transfer atau mengunggah bukti pembayaran. Pesanan lama yang belum dibayar dapat dibatalkan dari daftar.</p>
     {error && <p className="error" role="alert">{error}</p>}
     {orders.length === 0 ? <p className="muted">Belum ada pesanan.</p> : <div className="table-wrap"><table><thead><tr><th>Pesanan</th><th>Paket</th><th>Total</th><th>Status</th><th>Tanggal</th><th></th></tr></thead><tbody>
-      {orders.map((order) => <tr key={order.id}><td>{order.label}</td><td>{order.plan}</td><td>{rupiah(order.total_idr)}</td><td>{order.status}</td><td>{order.created_at}</td><td>{["PENDING_PAYMENT", "PAYMENT_SUBMITTED"].includes(order.status) && <button className="button" onClick={() => void cancel(order.id)}>Batalkan</button>}</td></tr>)}
+      {orders.map((order) => <tr key={order.id}><td>{order.label}</td><td>{order.plan}</td><td>{rupiah(order.total_idr)}</td><td className={order.status === "APPROVED" ? "tone-pos" : ["REJECTED", "CANCELLED"].includes(order.status) ? "tone-neg" : "tone-warn"}>{order.status}</td><td>{order.created_at}</td><td>{["PENDING_PAYMENT", "PAYMENT_SUBMITTED"].includes(order.status) && <button className="button" onClick={() => void cancel(order.id)}>Batalkan</button>}</td></tr>)}
     </tbody></table></div>}
   </section>;
 }

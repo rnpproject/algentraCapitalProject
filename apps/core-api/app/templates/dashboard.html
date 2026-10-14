@@ -91,7 +91,7 @@
           <label>Confidence threshold<small class="field-help">Minimum keyakinan parser agar sinyal diteruskan.</small><input type="number" id="confidence-threshold" min="0" max="1" step="0.01"></label>
           <label>Deviasi harga maksimal (%)<small class="field-help">Tolak market entry yang terlalu jauh dari harga sinyal.</small><input type="number" id="max-market-deviation" min="0.1" step="0.1"></label>
           <label>Mode entry<small class="field-help">Single: satu order. Partial: dibagi sesuai TP atau sisi zona entry.</small><select id="entry-mode"><option value="PARTIAL">Partial entry</option><option value="SINGLE">Single entry</option></select></label>
-          <label class="span-2">Symbol mapping (JSON)<small class="field-help">Alias simbol pesan ke simbol broker. Hanya XAUUSD yang diproses; sinyal belum masuk posisi kedaluwarsa setelah satu jam.</small><textarea id="symbol-mapping" rows="5"></textarea></label>
+          <label class="span-2">Symbol mapping (JSON)<small class="field-help">Alias simbol sinyal ke nama instrumen broker (contoh: {"EURUSD":"EURUSD.pro"}). Harga dan ukuran lot mengikuti spesifikasi simbol broker; sinyal belum masuk posisi kedaluwarsa setelah satu jam.</small><textarea id="symbol-mapping" rows="5"></textarea></label>
         </div>
         <div class="toggle-list">
           <label class="toggle"><input type="checkbox" id="allow-updates"><span><b>Izinkan update signal</b><small class="field-help">Aktifkan pengelolaan posisi seperti close atau geser SL.</small></span></label>
@@ -108,15 +108,31 @@
 const $ = (selector) => document.querySelector(selector);
     if (typeof Chart !== "undefined") { Chart.defaults.color = "#9bb0c2"; Chart.defaults.borderColor = "#253c50"; }
     let groupChart = null, profitChart = null;
+    const F = window.AlgFmt;
     const displayTime = (value) => value ? new Date(value).toLocaleString("id-ID", {timeZone:"Asia/Jakarta"}) : "—";
-    const draw = (selector, columns, rows) => {
+    // spec.format[col](value,row) -> text; spec.tone[col](value,row) -> tone; spec.pill lists badge-style columns.
+    const draw = (selector, columns, rows, spec = {}) => {
       const body = $(selector); body.replaceChildren();
       for (const row of rows) {
         const tr = document.createElement("tr");
-        for (const column of columns) { const td = document.createElement("td"); td.textContent = row[column] ?? "—"; tr.append(td); }
+        for (const column of columns) {
+          const td = document.createElement("td");
+          const raw = row[column];
+          const text = spec.format?.[column] ? spec.format[column](raw, row) : (raw ?? "—");
+          const tone = spec.tone?.[column] ? spec.tone[column](raw, row) : "";
+          if (spec.pill?.includes(column) && text !== "—") {
+            const pill = document.createElement("span"); pill.className = "pill"; pill.textContent = text; F.setTone(pill, tone); td.append(pill);
+          } else {
+            td.textContent = text;
+            F.setTone(td, tone);
+          }
+          if (spec.numeric?.includes(column)) td.classList.add("num");
+          tr.append(td);
+        }
         body.append(tr);
       }
     };
+    const setCard = (selector, text, tone = "") => { const el = $(selector); if (!el) return; el.textContent = text; F.setTone(el, tone); };
     async function api(path, options = {}) {
       const headers = new Headers(options.headers || {});
       if (!["GET", "HEAD", "OPTIONS"].includes((options.method || "GET").toUpperCase())) headers.set("X-CSRF-Token", document.querySelector('meta[name="csrf-token"]').content);
@@ -131,52 +147,77 @@ const $ = (selector) => document.querySelector(selector);
       return params.size ? `${base}?${params}` : base;
     }
     function applyStats(stats) {
-      for (const key of ["signals_total","signals_executed","signals_pending","signals_rejected","signals_ignored","active_clients","winrate","total_profit"]) {
+      const countTone = {signals_executed: (v) => v > 0 ? "pos" : "", signals_pending: (v) => v > 0 ? "warn" : "", signals_rejected: (v) => v > 0 ? "neg" : "", signals_ignored: () => "muted"};
+      for (const key of ["signals_total","signals_executed","signals_pending","signals_rejected","signals_ignored","active_clients"]) {
         if (stats[key] == null) continue;
-        const el = $(`#${key.replaceAll("_", "-")}`); if (el) el.textContent = key === "winrate" ? `${stats[key]}%` : key === "total_profit" ? Number(stats[key]).toFixed(2) : stats[key];
+        setCard(`#${key.replaceAll("_", "-")}`, F.integer(stats[key]), countTone[key]?.(Number(stats[key])) || "");
       }
-      if (stats.wins != null && stats.losses != null) $("#wins-losses").textContent = `${stats.wins} / ${stats.losses}`;
-      if ("ea_online" in stats) $("#ea-status").textContent = stats.ea_online ? "ONLINE" : "OFFLINE";
+      if (stats.winrate != null) setCard("#winrate", F.percent(stats.winrate), Number(stats.winrate) >= 50 ? "pos" : "warn");
+      if (stats.total_profit != null) setCard("#total-profit", F.decimal2(stats.total_profit), F.numberTone(stats.total_profit));
+      if (stats.wins != null && stats.losses != null) {
+        const winsLosses = $("#wins-losses");
+        winsLosses.replaceChildren();
+        const wins = document.createElement("span"); wins.textContent = F.integer(stats.wins); F.setTone(wins, Number(stats.wins) > 0 ? "pos" : "");
+        const losses = document.createElement("span"); losses.textContent = F.integer(stats.losses); F.setTone(losses, Number(stats.losses) > 0 ? "neg" : "");
+        winsLosses.append(wins, " / ", losses);
+      }
+      if ("ea_online" in stats) setCard("#ea-status", stats.ea_online ? "ONLINE" : "OFFLINE", stats.ea_online ? "pos" : "neg");
       if ("ea_last_heartbeat" in stats) $("#ea-heartbeat").textContent = stats.ea_last_heartbeat ? displayTime(stats.ea_last_heartbeat) : "Belum ada heartbeat";
-      if ("telegram_connected" in stats) $("#telegram-status").textContent = stats.telegram_connected ? "CONNECTED" : "DISCONNECTED";
+      if ("telegram_connected" in stats) setCard("#telegram-status", stats.telegram_connected ? "CONNECTED" : "DISCONNECTED", stats.telegram_connected ? "pos" : "neg");
       if ("telegram_account" in stats) $("#telegram-account").textContent = stats.telegram_account || "";
-      if ("gemini_configured" in stats) $("#gemini-status").textContent = stats.gemini_configured ? "READY" : "KEY BELUM DIATUR";
+      if ("gemini_configured" in stats) setCard("#gemini-status", stats.gemini_configured ? "READY" : "KEY BELUM DIATUR", stats.gemini_configured ? "pos" : "warn");
       if ("gemini_model" in stats) $("#gemini-model").textContent = stats.gemini_model || "";
-      if ("kill_switch" in stats) $("#trading-mode").textContent = stats.kill_switch ? "PAUSED" : "LIVE";
+      if ("kill_switch" in stats) setCard("#trading-mode", stats.kill_switch ? "PAUSED" : "LIVE", stats.kill_switch ? "warn" : "pos");
       if ("kill_switch" in stats && "open_trades" in stats) {
-        $("#trading-guard").textContent = stats.kill_switch ? "Trading dijeda oleh kill switch" : `${stats.open_trades} posisi EA terbuka · tanpa batas jumlah`;
+        $("#trading-guard").textContent = stats.kill_switch ? "Trading dijeda oleh kill switch" : `${F.integer(stats.open_trades)} posisi EA terbuka · tanpa batas jumlah`;
       }
-      if (stats.daily_loss != null && Number.isFinite(Number(stats.daily_loss))) $("#daily-loss").textContent = Number(stats.daily_loss).toFixed(2);
+      if (stats.daily_loss != null && Number.isFinite(Number(stats.daily_loss))) {
+        const loss = Number(stats.daily_loss);
+        setCard("#daily-loss", F.decimal2(Math.abs(loss)), loss === 0 ? "" : "neg");
+      }
     }
     async function loadStats() { applyStats(await api("/api/stats")); }
     async function loadMt5Live() {
       const live = await api("/api/mt5-live");
       const account = live.account;
-      $("#mt5-live-status").textContent = live.online ? "ONLINE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL";
+      const liveStatus = live.online ? "ONLINE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL";
+      setCard("#mt5-live-status", liveStatus, F.statusTone(liveStatus));
       $("#mt5-live-updated").textContent = live.observed_at ? `Snapshot terakhir ${displayTime(live.observed_at)}` : "Belum menerima snapshot dari MT5.";
-      $("#mt5-balance").textContent = account ? `${Number(account.balance).toFixed(2)} ${account.currency}` : "—";
-      $("#mt5-equity").textContent = account ? `${Number(account.equity).toFixed(2)} ${account.currency}` : "—";
-      $("#mt5-floating").textContent = account ? `${Number(account.floating_profit).toFixed(2)} ${account.currency}` : "—";
-      $("#mt5-mode").textContent = account?.trade_mode || "—";
-      $("#mt5-position-count").textContent = live.positions.length;
-      draw("#mt5-positions-table", ["ticket","symbol","action","lots","entry_price","sl","tp"], live.positions);
+      setCard("#mt5-balance", account ? F.money(account.balance, account.currency) : "—");
+      setCard("#mt5-equity", account ? F.money(account.equity, account.currency) : "—", account ? F.numberTone(Number(account.equity) - Number(account.balance)) : "");
+      setCard("#mt5-floating", account ? F.money(account.floating_profit, account.currency) : "—", account ? F.numberTone(account.floating_profit) : "");
+      setCard("#mt5-mode", account?.trade_mode ? account.trade_mode.toUpperCase() : "—", account?.trade_mode === "real" ? "warn" : account?.trade_mode === "demo" ? "info" : "");
+      $("#mt5-position-count").textContent = F.integer(live.positions.length);
+      draw("#mt5-positions-table", ["ticket","symbol","action","lots","entry_price","sl","tp"], live.positions, {
+        format: {lots: F.lots, entry_price: F.price, sl: (v) => Number(v) > 0 ? F.price(v) : "—", tp: (v) => Number(v) > 0 ? F.price(v) : "—"},
+        tone: {action: (v) => F.statusTone(v)},
+        pill: ["action"], numeric: ["lots","entry_price","sl","tp"]
+      });
       draw("#mt5-quotes-table", ["symbol","bid","ask","updated"], live.market_quotes.map((quote) => ({
         ...quote,
         updated: displayTime(new Date(Number(quote.time_msc)).toISOString())
-      })));
+      })), {format: {bid: F.price, ask: F.price}, numeric: ["bid","ask"]});
     }
     async function loadSignals() {
       const signals = await api("/api/signals?limit=5");
       draw("#signals-table", ["time","group","raw","parsed","confidence","status","ticket","profit"], signals.map((signal) => ({
         time: displayTime(signal.created_at), group: signal.group_name || signal.group_id || "—", raw: signal.raw_text,
-        parsed: signal.normalized_text || "—", confidence: signal.confidence == null ? "—" : Number(signal.confidence).toFixed(2), status: signal.status,
-        ticket: signal.ticket || "—", profit: signal.profit == null ? "—" : Number(signal.profit).toFixed(2)
-      })));
+        parsed: signal.normalized_text || "—", confidence: signal.confidence, status: signal.status,
+        ticket: signal.ticket || "—", profit: signal.profit
+      })), {
+        format: {confidence: (v) => F.number(v, {min: 2, max: 2}), profit: F.decimal2},
+        tone: {status: (v) => F.statusTone(v), profit: (v) => F.numberTone(v), confidence: (v) => v == null ? "" : Number(v) >= 0.75 ? "pos" : "warn"},
+        pill: ["status"], numeric: ["confidence","profit"]
+      });
     }
     const loadStatsAndSignals = () => Promise.all([loadStats(), loadSignals()]);
     async function loadGroups() {
       const groups = (await api("/api/groups/stats")).sort((a, b) => b.signals_total - a.signals_total).slice(0, 8);
-      draw("#groups-table", ["group_name","signals_total","wins","losses","winrate","profit"], groups.map((g) => ({...g, winrate:`${g.winrate}%`, profit:Number(g.profit).toFixed(2)})));
+      draw("#groups-table", ["group_name","signals_total","wins","losses","winrate","profit"], groups, {
+        format: {signals_total: F.integer, wins: F.integer, losses: F.integer, winrate: F.percent, profit: F.decimal2},
+        tone: {wins: (v) => Number(v) > 0 ? "pos" : "", losses: (v) => Number(v) > 0 ? "neg" : "", winrate: (v) => Number(v) >= 50 ? "pos" : "warn", profit: (v) => F.numberTone(v)},
+        numeric: ["signals_total","wins","losses","winrate","profit"]
+      });
       if (typeof Chart === "undefined") return;
       const labels = groups.map((g) => g.group_name);
       const data = {labels, datasets:[
@@ -196,14 +237,16 @@ const $ = (selector) => document.querySelector(selector);
         plugins:{legend:{position:"top",labels:{boxWidth:14,boxHeight:8,padding:12,font:{size:11}}}},
         scales:{
           x:{ticks:{display:window.innerWidth>600,maxRotation:45,minRotation:0,font:{size:10}},grid:{display:false}},
-          y:{beginAtZero:true,ticks:{precision:0,padding:4,font:{size:10}}}
+          y:{beginAtZero:true,ticks:{precision:0,padding:4,font:{size:10},callback:(value)=>F.integer(value)}}
         }
       }});
     }
     async function loadLogs() {
       const values = {level:$("#log-level").value,search:$("#log-search").value};
       const logs = await api(queryWithFilters("/api/logs", {...values,limit:5}));
-      draw("#logs-table", ["time","level","source","message"], logs.map((log)=>({...log,time:displayTime(log.created_at)})));
+      draw("#logs-table", ["time","level","source","message"], logs.map((log)=>({...log,time:displayTime(log.created_at)})), {
+        tone: {level: (v) => F.statusTone(v)}, pill: ["level"]
+      });
       $("#logs-export").href = queryWithFilters("/api/logs/export.csv", values);
     }
     const TRADE_PAGE_SIZE = 10;
@@ -217,7 +260,11 @@ const $ = (selector) => document.querySelector(selector);
       };
       const rows = await api(queryWithFilters("/api/trades", {...values,limit:TRADE_PAGE_SIZE + 1,offset:tradePage * TRADE_PAGE_SIZE}));
       const hasNext = rows.length > TRADE_PAGE_SIZE, trades = rows.slice(0, TRADE_PAGE_SIZE);
-      draw("#trades-table", ["opened_at","group_name","ticket","symbol","action","lots","entry","profit","result"], trades.map((t)=>({...t,opened_at:displayTime(t.opened_at),lots:t.lots==null?"—":t.lots,entry:t.entry==null?"—":t.entry,profit:Number(t.profit).toFixed(2)})));
+      draw("#trades-table", ["opened_at","group_name","ticket","symbol","action","lots","entry","profit","result"], trades.map((t)=>({...t,opened_at:displayTime(t.opened_at)})), {
+        format: {lots: F.lots, entry: F.price, profit: F.decimal2},
+        tone: {action: (v) => F.statusTone(v), profit: (v) => F.numberTone(v), result: (v) => F.statusTone(v)},
+        pill: ["action","result"], numeric: ["lots","entry","profit"]
+      });
       $("#trades-export").href = queryWithFilters("/api/trades/export.csv", values);
       $("#trades-page").textContent = `Halaman ${tradePage + 1}`;
       $("#trades-prev").disabled = tradePage === 0;
@@ -228,9 +275,9 @@ const $ = (selector) => document.querySelector(selector);
       const trades = await api("/api/trades?limit=30");
       const closed=trades.filter((t)=>t.closed_at).sort((a,b)=>new Date(a.closed_at)-new Date(b.closed_at));
       let total=0; const points=closed.map((t)=>({x:displayTime(t.closed_at),y:(total+=Number(t.profit))}));
-      const data={labels:points.map(p=>p.x),datasets:[{label:"Profit kumulatif",data:points.map(p=>p.y),borderColor:"#4da3e8",tension:.2}]};
+      const data={labels:points.map(p=>p.x),datasets:[{label:"Profit kumulatif",data:points.map(p=>p.y),borderColor:points.length && points.at(-1).y < 0 ? "#ff7b7b" : "#4ade80",tension:.2}]};
       if(profitChart){profitChart.data=data;profitChart.update();}
-      else profitChart=new Chart($("#profit-chart"),{type:"line",data,options:{responsive:true,scales:{y:{beginAtZero:false}}}});
+      else profitChart=new Chart($("#profit-chart"),{type:"line",data,options:{responsive:true,scales:{y:{beginAtZero:false,ticks:{callback:(value)=>F.number(value,{max:2})}}},plugins:{tooltip:{callbacks:{label:(ctx)=>`${ctx.dataset.label}: ${F.decimal2(ctx.parsed.y)}`}}}}});
     }
     function renderRegistrationState(registrationOpen) {
       $("#registration-state").textContent=registrationOpen ? "Pendaftaran terbuka. Form daftar terlihat di situs publik." : "Pendaftaran ditutup. Situs publik menampilkan hitung mundur launching.";
@@ -301,7 +348,7 @@ const $ = (selector) => document.querySelector(selector);
       if (mt5PollingTimer) return;
       mt5PollingTimer=setInterval(()=>{
         if($("#auto-refresh").checked && !document.hidden) {
-          loadMt5Live().catch((error)=>{ $("#mt5-live-status").textContent=`GAGAL: ${error.message}`; });
+          loadMt5Live().catch((error)=>{ setCard("#mt5-live-status", `GAGAL: ${error.message}`, "neg"); });
         }
       },2000);
     }
