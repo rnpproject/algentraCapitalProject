@@ -7,7 +7,7 @@ import uuid
 from sqlalchemy.orm import Session
 
 from ..core.time_utils import wib_iso
-from ..domain.client_plans import CLIENT_PLANS
+from ..domain.client_plans import resolve_plan
 from ..models import PaymentOrder
 from ..repositories.payments import PaymentRepository
 from .payment_bot import MAX_PROOF_BYTES, payment_proof_path, payment_review_bot
@@ -34,7 +34,7 @@ def create_order(
     plan: str,
     execution_mode: str,
 ) -> dict[str, object]:
-    selected_plan = CLIENT_PLANS.get(plan)
+    selected_plan = resolve_plan(plan)
     if selected_plan is None:
         raise PaymentOrderConflict("Paket layanan tidak dikenal")
     order, failure = PaymentRepository(db).create_for_owner(

@@ -11,7 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..domain.client_plans import CLIENT_PLANS
+from ..domain.client_plans import CLIENT_PLANS, get_service_plans
+from ..domain.client_plans import get_service_pricing as _service_pricing
 from ..models import (
     ClientUser,
     ManagedCopyProfile,
@@ -165,7 +166,12 @@ def _account_from_token(
 
 def list_client_plans(_owner_id: int = Depends(require_client_id)) -> dict[str, dict[str, str | int]]:
     """Paket layanan untuk form hubungkan akun di web (single source of truth)."""
-    return CLIENT_PLANS
+    return {**CLIENT_PLANS, **get_service_plans()}
+
+
+def service_pricing(_owner_id: int = Depends(require_client_id)) -> dict[str, int]:
+    """Harga layanan copy trading dari .env untuk form hubungkan akun di web."""
+    return _service_pricing()
 
 
 def list_accounts(owner_id: int = Depends(require_client_id), db: Session = Depends(get_db)) -> list[dict[str, object]]:

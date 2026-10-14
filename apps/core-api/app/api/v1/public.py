@@ -49,7 +49,10 @@ def public_contact() -> dict[str, object]:
         if "://" not in url:
             url = "https://" + url
         display = urlsplit(url).path.strip("/").split("/")[-1]
-        display = f"@{display}" if display else urlsplit(url).hostname or url
+        if display and not display.startswith("@"):
+            display = f"@{display}"
+        if not display:
+            display = urlsplit(url).hostname or url
         socials.append({"url": url, "icon": icon, "label": label, "display": display})
     return {
         "person": settings.contact_person_name,

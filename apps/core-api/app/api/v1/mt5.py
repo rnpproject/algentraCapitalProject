@@ -13,6 +13,7 @@ __all__ = ["router", "require_client_id", "_token_hash"]
 
 router.add_api_route("/accounts", mt5_service.list_accounts, methods=["GET"])
 router.add_api_route("/plans", mt5_service.list_client_plans, methods=["GET"])
+router.add_api_route("/pricing", mt5_service.service_pricing, methods=["GET"])
 router.add_api_route("/accounts/{account_id}/managed-copy", mt5_service.configure_managed_copy, methods=["PUT"])
 router.add_api_route("/accounts/{account_id}/managed-copy/active", mt5_service.set_managed_copy_active, methods=["PUT"])
 router.add_api_route("/copier/jobs", mt5_service.list_managed_copy_jobs, methods=["GET"])

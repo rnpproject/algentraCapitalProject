@@ -19,6 +19,21 @@ type Plan = {
   price_idr: number;
 };
 
+type Pricing = {
+  management_fee_idr: number;
+  copy_trading_fee_idr: number;
+  vps_options: VpsOption[];
+};
+
+type VpsOption = {
+  code: string;
+  name: string;
+  vcpu: string;
+  ram: string;
+  disk: string;
+  price_idr: number;
+};
+
 type ManagedCopy = {
   configured: boolean;
   active: boolean;
@@ -608,7 +623,8 @@ export function AccountPanel() {
   const [performance, setPerformance] = useState<Performance | null>(null);
   const [copier, setCopier] = useState<CopierStatus | null>(null);
   const [executionMode, setExecutionMode] = useState("EA");
-  const [selectedPlan, setSelectedPlan] = useState("");
+  const [pricing, setPricing] = useState<Pricing | null>(null);
+  const [selectedVps, setSelectedVps] = useState<string | null>(null);
   const [accountMessage, setAccountMessage] = useState("");
   const [tokenBox, setTokenBox] = useState<TokenBox>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
@@ -648,6 +664,9 @@ export function AccountPanel() {
     apiRequest<Record<string, Plan>>("mt5/plans")
       .then(setPlans)
       .catch(() => {});
+    apiRequest<Pricing>("mt5/pricing")
+      .then(setPricing)
+      .catch(() => {});
     loadAccounts();
     const timer = setInterval(() => {
       if (!document.hidden && !managedFormDirty.current) loadAccounts();
@@ -661,9 +680,10 @@ export function AccountPanel() {
     event.preventDefault();
     setAccountMessage("");
     const formData = new FormData(event.currentTarget);
+    const mode = String(formData.get("execution_mode") || "EA");
     const payload = {
-      execution_mode: formData.get("execution_mode"),
-      plan: formData.get("plan"),
+      execution_mode: mode,
+      plan: mode === "MANAGED" ? "MANAGED" : selectedVps ? `EA_${selectedVps}` : "EA",
       label: formData.get("label"),
       server: formData.get("server"),
       login: formData.get("login"),
@@ -675,6 +695,7 @@ export function AccountPanel() {
       );
       event.currentTarget.reset();
       setExecutionMode("EA");
+      setSelectedVps(null);
       modeTouched.current = false;
       window.location.href = `/transactions?order=${encodeURIComponent(
         String(order.id)
@@ -750,15 +771,11 @@ export function AccountPanel() {
       <section>
         <h2>Hubungkan akun Copy Trading</h2>
         <p className="section-help">
-          Pilih cara menjalankan akun, paket, dan detail akun broker. Akun dibuat
+          Pilih cara menjalankan akun, layanan, dan detail akun broker. Akun dibuat
           setelah pembayaran disetujui. Untuk layanan dikelola server, password
           broker dienkripsi dan hanya dikirim ke worker copier yang terautentikasi.
         </p>
-        <form
-          id="account-form"
-          className="form-grid account-connect-form"
-          onSubmit={handleConnectSubmit}
-        >
+        <form id="account-form" onSubmit={handleConnectSubmit}>
           <fieldset className="plan-picker">
             <legend>Cara menjalankan copy trading</legend>
             <div className="plan-options">
@@ -828,73 +845,143 @@ export function AccountPanel() {
             {serviceStatus}
           </p>
           <fieldset className="plan-picker">
-            <legend>Pilih paket layanan</legend>
-            <div className="plan-options">
-              {Object.entries(plans).map(([code, plan]) => (
-                <label
-                  key={code}
-                  className="plan-option"
-                  htmlFor={`plan-${code}`}
-                >
-                  <input
-                    id={`plan-${code}`}
-                    type="radio"
-                    name="plan"
-                    value={code}
-                    required
-                    checked={selectedPlan === code}
-                    onChange={() => setSelectedPlan(code)}
-                  />
-                  <span className="plan-option__name">{plan.name}</span>
-                  <span>vCPU: {plan.vcpu}</span>
-                  <span>RAM: {plan.ram}</span>
-                  <span>Disk: {plan.disk}</span>
-                  <strong>Rp {formatInteger(plan.price_idr)}</strong>
-                </label>
-              ))}
-            </div>
+            <legend>Biaya layanan</legend>
+            {pricing ? (
+              executionMode === "MANAGED" ? (
+                <div className="price-cards">
+                  <div className="price-card">
+                    <span className="price-card__name">Biaya pengelolaan akun</span>
+                    <span className="price-card__desc">
+                      MT5 berjalan di server layanan, bukan di komputer Anda.
+                      Termasuk pemantauan worker managed copy.
+                    </span>
+                    <strong className="price-card__price">
+                      Rp {formatInteger(pricing.management_fee_idr)}
+                    </strong>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="price-cards">
+                    <div className="price-card">
+                      <span className="price-card__name">Biaya copy trading</span>
+                      <span className="price-card__desc">
+                        Setengah dari biaya pengelolaan server. EA berjalan di
+                        perangkat/VPS Anda sendiri.
+                      </span>
+                      <strong className="price-card__price">
+                        Rp {formatInteger(pricing.copy_trading_fee_idr)}
+                      </strong>
+                    </div>
+                  </div>
+                  {pricing.vps_options.length > 0 && (
+                    <div className="vps-picker">
+                      <p className="vps-picker__title">
+                        Tambah VPS{" "}
+                        <span className="price-card__opt">(opsional)</span>
+                      </p>
+                      <div
+                        className="price-cards price-cards--two"
+                        role="radiogroup"
+                        aria-label="Pilihan VPS"
+                      >
+                        <label className="price-card price-card--check">
+                          <input
+                            type="radio"
+                            name="vps_option"
+                            checked={selectedVps === null}
+                            onChange={() => setSelectedVps(null)}
+                          />
+                          <span className="price-card__name">Tanpa VPS</span>
+                          <span className="price-card__desc">
+                            Jalankan di perangkat atau VPS Anda sendiri.
+                          </span>
+                          <strong className="price-card__price">Rp 0</strong>
+                        </label>
+                        {pricing.vps_options.map((vps) => (
+                          <label
+                            key={vps.code}
+                            className="price-card price-card--check"
+                          >
+                            <input
+                              type="radio"
+                              name="vps_option"
+                              checked={selectedVps === vps.code}
+                              onChange={() => setSelectedVps(vps.code)}
+                            />
+                            <span className="price-card__name">{vps.name}</span>
+                            <span className="price-card__desc">
+                              {vps.vcpu} · RAM {vps.ram} · Disk {vps.disk}
+                            </span>
+                            <strong className="price-card__price">
+                              Rp {formatInteger(vps.price_idr)}
+                            </strong>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <p className="price-total">
+                    Total bayar:{" "}
+                    <strong>
+                      Rp{" "}
+                      {formatInteger(
+                        pricing.copy_trading_fee_idr +
+                          (pricing.vps_options.find(
+                            (v) => v.code === selectedVps
+                          )?.price_idr ?? 0)
+                      )}
+                    </strong>
+                  </p>
+                </>
+              )
+            ) : (
+              <p className="status">Memuat harga layanan…</p>
+            )}
             <p className="field-help">
-              Total mengikuti harga paket yang dipilih. Pembayaran sementara
-              dilakukan manual dan diperiksa admin. Jangan transfer sebelum melihat
-              instruksi pada pesanan Anda.
+              Harga mengikuti pengaturan layanan. Pembayaran sementara
+              dilakukan manual dan diperiksa admin. Jangan transfer sebelum
+              melihat instruksi pada pesanan Anda.
             </p>
           </fieldset>
-          <label>
-            Nama akun
-            <input
-              name="label"
-              maxLength={80}
-              placeholder="Copy Trading 1"
-              required
-            />
-          </label>
-          <label>
-            Server broker
-            <input
-              name="server"
-              maxLength={128}
-              placeholder="BrokerName-Live"
-              required
-            />
-          </label>
-          <label>
-            Nomor akun broker
-            <input
-              name="login"
-              maxLength={32}
-              inputMode="numeric"
-              pattern="[0-9]+"
-              title="Nomor akun MT5 hanya boleh berisi angka"
-              aria-describedby="account-login-help"
-              required
-              onInput={handleLoginInput}
-              onInvalid={handleLoginInvalid}
-            />
-            <span id="account-login-help" className="field-help">
-              Masukkan nomor login MT5 berupa angka saja, tanpa spasi.
-            </span>
-          </label>
-          <div>
+          <div className="account-fields">
+            <label>
+              Nama akun
+              <input
+                name="label"
+                maxLength={80}
+                placeholder="Copy Trading 1"
+                required
+              />
+            </label>
+            <label>
+              Server broker
+              <input
+                name="server"
+                maxLength={128}
+                placeholder="BrokerName-Live"
+                required
+              />
+            </label>
+            <label>
+              Nomor akun broker
+              <input
+                name="login"
+                maxLength={32}
+                inputMode="numeric"
+                pattern="[0-9]+"
+                title="Nomor akun MT5 hanya boleh berisi angka"
+                aria-describedby="account-login-help"
+                required
+                onInput={handleLoginInput}
+                onInvalid={handleLoginInvalid}
+              />
+              <span id="account-login-help" className="field-help">
+                Masukkan nomor login MT5 berupa angka saja, tanpa spasi.
+              </span>
+            </label>
+          </div>
+          <div className="form-actions">
             <button type="submit">Lanjutkan ke pembayaran</button>
           </div>
         </form>

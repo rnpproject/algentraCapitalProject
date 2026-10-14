@@ -44,7 +44,11 @@ class MT5AccountCreate(BaseModel):
     label: str = Field(min_length=1, max_length=80)
     server: str = Field(min_length=1, max_length=128)
     login: str = Field(min_length=1, max_length=32)
-    plan: Literal["ZERO", "PRO", "EXPERT"]
+    plan: Literal[
+        "ZERO", "PRO", "EXPERT",
+        "MANAGED", "EA",
+        "EA_VPS1", "EA_VPS2", "EA_VPS3", "EA_VPS4", "EA_VPS5",
+    ]
     execution_mode: Literal["EA", "MANAGED"] = "EA"
     role: Literal["follower"] = "follower"
 

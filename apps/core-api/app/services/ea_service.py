@@ -452,7 +452,7 @@ def report(payload: ExecutionReport, db: Session) -> dict[str, object]:
         SystemLog(
             level="INFO" if payload.status == "EXECUTED" else "WARN",
             source="EA",
-            message=f"Signal {signal.id}: {payload.status}" + (f" â€” {payload.reason}" if payload.reason else ""),
+            message=f"Signal {signal.id}: {payload.status}" + (f" — {payload.reason}" if payload.reason else ""),
         )
     )
     db.commit()

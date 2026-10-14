@@ -238,6 +238,9 @@ export function DashboardPanel() {
     async function boot() {
       try {
         await refresh();
+        // Vercel serverless tidak mendukung WebSocket /ws, jadi realtime
+        // diganti polling 5 detik (setara fallback template asli).
+        if (!cancelled) setConnection("Realtime tidak tersedia; ringkasan diperbarui tiap 5 detik.");
       } catch (reason) {
         if (await isUnauthorized()) {
           router.replace("/admin/login");

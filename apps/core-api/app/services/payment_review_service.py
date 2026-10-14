@@ -5,7 +5,7 @@ import secrets
 
 from sqlalchemy.orm import Session
 
-from ..domain.client_plans import CLIENT_PLANS
+from ..domain.client_plans import resolve_plan
 from ..models import MT5Account
 from ..repositories.payments import PaymentRepository
 
@@ -26,7 +26,7 @@ def review_payment_order(db: Session, order_id: int, decision: str) -> tuple[str
         repository.reject_payment(order)
         return "REJECTED", None
 
-    plan = CLIENT_PLANS.get(order.plan)
+    plan = resolve_plan(order.plan)
     if plan is None or order.total_idr != plan["price_idr"]:
         repository.rollback()
         return "INVALID_ORDER", None
