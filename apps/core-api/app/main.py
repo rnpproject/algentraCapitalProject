@@ -6,7 +6,7 @@ import os
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -367,41 +367,6 @@ async def dashboard_websocket(websocket: WebSocket) -> None:
 
 def _sse_message(payload: dict[str, object], event: str = "update") -> bytes:
     return f"event: {event}\ndata: {json.dumps(payload, separators=(',', ':'), default=str)}\n\n".encode()
-
-
-@app.get("/api/public/performance/stream")
-async def public_performance_event_stream(request: Request) -> StreamingResponse:
-    """Public performance stream; snapshots are refreshed at most every two seconds."""
-    async def events():
-        last_payload: dict[str, object] | None = None
-        history_due = True
-        last_history_at = 0.0
-        while not await request.is_disconnected():
-            now = asyncio.get_running_loop().time()
-            include_history = history_due or now - last_history_at >= 60
-
-            def load_payload():
-                with SessionLocal() as db:
-                    return public_performance_payload(db, include_equity_curve=include_history)
-
-            payload = await asyncio.to_thread(load_payload)
-            # Include the equity curve on the first event and once per minute. For intervening
-            # updates, clients retain the existing history while receiving current prices.
-            if include_history:
-                last_history_at = now
-                history_due = False
-            if payload != last_payload:
-                yield _sse_message(payload, "performance")
-                last_payload = payload
-            else:
-                yield b": heartbeat\n\n"
-            await asyncio.sleep(2)
-
-    return StreamingResponse(
-        events(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "public, no-store, no-transform", "X-Accel-Buffering": "no"},
-    )
 
 
 @app.websocket("/ws/public/performance")

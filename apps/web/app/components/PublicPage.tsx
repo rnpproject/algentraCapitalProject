@@ -600,7 +600,7 @@ export default function PublicPage() {
     };
 
     /* ---------- Koneksi SSE live ---------- */
-    const performanceStream = new EventSource("/api/core/api/public/performance/stream");
+    const performanceStream = new EventSource("/api/core/public/performance/stream");
     performanceStream.addEventListener("performance", (event) => {
       try {
         renderPerformance(JSON.parse((event as MessageEvent<string>).data) as PerformanceData);

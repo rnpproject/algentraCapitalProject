@@ -1,16 +1,53 @@
+import asyncio
+import json
 from urllib.parse import urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ...core.config import get_settings
-from ...database import get_db
+from ...database import SessionLocal, get_db
 from ...services.public_service import public_performance_payload
 from ...services.registration import registration_is_open
 
 
 router = APIRouter(tags=["public"])
+
+
+def _sse_performance(payload: dict[str, object]) -> bytes:
+    return f"event: performance\ndata: {json.dumps(payload, separators=(',', ':'), default=str)}\n\n".encode()
+
+
+@router.get("/api/public/performance/stream")
+@router.get("/v1/public/performance/stream")
+async def public_performance_stream(request: Request) -> StreamingResponse:
+    """Stream current public performance snapshots; EventSource handles reconnects."""
+    async def events():
+        last_payload: dict[str, object] | None = None
+        last_history_at = 0.0
+        while not await request.is_disconnected():
+            now = asyncio.get_running_loop().time()
+            include_history = last_payload is None or now - last_history_at >= 60
+
+            def load_payload():
+                with SessionLocal() as db:
+                    return public_performance_payload(db, include_equity_curve=include_history)
+
+            payload = await asyncio.to_thread(load_payload)
+            if include_history:
+                last_history_at = now
+            if payload != last_payload:
+                yield _sse_performance(payload)
+                last_payload = payload
+            else:
+                yield b": heartbeat\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream",
+        headers={"Cache-Control": "public, no-store, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/api/public/performance")
