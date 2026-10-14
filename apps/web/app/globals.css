@@ -362,6 +362,7 @@
     }
     .cs-chat-widget { position:relative; z-index:25; min-width:0; font-family:var(--font-body); }
     .cs-chat-widget--account { position:fixed; right:20px; bottom:78px; z-index:39; width:48px; height:48px; }
+    .cs-chat-widget--public-float { position:fixed; right:20px; bottom:20px; z-index:39; width:48px; height:48px; }
     .cs-chat-launcher { display:flex; width:100%; min-height:48px; align-items:center; gap:10px; padding:0 14px; border:1px solid var(--glass-border); border-radius:12px; color:var(--ink); background:var(--glass-surface); box-shadow:none; font-size:13px; font-weight:750; text-align:left; }
     .cs-chat-launcher:hover { transform:translateY(-1px); border-color:var(--control); }
     .cs-chat-launcher svg { width:36px; height:36px; flex:none; }

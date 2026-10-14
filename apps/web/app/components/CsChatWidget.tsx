@@ -259,7 +259,7 @@ export function CsChatWidget({ mode, className }: { mode: "client" | "public"; c
 
   return (
     <div
-      className={["cs-chat-widget", isAccount ? "cs-chat-widget--account" : "", className]
+      className={["cs-chat-widget", isAccount ? "cs-chat-widget--account" : "cs-chat-widget--public-float", className]
         .filter(Boolean)
         .join(" ")}
       id="cs-chat-widget"
