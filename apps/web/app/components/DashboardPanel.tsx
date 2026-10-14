@@ -146,6 +146,7 @@ export function DashboardPanel() {
   const profitChartRef = useRef<{ destroy: () => void } | null>(null);
   const groupCanvasRef = useRef<HTMLCanvasElement>(null);
   const profitCanvasRef = useRef<HTMLCanvasElement>(null);
+  const latestSignalIdRef = useRef<number | null | undefined>(undefined);
 
   async function loadStatsAndSignals() {
     const [freshStats, freshSignals] = await Promise.all([
@@ -238,9 +239,7 @@ export function DashboardPanel() {
     async function boot() {
       try {
         await refresh();
-        // Vercel serverless tidak mendukung WebSocket /ws, jadi realtime
-        // diganti polling 5 detik (setara fallback template asli).
-        if (!cancelled) setConnection("Realtime tidak tersedia; ringkasan diperbarui tiap 5 detik.");
+        if (!cancelled) setConnection("Realtime tersambung melalui SSE.");
       } catch (reason) {
         if (await isUnauthorized()) {
           router.replace("/admin/login");
@@ -255,13 +254,31 @@ export function DashboardPanel() {
       if (!cancelled)
         setSettingsMessage(reason instanceof Error ? reason.message : "Gagal memuat settings.");
     });
-    // Pengganti WebSocket (tidak bisa lewat Vercel serverless): polling tiap 5 detik.
-    const pollTimer = setInterval(() => {
+    const stream = new EventSource("/api/core/dashboard/realtime/stream");
+    stream.addEventListener("dashboard", (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent<string>).data) as {
+          stats?: Stats;
+          latest_signal_id?: number | null;
+        };
+        if (payload.stats) setStats(payload.stats);
+        setConnection("Realtime tersambung melalui SSE.");
+        if (payload.latest_signal_id !== undefined) {
+          const previousId = latestSignalIdRef.current;
+          latestSignalIdRef.current = payload.latest_signal_id;
+          if (previousId !== undefined && previousId !== payload.latest_signal_id) void loadStatsAndSignals();
+        }
+      } catch {
+        if (!cancelled) setConnection("Data realtime tidak dapat dibaca.");
+      }
+    });
+    stream.onopen = () => { if (!cancelled) setConnection("Realtime tersambung melalui SSE."); };
+    stream.onerror = () => { if (!cancelled) setConnection("Menyambungkan ulang realtime…"); };
+    // Refresh data tabel secara berkala; statistik dan sinyal menerima event SSE.
+    const detailTimer = setInterval(() => {
       if (document.hidden || cancelled) return;
-      void loadStatsAndSignals().catch(() => {
-        if (!cancelled) setConnection("Realtime tidak tersedia; ringkasan diperbarui tiap 5 detik.");
-      });
-    }, 5000);
+      void Promise.all([loadMt5Live(), loadGroups(), loadLogs(), loadTrades(tradePageRef.current), loadProfitChart()]).catch(() => {});
+    }, 15000);
     // MT5 live: polling tiap 2 detik.
     const mt5Timer = setInterval(() => {
       if (document.hidden || cancelled) return;
@@ -271,7 +288,8 @@ export function DashboardPanel() {
     }, 2000);
     return () => {
       cancelled = true;
-      clearInterval(pollTimer);
+      stream.close();
+      clearInterval(detailTimer);
       clearInterval(mt5Timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

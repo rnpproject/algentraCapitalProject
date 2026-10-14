@@ -1,12 +1,15 @@
+import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...core.config import get_settings
-from ...database import get_db
+from ...database import SessionLocal, get_db
+from ...models import Signal, utc_now
 from ...schemas import SignalResponse
 from ...services.dashboard_service import (
     export_dashboard_logs,
@@ -18,12 +21,52 @@ from ...services.dashboard_service import (
 from ...services.risk_controls import risk_state
 from ...services.stats_service import get_dashboard_stats, get_group_stats
 from ...state import master_snapshot_state
-from ...models import utc_now
 from ...core.time_utils import wib_iso
 from .tg import telegram_manager
 
 
 router = APIRouter(tags=["dashboard"])
+
+
+def _sse_message(payload: dict[str, object]) -> bytes:
+    return f"event: dashboard\ndata: {json.dumps(payload, separators=(',', ':'), default=str)}\n\n".encode()
+
+
+@router.get("/realtime/stream")
+async def realtime_stream(request: Request) -> StreamingResponse:
+    """Stream dashboard snapshots to browsers through the Vercel BFF."""
+    async def events():
+        while not await request.is_disconnected():
+            def load_snapshot():
+                with SessionLocal() as db:
+                    payload = get_dashboard_stats(db)
+                    payload.update(risk_state(db))
+                    latest = db.execute(
+                        select(Signal.id).order_by(Signal.created_at.desc(), Signal.id.desc()).limit(1)
+                    ).scalar_one_or_none()
+                return payload, latest
+
+            payload, latest = await asyncio.to_thread(load_snapshot)
+            telegram = await telegram_manager.status()
+            settings = get_settings()
+            payload.update({
+                "telegram_connected": bool(telegram["connected"]),
+                "telegram_status": telegram["state"],
+                "telegram_account": telegram["account_name"],
+                "gemini_configured": bool(settings.gemini_api_key and settings.gemini_api_key.get_secret_value()),
+                "gemini_model": settings.gemini_model,
+            })
+            yield _sse_message({
+                "stats": payload,
+                "latest_signal_id": latest,
+                "server_time": wib_iso(utc_now()),
+            })
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream",
+        headers={"Cache-Control": "private, no-store, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/stats")

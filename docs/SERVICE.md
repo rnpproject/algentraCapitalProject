@@ -24,7 +24,7 @@ Gunakan Windows Server terkelola, Python 3.12 64-bit, NSSM, Cloudflare Tunnel, k
      -NssmPath 'C:\Tools\nssm\win64\nssm.exe'
    ```
 
-   Service `AlgentraCoreApi` memakai akun virtual terbatas `NT SERVICE\AlgentraCoreApi`, bind ke `127.0.0.1:8000`, berjalan satu worker tanpa reload, dan mengatur restart otomatis. Core API hanya melayani API JSON (`/api/*`, `/v1/*`), `/health`, `/ready`, `/downloads/*`, dan websocket — ia tidak menyajikan halaman web apa pun; seluruh web disajikan oleh Next.js di Vercel. Setelah konfigurasi siap:
+   Service `AlgentraCoreApi` memakai akun virtual terbatas `NT SERVICE\AlgentraCoreApi`, bind ke `127.0.0.1:8000`, berjalan satu worker tanpa reload, dan mengatur restart otomatis. Core API hanya melayani API JSON/SSE (`/api/*`, `/v1/*`), `/health`, `/ready`, `/downloads/*`, dan endpoint WebSocket kompatibilitas — ia tidak menyajikan halaman web apa pun; seluruh web disajikan oleh Next.js di Vercel. Setelah konfigurasi siap:
 
    ```powershell
    Start-Service AlgentraCoreApi
