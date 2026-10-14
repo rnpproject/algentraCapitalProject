@@ -196,6 +196,7 @@ async def validation_error_response(_: Request, exc: RequestValidationError) -> 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_response(request: Request, exc: StarletteHTTPException):
+    # API-only: every error (including 404) is JSON. The web UI lives on Vercel.
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
@@ -268,6 +269,10 @@ def readiness() -> JSONResponse:
             content={"status": "not_ready", "checks": {"database": "unavailable"}},
         )
     return JSONResponse(content={"status": "ready", "checks": {"database": "ok"}})
+
+
+# NOTE: halaman web (login, dashboard, dsb.) disajikan oleh Next.js di Vercel.
+# Core API di Windows hanya melayani API JSON, health, unduhan, dan websocket.
 
 
 @app.get("/downloads/MT5FollowerCopyEA.mq5", response_class=FileResponse, include_in_schema=False)

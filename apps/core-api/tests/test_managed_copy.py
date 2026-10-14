@@ -84,9 +84,8 @@ def test_managed_copy_client_setup_worker_auth_and_live_acknowledgement(monkeypa
         assert account_list.json()[0]["execution_mode"] == "MANAGED"
         assert account_list.json()[0]["managed_copy"]["configured"] is False
         account_page = client.get("/account")
-        assert account_page.status_code == 200
-        assert "Dikelola server" in account_page.text
-        assert "Pasang EA sendiri" in account_page.text
+        # Halaman /account sudah pindah ke Vercel; Core API hanya melayani API JSON.
+        assert account_page.status_code == 404
 
         assert client.get("/api/mt5/copier/jobs").status_code == 401
         setup = client.put(
@@ -264,5 +263,45 @@ def test_managed_copy_client_setup_worker_auth_and_live_acknowledgement(monkeypa
                 db.query(AuthSession).filter_by(user_type="client", user_id=str(user.id)).delete()
             db.query(PaymentOrder).filter_by(email=email).delete()
             db.query(MT5Account).filter_by(id=account_id).delete()
+            db.query(ClientUser).filter_by(email=email).delete()
+            db.commit()
+
+
+def test_client_portal_support_endpoints_for_vercel_web():
+    email = "portal-support-test@example.com"
+    test_password = "Portal-Support-Test-123"
+    with TestClient(app) as client:
+        assert client.get("/api/mt5/plans").status_code == 401
+        assert client.get("/api/payments/manual-instructions").status_code == 401
+
+        with SessionLocal() as db:
+            user = ClientUser(
+                email=email,
+                password_hash=hash_password(test_password),
+                verified_at=utc_now(),
+            )
+            db.add(user)
+            db.commit()
+
+        login = client.post("/api/auth/client-login", json={"email": email, "password": test_password})
+        assert login.status_code == 200
+
+        plans = client.get("/api/mt5/plans")
+        assert plans.status_code == 200
+        assert set(plans.json()) == {"ZERO", "PRO", "EXPERT"}
+        assert plans.json()["PRO"]["price_idr"] == 200_000
+
+        versioned_plans = client.get("/v1/mt5/plans")
+        assert versioned_plans.status_code == 200
+        assert versioned_plans.json() == plans.json()
+
+        instructions = client.get("/api/payments/manual-instructions")
+        assert instructions.status_code == 200
+        assert "instructions" in instructions.json()
+
+        with SessionLocal() as db:
+            user = db.query(ClientUser).filter_by(email=email).one_or_none()
+            if user is not None:
+                db.query(AuthSession).filter_by(user_type="client", user_id=str(user.id)).delete()
             db.query(ClientUser).filter_by(email=email).delete()
             db.commit()

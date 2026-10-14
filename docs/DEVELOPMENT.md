@@ -30,7 +30,7 @@ Panduan ini untuk lingkungan lokal/development saja. Gunakan project Supabase de
    ```
 
    Script migrasi memaksa `APP_ENV=development`, memeriksa project ref dan marker database, lalu memakai role migrator. Backend bind ke `127.0.0.1:8000`, memuat ulang saat kode berubah, dan tidak menjalankan migrasi otomatis saat start.
-7. Buka `http://127.0.0.1:8000/loginAdmin`. Client mendaftar di `/register`, memverifikasi email, lalu masuk melalui `/login`. Untuk pembayaran development, gunakan detail uji dan isi `PAYMENT_MANUAL_INSTRUCTIONS`; jangan memasukkan rekening production ke lingkungan uji.
+7. Buka web development di `http://localhost:3000` (lihat "Web lokal dan tunnel uji" di bawah; admin di `/admin/login`). Client mendaftar di `/register`, memverifikasi email, lalu masuk melalui `/login`. Backend di `127.0.0.1:8000` hanya melayani API JSON, bukan halaman web. Untuk pembayaran development, gunakan detail uji dan isi `PAYMENT_MANUAL_INSTRUCTIONS`; jangan memasukkan rekening production ke lingkungan uji.
 8. Integrasi opsional: `GEMINI_API_KEY` untuk parser, key berbeda `GEMINI_CS_API_KEY` untuk chat, `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` untuk koneksi Telegram, serta `TELEGRAM_BOT_TOKEN`/`TELEGRAM_ADMIN_CHAT_ID` untuk review pembayaran. Isi pasangan Telegram bot bersama-sama; bot pembayaran memakai long polling dan hanya boleh dijalankan oleh satu backend.
 
 ## Bootstrap Supabase development
@@ -75,7 +75,7 @@ Secara default sumbernya `backend/data/app.db`; path lain dapat diberikan sebaga
 
 ## Web lokal dan tunnel uji
 
-Web berada di `apps/web`. Salin `apps/web/.env.example`, set `CORE_API_ORIGIN=http://127.0.0.1:8000`, dan gunakan `BFF_HMAC_SECRET` yang sama dengan backend development. Jalankan:
+Web berada di `apps/web` dan disajikan sepenuhnya oleh Next.js — backend hanya melayani API JSON. Salin `apps/web/.env.example`, set `CORE_API_ORIGIN=http://127.0.0.1:8000`, dan gunakan `BFF_HMAC_SECRET` yang sama dengan backend development. Jalankan:
 
 ```powershell
 Set-Location apps\web

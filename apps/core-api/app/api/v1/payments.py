@@ -42,6 +42,14 @@ def list_payment_orders(
     return list_orders(db, owner_id)
 
 
+@router.get("/manual-instructions")
+def manual_payment_instructions(
+    _owner_id: int = Depends(require_client_id),
+) -> dict[str, str | None]:
+    """Instruksi pembayaran manual untuk ditampilkan di halaman transaksi web."""
+    return {"instructions": get_settings().payment_manual_instructions}
+
+
 @router.get("/orders/{order_id}/proof")
 def view_payment_proof(
     order_id: int,
