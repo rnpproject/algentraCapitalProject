@@ -435,6 +435,7 @@
     @media (max-width:600px) {
       .cs-chat-panel { position:fixed; right:10px; bottom:72px; width:calc(100vw - 20px); height:min(72dvh,600px); }
       .cs-chat-panel--floating { right:10px; bottom:138px; width:calc(100vw - 20px); height:min(72dvh,600px); }
+      .cs-chat-widget--open { display:none; }
     }
     /* Polish visual: warna lebih hidup, kedalaman, dan interaksi halus */
     :root { --grad: linear-gradient(135deg,#4da3e8,#04b2d9); --ring: 0 0 0 3px color-mix(in srgb,var(--focus) 25%,transparent); }
