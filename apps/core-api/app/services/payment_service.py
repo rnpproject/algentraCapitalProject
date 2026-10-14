@@ -24,6 +24,16 @@ class PaymentOrderConflict(RuntimeError):
     pass
 
 
+def _plan_matches_mode(plan: str, execution_mode: str) -> bool:
+    """Pastikan paket sesuai cara menjalankan (mencegah mode MANAGED harga EA)."""
+    if plan == "MANAGED":
+        return execution_mode == "MANAGED"
+    if plan == "EA" or plan.startswith("EA_VPS"):
+        return execution_mode == "EA"
+    # Paket lama (ZERO/PRO/EXPERT): kompatibel mundur, mode bebas.
+    return True
+
+
 def create_order(
     db: Session,
     *,
@@ -37,6 +47,8 @@ def create_order(
     selected_plan = resolve_plan(plan)
     if selected_plan is None:
         raise PaymentOrderConflict("Paket layanan tidak dikenal")
+    if not _plan_matches_mode(plan, execution_mode):
+        raise PaymentOrderConflict("Paket tidak sesuai dengan cara menjalankan copy trading")
     order, failure = PaymentRepository(db).create_for_owner(
         owner_id=owner_id,
         label=label.strip(),
@@ -70,6 +82,8 @@ def _order_payload(order: PaymentOrder) -> dict[str, object]:
         "execution_mode": order.execution_mode,
         "total_idr": order.total_idr,
         "status": order.status,
+        "payment_method": order.payment_method,
+        "midtrans_status": order.midtrans_status,
         "has_proof": order.proof_filename is not None,
         "account_id": order.account_id,
         "notification_sent": order.admin_notified_at is not None,
