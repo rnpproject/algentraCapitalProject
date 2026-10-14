@@ -257,7 +257,7 @@ export function CsChatWidget({ mode, className }: { mode: "client" | "public"; c
     </section>
   );
 
-  return (
+  const widget = (
     <div
       className={["cs-chat-widget", isAccount ? "cs-chat-widget--account" : "cs-chat-widget--public-float", className]
         .filter(Boolean)
@@ -265,8 +265,6 @@ export function CsChatWidget({ mode, className }: { mode: "client" | "public"; c
       id="cs-chat-widget"
       data-cs-mode={chatMode}
     >
-      {/* Panel dipindah ke <body> seperti document.body.append(panel) di base.html. */}
-      {mounted ? createPortal(panel, document.body) : null}
       <button
         className="cs-chat-launcher cs-chat-launcher--icon"
         id="cs-chat-open"
@@ -283,5 +281,15 @@ export function CsChatWidget({ mode, className }: { mode: "client" | "public"; c
         </span>
       </button>
     </div>
+  );
+
+  // Widget + panel dipindah ke <body> seperti document.body.append(panel) di base.html,
+  // supaya position:fixed selalu relatif ke viewport — tidak terjebak containing block
+  // dari ancestor yang ber-animasi/ber-transform (mis. main { animation: rise ... }).
+  return (
+    <>
+      {mounted ? createPortal(widget, document.body) : null}
+      {mounted ? createPortal(panel, document.body) : null}
+    </>
   );
 }
