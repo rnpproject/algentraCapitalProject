@@ -31,7 +31,7 @@ class PaymentOrderCreate(BaseModel):
     label: str = Field(min_length=1, max_length=80)
     server: str = Field(min_length=1, max_length=128)
     login: str = Field(min_length=1, max_length=32, pattern=r"^\d+$")
-    plan: str = Field(pattern=r"^(ZERO|PRO|EXPERT)$")
+    plan: str = Field(pattern=r"^(ZERO|PRO|EXPERT|MANAGED|EA|EA_VPS[1-5])$")
     execution_mode: Literal["EA", "MANAGED"] = "EA"
 
 

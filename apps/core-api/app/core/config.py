@@ -38,6 +38,36 @@ class Settings(BaseSettings):
     payment_manual_instructions: str = Field(
         default="", validation_alias="PAYMENT_MANUAL_INSTRUCTIONS", max_length=1200
     )
+    management_fee_idr: int = Field(
+        default=150_000, validation_alias="MANAGEMENT_FEE_IDR", ge=0
+    )
+    # Opsi VPS untuk mode EA (addon opsional). Slot tanpa VPS{n}_NAME
+    # dianggap tidak tersedia dan tidak ditampilkan.
+    vps1_name: str = Field(default="", validation_alias="VPS1_NAME", max_length=80)
+    vps1_vcpu: str = Field(default="", validation_alias="VPS1_VCPU", max_length=32)
+    vps1_ram: str = Field(default="", validation_alias="VPS1_RAM", max_length=32)
+    vps1_disk: str = Field(default="", validation_alias="VPS1_DISK", max_length=32)
+    vps1_price_idr: int = Field(default=0, validation_alias="VPS1_PRICE_IDR", ge=0)
+    vps2_name: str = Field(default="", validation_alias="VPS2_NAME", max_length=80)
+    vps2_vcpu: str = Field(default="", validation_alias="VPS2_VCPU", max_length=32)
+    vps2_ram: str = Field(default="", validation_alias="VPS2_RAM", max_length=32)
+    vps2_disk: str = Field(default="", validation_alias="VPS2_DISK", max_length=32)
+    vps2_price_idr: int = Field(default=0, validation_alias="VPS2_PRICE_IDR", ge=0)
+    vps3_name: str = Field(default="", validation_alias="VPS3_NAME", max_length=80)
+    vps3_vcpu: str = Field(default="", validation_alias="VPS3_VCPU", max_length=32)
+    vps3_ram: str = Field(default="", validation_alias="VPS3_RAM", max_length=32)
+    vps3_disk: str = Field(default="", validation_alias="VPS3_DISK", max_length=32)
+    vps3_price_idr: int = Field(default=0, validation_alias="VPS3_PRICE_IDR", ge=0)
+    vps4_name: str = Field(default="", validation_alias="VPS4_NAME", max_length=80)
+    vps4_vcpu: str = Field(default="", validation_alias="VPS4_VCPU", max_length=32)
+    vps4_ram: str = Field(default="", validation_alias="VPS4_RAM", max_length=32)
+    vps4_disk: str = Field(default="", validation_alias="VPS4_DISK", max_length=32)
+    vps4_price_idr: int = Field(default=0, validation_alias="VPS4_PRICE_IDR", ge=0)
+    vps5_name: str = Field(default="", validation_alias="VPS5_NAME", max_length=80)
+    vps5_vcpu: str = Field(default="", validation_alias="VPS5_VCPU", max_length=32)
+    vps5_ram: str = Field(default="", validation_alias="VPS5_RAM", max_length=32)
+    vps5_disk: str = Field(default="", validation_alias="VPS5_DISK", max_length=32)
+    vps5_price_idr: int = Field(default=0, validation_alias="VPS5_PRICE_IDR", ge=0)
     ea_api_key: SecretStr | None = Field(default=None, validation_alias="EA_API_KEY")
     copier_worker_api_key: SecretStr | None = Field(default=None, validation_alias="COPIER_WORKER_API_KEY")
     bff_hmac_secret: SecretStr | None = Field(default=None, validation_alias="BFF_HMAC_SECRET")
