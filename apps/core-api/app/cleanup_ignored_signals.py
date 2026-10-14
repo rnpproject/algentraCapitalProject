@@ -33,4 +33,6 @@ if __name__ == "__main__":
     parser.add_argument("--apply", action="store_true", help="hapus data (default: hanya hitung)")
     args = parser.parse_args()
     result = cleanup(args.apply)
-    print(f"{'Dihapus' if args.apply else 'Akan dihapus (dry-run)'}: {result['signals']} sinyal IGNORED, {result['logs']} log")
+    print(
+        f"{'Dihapus' if args.apply else 'Akan dihapus (dry-run)'}: {result['signals']} sinyal IGNORED, {result['logs']} log"
+    )

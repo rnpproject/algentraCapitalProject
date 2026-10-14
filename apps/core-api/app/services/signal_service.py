@@ -18,10 +18,16 @@ _SIGNAL_MARKER_RE = re.compile(
     r"\b(?:TP\s*[\d⁰¹²³⁴⁵⁶⁷⁸⁹]*|TAKE[\s_-]*PROFIT|TARGET\s*[\d⁰¹²³⁴⁵⁶⁷⁸⁹]*|SL|STOP[\s_-]*LOSS|ENTRY|ZONE|NOW|MARKET|LIMIT|STOP)\b",
     re.IGNORECASE,
 )
-_PRICE_RE = re.compile(r"(?<![A-Za-z])\d+(?:[.,]\d+)?")
-# Level harga nyata minimal tiga digit (mis. 2425 atau 4158.5); angka kecil seperti "TP1" tidak dihitung.
-_LEVEL_RE = re.compile(r"(?<![\w.])\d{3,}(?:[.,]\d+)?(?![\w])")
-_GOLD_SYMBOL_RE = re.compile(r"\b(?:XAUUSD(?:[A-Z0-9]{1,8}|[._-][A-Z0-9]+)?|GOLD|XAU|EMAS)\b", re.IGNORECASE)
+_LEVEL_RE = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)?(?![\w.])")
+_CLOCK_TIME_RE = re.compile(r"(?<!\d)\d{1,2}:\d{2}(?!\d)")
+_MARKET_SYMBOL_RE = re.compile(
+    r"\b(?:XAUUSD(?:[A-Z0-9]{1,8}|[._-][A-Z0-9]+)?|GOLD|XAU|EMAS|XAGUSD|SILVER|"
+    r"US30|NAS100|US100|US500|SPX500|GER40|DE40|UK100|USOIL|WTI|BRENT|"
+    r"BTCUSDT|ETHUSDT|XRPUSDT|SOLUSDT|BNBUSDT|DOGEUSDT|ADAUSDT|"
+    r"[A-Z]{6}(?:[A-Z0-9]{1,8}|[._-][A-Z0-9]+)?)\b",
+    re.IGNORECASE,
+)
+_SYMBOL_NAME_RE = re.compile(r"^[A-Z0-9][A-Z0-9._#-]{0,31}$", re.IGNORECASE)
 _TRADE_RESULT_RE = re.compile(
     r"\b(?:TP\s*[\d⁰¹²³⁴⁵⁶⁷⁸⁹]*|SL|STOP\s*LOSS)\s*(?:HIT|KEN[A]?|REACHED|TERCAPAI)\b|"
     r"\b(?:CLOSED|CLOSE|PROFIT|LOSS)\s+(?:TRADE|POSITION|POSISI)\b|"
@@ -41,9 +47,8 @@ def _signal_candidate(raw_text: str, context: str | None) -> tuple[bool, str]:
     direction_in_text = bool(_TRADE_ACTION_RE.search(text))
     if not direction_in_text and not (context and _TRADE_ACTION_RE.search(context)):
         return False, "Tidak ada arah BUY/SELL"
-    if not _LEVEL_RE.search(text) and not (
-        MARKET_NOW_PATTERN.search(text) and _GOLD_SYMBOL_RE.search(text)
-    ):
+    price_text = _CLOCK_TIME_RE.sub(" ", text)
+    if not _LEVEL_RE.search(price_text) and not (MARKET_NOW_PATTERN.search(text) and _MARKET_SYMBOL_RE.search(text)):
         return False, "Tidak ada harga/level sinyal"
     if not direction_in_text and not _SIGNAL_MARKER_RE.search(text):
         return False, "Tidak ada format harga/level sinyal"
@@ -90,17 +95,6 @@ def normalize_symbol(symbol: str | None, mapping: dict[str, str] | None = None, 
             if suffix and (suffix.isalnum() or suffix.startswith(".")):
                 return f"{aliases[alias]}{original[len(alias) :]}"
     return candidate
-
-
-def _is_xauusd_symbol(symbol: str) -> bool:
-    return symbol.upper().startswith("XAUUSD")
-
-
-def _is_gold_symbol_alias(symbol: str | None) -> bool:
-    if not symbol:
-        return True
-    candidate = re.sub(r"\s+", "", symbol).upper()
-    return candidate.startswith(("XAUUSD", "GOLD", "XAU", "EMAS"))
 
 
 def _prefer_farthest_target_when_needed(classification: SignalClassification) -> SignalClassification:
@@ -249,13 +243,11 @@ def validate_classification(
         if action == "SELL" and max(take_profits) >= stop_loss:
             return ValidationResult("REJECTED", classification, None, None, "SELL mensyaratkan TP di bawah SL")
 
-    if not _is_gold_symbol_alias(classification.symbol):
-        return ValidationResult(
-            "REJECTED", classification, classification.symbol, None, "Hanya signal XAUUSD yang diterima"
-        )
+    if classification.symbol and not _SYMBOL_NAME_RE.fullmatch(classification.symbol.strip()):
+        return ValidationResult("REJECTED", classification, classification.symbol, None, "Nama simbol tidak valid")
     symbol = normalize_symbol(classification.symbol, symbol_mapping, default_symbol)
-    if not _is_xauusd_symbol(symbol):
-        return ValidationResult("REJECTED", classification, symbol, None, "Hanya signal XAUUSD yang diterima")
+    if not _SYMBOL_NAME_RE.fullmatch(symbol):
+        return ValidationResult("REJECTED", classification, symbol, None, "Nama simbol hasil pemetaan tidak valid")
 
     if stop_loss is not None and take_profits:
         reference = (
@@ -347,9 +339,7 @@ class SignalService:
             )
             signals.save_failed(
                 row,
-                SystemLog(
-                    level="ERROR", source="Gemini", message=f"Parser gagal: {exc}"[:2000], created_at=utc_now()
-                ),
+                SystemLog(level="ERROR", source="Gemini", message=f"Parser gagal: {exc}"[:2000], created_at=utc_now()),
             )
             return ProcessResult("FAILED", row.id, None, None, "Parser tidak tersedia")
 

@@ -130,3 +130,45 @@ def test_process_message_accepts_market_now_followed_by_attached_timestamp():
         assert row.raw_text == "XAUUSD BUY NOW10:23"
 
     engine.dispose()
+
+
+def test_forex_decimal_prices_pass_candidate_filter_and_broker_symbol_mapping():
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    service = SignalService(
+        FixedParser(
+            classification(
+                symbol="EURUSD",
+                entry=1.0845,
+                tp=[1.0900],
+                sl=1.0800,
+            )
+        )
+    )
+
+    with Session(engine, expire_on_commit=False) as db:
+        db.add(AppSetting(key="symbol_mapping", value='{"EURUSD":"EURUSD.pro"}'))
+        db.commit()
+        result = asyncio.run(
+            service.process_message(
+                db,
+                group_id="forex",
+                group_name="Forex signals",
+                message_id="eurusd-decimal",
+                raw_text="EURUSD BUY 1.0845 SL 1.0800 TP 1.0900",
+            )
+        )
+
+        assert result.status == "PENDING"
+        assert result.classification is not None
+        assert result.classification.symbol == "EURUSD.PRO"
+        assert result.normalized_text == "BUY : 1.0845 | TP : 1.09 | SL : 1.08"
+
+    engine.dispose()
+
+
+def test_market_now_candidate_accepts_non_gold_symbol_but_not_clock_only():
+    from app.services.signal_service import _signal_candidate
+
+    assert _signal_candidate("EURUSD BUY NOW", None) == (True, "Kandidat sinyal trading")
+    assert _signal_candidate("BUY NOW 10:23", None)[0] is False

@@ -343,15 +343,6 @@ def pending(limit: int, db: Session) -> dict[str, object]:
             row.status = "FAILED"
             db.add(SystemLog(level="ERROR", source="EA", message=f"Signal {row.id} memiliki parsed_json tidak valid"))
             continue
-        symbol = (parsed.symbol or "XAUUSD").upper()
-        if not symbol.startswith("XAUUSD"):
-            row.status = "REJECTED"
-            db.add(
-                SystemLog(
-                    level="WARN", source="EA", message=f"Signal {row.id} ditolak karena hanya XAUUSD yang diproses"
-                )
-            )
-            continue
         execution_mode = parsed_data.get("execution_mode")
         if not isinstance(execution_mode, str) or execution_mode not in {"SINGLE", "PARTIAL"}:
             execution_mode = _entry_mode(db)

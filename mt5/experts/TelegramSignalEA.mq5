@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.101"
+#property version   "1.102"
 #property description "Executes Telegram signals, reports master MT5 balance, and publishes all open positions"
 
 #define MAX_SIGNAL_TARGETS 20
@@ -585,13 +585,6 @@ bool FindExistingSignalOrder(const long signal_id, long &ticket_out, double &lot
    return false;
   }
 
-bool IsXauUsdSymbol(const string symbol)
-  {
-   string normalized = symbol;
-   StringToUpper(normalized);
-   return StringFind(normalized, "XAUUSD") == 0;
-  }
-
 double NormalizePrice(const string symbol, const double price)
   {
    if(price <= 0.0)
@@ -1146,11 +1139,6 @@ void ProcessSignal(const string item)
       RepeatSavedReport(signal_id, requested_symbol, action, 0);
       return;
      }
-   if(!IsXauUsdSymbol(requested_symbol))
-     {
-      RejectSignal(signal_id, requested_symbol, action, "Only XAUUSD signals are accepted");
-      return;
-     }
    string symbol;
    string symbol_error;
    if(!ResolveBrokerSymbol(requested_symbol, SymbolSuffix, SymbolMapCsv, symbol, symbol_error))
@@ -1235,6 +1223,8 @@ void ProcessSignal(const string item)
    double risk_money_per_leg = 0.0;
    if(LotMode == LOT_RISK_PERCENT && RiskPercent > 0.0)
      {
+      // Equity and OrderCalcProfit are both expressed in this account's deposit
+      // currency, so this sizing also works for cent, IDR, and other currencies.
       double equity = AccountInfoDouble(ACCOUNT_EQUITY);
       if(equity > 0.0)
          risk_money_per_leg = equity * RiskPercent / 100.0 / MathMax(1, order_count);
@@ -1289,7 +1279,7 @@ void SendHeartbeat()
   {
    string symbol = JsonEscape(_Symbol);
    string body = StringFormat(
-      "{\"active\":true,\"terminal\":\"%s\",\"version\":\"1.101\",\"symbol\":\"%s\"}",
+      "{\"active\":true,\"terminal\":\"%s\",\"version\":\"1.102\",\"symbol\":\"%s\"}",
       JsonEscape(TerminalInfoString(TERMINAL_NAME)), symbol);
    string response;
    HttpRequest("POST", "/api/ea/heartbeat", body, response);
@@ -1374,7 +1364,7 @@ void UpdatePanel()
   {
    int closed = g_wins + g_losses;
    double winrate = closed > 0 ? (double)g_wins / closed * 100.0 : 0.0;
-    Comment("TelegramSignalEA 1.101\n",
+    Comment("TelegramSignalEA 1.102\n",
            "Backend: ", g_connection_status, "\n",
            "Mode: LIVE\n",
            "Signals this session: ", g_signal_count, "\n",

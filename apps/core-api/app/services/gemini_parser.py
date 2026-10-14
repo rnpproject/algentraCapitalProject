@@ -30,6 +30,8 @@ MARKET_NOW_PATTERN = re.compile(
     r"\b(?:BUY|SELL|LONG|SHORT|BELI|JUAL)\s+NOW(?:\s*\d{1,2}:\d{2})?(?![\w:])",
     re.IGNORECASE,
 )
+
+
 def extract_entry_range(message: str) -> tuple[float, float] | None:
     """Extract an explicit two-price entry zone before TP/SL labels."""
     text = message.strip()
@@ -153,7 +155,9 @@ def regex_fallback(message: str) -> SignalClassification:
     symbol_match = re.search(
         r"\b(XAUUSD(?:[A-Z0-9]{1,8}|[._-][A-Z0-9]+)?|GOLD|XAU|EMAS|XAGUSD|SILVER|"
         r"US30|NAS100|US100|US500|SPX500|GER40|DE40|UK100|USOIL|WTI|BRENT|"
-        r"BTCUSD|ETHUSD|DOGEUSD|SOLUSD|BNBUSD|XRPUSD|[A-Z]{6}(?:[A-Z0-9]{1,8}|[._-][A-Z0-9]+)?)\b",
+        r"BTCUSDT|ETHUSDT|XRPUSDT|SOLUSDT|BNBUSDT|DOGEUSDT|ADAUSDT|"
+        r"BTCUSD|ETHUSD|DOGEUSD|SOLUSD|BNBUSD|XRPUSD|"
+        r"[A-Z]{6}(?:[A-Z0-9]{1,8}|[._-][A-Z0-9]+)?)\b",
         text,
         re.IGNORECASE,
     )

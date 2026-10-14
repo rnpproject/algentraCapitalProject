@@ -126,7 +126,10 @@ def test_ea_report_rejects_profit_result_sign_mismatch():
         ).status_code == 422
 
 
-def test_ea_pending_enforces_kill_switch_expiry_and_xauusd_only():
+def test_ea_pending_enforces_kill_switch_and_expiry_but_accepts_other_symbols():
+    # Initialize the in-memory test schema before using SessionLocal helpers.
+    with TestClient(app):
+        pass
     set_controls(
         kill_switch=True, max_daily_loss_money=0, max_lot=1,
         max_open_trades=3, max_market_deviation_pct=5,
@@ -134,10 +137,10 @@ def test_ea_pending_enforces_kill_switch_expiry_and_xauusd_only():
     now = utc_now()
     with SessionLocal() as db:
         stale = Signal(group_id="risk-test", message_id="stale", raw_text="old", parsed_json=parsed_signal("XAUUSD"), status="PENDING", created_at=now - timedelta(hours=2))
-        forbidden = Signal(group_id="risk-test", message_id="forbidden", raw_text="wrong symbol", parsed_json=parsed_signal("EURUSD"), status="PENDING", created_at=now)
-        db.add_all([stale, forbidden])
+        forex = Signal(group_id="risk-test", message_id="forex", raw_text="EURUSD buy", parsed_json=parsed_signal("EURUSD"), status="PENDING", created_at=now)
+        db.add_all([stale, forex])
         db.commit()
-        stale_id, forbidden_id = stale.id, forbidden.id
+        stale_id, forex_id = stale.id, forex.id
 
     try:
         with TestClient(app) as client:
@@ -149,13 +152,13 @@ def test_ea_pending_enforces_kill_switch_expiry_and_xauusd_only():
             set_controls(kill_switch=False)
             filtered = client.get("/api/ea/pending?limit=10", headers=headers)
             assert filtered.status_code == 200
-            assert filtered.json()["items"] == []
+            assert any(item["signal_id"] == forex_id and item["symbol"] == "EURUSD" for item in filtered.json()["items"])
             with SessionLocal() as db:
                 assert db.get(Signal, stale_id).status == "REJECTED"
-                assert db.get(Signal, forbidden_id).status == "REJECTED"
+                assert db.get(Signal, forex_id).status == "CLAIMED"
     finally:
         with SessionLocal() as db:
-            db.query(Signal).filter(Signal.id.in_([stale_id, forbidden_id])).delete(synchronize_session=False)
+            db.query(Signal).filter(Signal.id.in_([stale_id, forex_id])).delete(synchronize_session=False)
             db.commit()
         set_controls(kill_switch=False, max_daily_loss_money=100, max_lot=5, max_open_trades=3, max_market_deviation_pct=5)
 

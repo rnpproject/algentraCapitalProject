@@ -106,6 +106,7 @@ async def submit_payment_proof(
     finally:
         await file.close()
 
+
 @router.post("/orders/{order_id}/notify")
 async def retry_admin_notification_endpoint(
     order_id: int,
