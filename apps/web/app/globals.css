@@ -1014,6 +1014,13 @@
   .transaction-details dd { margin:2px 0 0; overflow-wrap:anywhere; font-size:12px; font-weight:700; }
   .transaction-note { margin:12px 0; padding:12px; border-left:3px solid var(--gold); border-radius:8px; color:var(--ink); background:var(--glass-raised); font-size:11px; }
   .transaction-qr { display:block; width:min(100%,260px); margin:14px auto; border-radius:12px; }
+  .qris-box { margin:12px 0; padding:14px; border:1px solid var(--glass-border); border-radius:var(--radius-control); background:var(--glass-raised); }
+  .qris-title { margin:0 0 10px; color:var(--muted); font-size:10.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+  .qris-box .transaction-note { margin:10px 0 0; }
+  .qris-code { display:block; width:220px; height:220px; margin:12px auto; border-radius:12px; background:#fff; }
+  .qris-box .toolbar { margin-top:10px; }
+  .payment-divider { display:flex; align-items:center; gap:10px; margin:14px 0; color:var(--muted); font-size:11px; }
+  .payment-divider::before, .payment-divider::after { content:""; flex:1; border-top:1px solid var(--line); }
   .transaction-proof-form { margin:12px 0; padding-top:12px; border-top:1px solid var(--line); }
   .transaction-proof-form[hidden] { display:none; }
   .transaction-proof-form button { margin-top:10px; }
