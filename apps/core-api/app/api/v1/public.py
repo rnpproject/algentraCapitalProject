@@ -32,11 +32,30 @@ def public_registration_status(db: Session = Depends(get_db)) -> dict[str, bool]
 @router.get("/v1/public/contact")
 def public_contact() -> dict[str, object]:
     settings = get_settings()
+    socials: list[dict[str, str]] = []
+    for field, icon, label in (
+        ("contact_instagram", "instagram", "Instagram"),
+        ("contact_telegram", "telegram", "Telegram"),
+        ("contact_tiktok", "tiktok", "TikTok"),
+        ("contact_website", "website", "Website"),
+        ("contact_facebook", "generic", "Facebook"),
+        ("contact_linkedin", "generic", "LinkedIn"),
+        ("contact_x", "generic", "X"),
+        ("contact_youtube", "generic", "YouTube"),
+    ):
+        url = (getattr(settings, field, None) or "").strip()
+        if not url:
+            continue
+        if "://" not in url:
+            url = "https://" + url
+        display = urlsplit(url).path.strip("/").split("/")[-1]
+        display = f"@{display}" if display else urlsplit(url).hostname or url
+        socials.append({"url": url, "icon": icon, "label": label, "display": display})
     return {
         "person": settings.contact_person_name,
         "whatsapp": settings.contact_whatsapp,
         "email": settings.contact_email,
-        "socials": [],
+        "socials": socials,
     }
 
 
