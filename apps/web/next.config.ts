@@ -2,8 +2,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  // Web disajikan sepenuhnya oleh Next.js di Vercel; Core API di Windows
-  // hanya melayani API JSON (via /api/core/* BFF) dan tidak lagi menyajikan halaman.
   async headers() {
     return [{
       source: "/:path*",
