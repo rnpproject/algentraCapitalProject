@@ -77,6 +77,9 @@ const TRADE_PAGE_SIZE = 10;
 const displayTime = (value?: string | null) =>
   value ? new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : EMPTY;
 
+const truncateSignalText = (value: string, limit = 140) =>
+  value.length > limit ? `${value.slice(0, limit).trimEnd()}......` : value;
+
 const formatPercent = (value: number | string | null | undefined) => {
   const text = formatNumber(value, 0, 2);
   return text === EMPTY ? text : `${text}%`;
@@ -846,7 +849,7 @@ export function DashboardPanel() {
             Lima pesan terbaru beserta hasil parsing, confidence, status pemrosesan, dan ticket order.
           </p>
           <div className="table-wrap">
-            <table>
+            <table className="signal-table">
               <thead>
                 <tr>
                   <th>Waktu</th>
@@ -871,8 +874,12 @@ export function DashboardPanel() {
                     <tr key={`${signal.created_at}-${index}`}>
                       <td>{displayTime(signal.created_at)}</td>
                       <td>{signal.group_name || signal.group_id || EMPTY}</td>
-                      <td>{signal.raw_text}</td>
-                      <td>{signal.normalized_text || EMPTY}</td>
+                      <td className="signal-text-cell" title={signal.raw_text}>
+                        <span>{truncateSignalText(signal.raw_text)}</span>
+                      </td>
+                      <td className="signal-text-cell" title={signal.normalized_text || EMPTY}>
+                        <span>{truncateSignalText(signal.normalized_text || EMPTY)}</span>
+                      </td>
                       <td className={`num ${toneClass(confidenceTone)}`}>
                         {signal.confidence === null || signal.confidence === undefined
                           ? EMPTY

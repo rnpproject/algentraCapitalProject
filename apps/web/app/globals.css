@@ -468,11 +468,24 @@
     .dashboard-page .toolbar { padding: 10px 0; }
     .dashboard-page .toolbar a { padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); font-size: 14px; font-weight: 600; }
     .dashboard-page .toolbar a:hover { border-color: var(--action); }
-    .dashboard-page .table-wrap { border: 1px solid var(--line); border-radius: 10px; margin-top: 10px; }
+    .dashboard-page .table-wrap { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; margin-top: 10px; overscroll-behavior-x: contain; }
+    .dashboard-page .signal-table { width: 100%; min-width: 1160px; table-layout: fixed; }
+    .dashboard-page .signal-table th:nth-child(1) { width: 140px; }
+    .dashboard-page .signal-table th:nth-child(2) { width: 150px; }
+    .dashboard-page .signal-table th:nth-child(3) { width: 250px; }
+    .dashboard-page .signal-table th:nth-child(4) { width: 230px; }
+    .dashboard-page .signal-table th:nth-child(5) { width: 100px; }
+    .dashboard-page .signal-table th:nth-child(6) { width: 105px; }
+    .dashboard-page .signal-table th:nth-child(7) { width: 105px; }
+    .dashboard-page .signal-table th:nth-child(8) { width: 110px; }
+    .dashboard-page .signal-table td { overflow: hidden; }
+    .dashboard-page .signal-table .signal-text-cell { min-width: 0; overflow: hidden; }
+    .dashboard-page .signal-table .signal-text-cell span { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .dashboard-page th { background: color-mix(in srgb,var(--panel-raised) 60%,transparent); position: sticky; top: 0; }
     .dashboard-page td, .dashboard-page th { padding: 11px 12px; }
     .dashboard-page tr:last-child td { border-bottom: 0; }
-    .dashboard-page .grid { gap: 16px; }
+    .dashboard-page .grid { min-width: 0; gap: 16px; }
+    .dashboard-page .grid > section { min-width: 0; }
     .dashboard-page .grid > section { margin: 0; }
     .dashboard-page .heading-aside { display: flex; align-items: center; gap: 14px; }
     .dashboard-page .heading-aside button { min-height: 38px; padding: 6px 14px; }
@@ -509,8 +522,8 @@
     .parser-result-heading h2 { margin: 0; }
     .parser-result-heading .section-help { flex: 1; max-width: none; margin: 0; text-align: right; }
     .parser-result pre { min-height: 84px; max-height: 420px; margin: 14px 0 0; overflow: auto; padding: 14px 16px; border-color: var(--line); border-radius: 12px; color: var(--ink); background: var(--bg); font: 12px/1.55 ui-monospace, Consolas, monospace; }
-    @media (max-width: 800px) { .dashboard-page .settings-grid, .dashboard-page .toggle-list, .dashboard-page .settings-row { grid-template-columns: 1fr; } }
-    @media (max-width: 640px) {
+    @media (max-width: 1024px) {
+      .dashboard-page .settings-grid, .dashboard-page .toggle-list, .dashboard-page .settings-row { grid-template-columns: 1fr; }
       .dashboard-page.page-shell { padding: 14px 10px 40px; }
       .dashboard-page .page-heading { margin: 0 0 10px; gap: 8px; }
       .dashboard-page .page-heading h1 { font-size: 22px; }
@@ -547,15 +560,21 @@
       .dashboard-page .settings-grid textarea { min-height: 80px; }
       .dashboard-page #registration-controls .muted { display: none; }
       .dashboard-page .pager { justify-content: space-between; margin-top: 8px; }
+      .dashboard-page .summary-card[aria-label="Ringkasan operasional"] { grid-template-columns: minmax(0, 1fr); grid-template-areas: "overview" "signals"; }
+      .dashboard-page .summary-card[aria-label="Ringkasan operasional"] > .sc-overview { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .dashboard-page .sc-summary-status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 8px 12px; }
+      .dashboard-page .sc-summary-status > .sc-chip,
+      .dashboard-page .sc-summary-status > .sc-chip:nth-child(3) { min-width: 0; margin-left: 0; padding: 0 4px; justify-content: flex-start; font-size: 11px; }
+      .dashboard-page .sc-performance, .dashboard-page .sc-signals { min-width: 0; }
+      .dashboard-page .sc-metrics b { white-space: nowrap; overflow-wrap: normal; }
     }
     .dashboard-page .toolbar input[type=checkbox] { width: 18px; min-height: 18px; flex: 0 0 18px; }
     .dashboard-page td { max-width: 280px; }
     .dashboard-page .summary-card { padding: 0; overflow: hidden; }
     .dashboard-page .summary-card { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
-    .dashboard-page .summary-card[aria-label="Ringkasan operasional"] { display: grid; grid-template-columns: minmax(310px, .75fr) minmax(0, 1.25fr); grid-template-areas: "overview signals"; align-items: stretch; }
+    .dashboard-page .summary-card[aria-label="Ringkasan operasional"] { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); grid-template-areas: "overview signals"; align-items: stretch; }
     .dashboard-page .summary-card[aria-label="Ringkasan operasional"] > .sc-overview { grid-area: overview; display: grid; grid-template-rows: auto 1fr; min-width: 0; border-right: 1px solid var(--line); }
     .dashboard-page .summary-card[aria-label="Ringkasan operasional"] > .sc-signals { grid-area: signals; align-self: stretch; min-width: 0; }
-    .dashboard-page .summary-card[aria-label="Ringkasan operasional"] > .sc-signals { grid-area: signals; align-self: stretch; }
     .dashboard-page .sc-block { padding: 10px 12px; border-bottom: 1px solid var(--line); }
     .dashboard-page .sc-block:last-child { border-bottom: 0; }
     .dashboard-page .sc-label { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
@@ -603,9 +622,11 @@
     .dashboard-page .sc-chip.tone-neg,
     .dashboard-page .sc-chip.tone-warn,
     .dashboard-page .sc-chip.tone-info { color: var(--ink) !important; }
-    .dashboard-page .sc-profit b { display: block; font-size: 32px; line-height: 1.1; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .dashboard-page .sc-profit b { display: block; min-width: 0; font-size: clamp(22px, 2.2vw, 32px); line-height: 1.1; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
     .dashboard-page .sc-profit small { color: var(--muted); font-size: 12px; }
-    .dashboard-page .sc-metrics { display: grid; grid-template-columns: repeat(3, minmax(130px, 170px)); gap: 14px; margin-top: 8px; }
+    .dashboard-page .sc-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+    .dashboard-page .sc-metrics > div { min-width: 0; }
+    .dashboard-page .sc-metrics b { overflow-wrap: anywhere; }
     .dashboard-page .sc-metrics b { display: block; font-size: 17px; line-height: 1.25; font-weight: 700; font-variant-numeric: tabular-nums; }
     .dashboard-page .sc-metrics #winrate,
     .dashboard-page .sc-metrics #daily-loss,
@@ -614,16 +635,14 @@
     .dashboard-page #wins-losses { color: var(--ink) !important; }
     .dashboard-page .sc-metrics span { color: var(--muted); font-size: 11px; }
     .dashboard-page .sc-metrics-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    @media (min-width: 641px) {
-      .dashboard-page .sc-mt5 .sc-block { padding: 10px 12px; }
-      .dashboard-page .sc-mt5 .sc-profit { display: block; margin-top: 4px; }
-      .dashboard-page .sc-mt5 .sc-profit-label { margin: 0; }
-      .dashboard-page .sc-mt5 .sc-profit b { font-size: 23px; line-height: 1.2; color: var(--ink); font-weight: 650; }
-      .dashboard-page .sc-mt5 .sc-metrics-three { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); gap: 12px; }
-      .dashboard-page .sc-mt5 .sc-metrics-three b { font-size: 14px; line-height: 1.3; color: var(--ink); font-weight: 600; letter-spacing: 0; }
-      .dashboard-page .sc-mt5 #mt5-floating { color: var(--ink) !important; }
-      .dashboard-page .sc-mt5 .sc-metrics-three span { display: block; margin-top: 3px; }
-    }
+    .dashboard-page .sc-mt5 .sc-block { padding: 10px 12px; }
+    .dashboard-page .sc-mt5 .sc-profit { display: block; margin-top: 4px; }
+    .dashboard-page .sc-mt5 .sc-profit-label { margin: 0; }
+    .dashboard-page .sc-mt5 .sc-profit b { font-size: 23px; line-height: 1.2; color: var(--ink); font-weight: 650; }
+    .dashboard-page .sc-mt5 .sc-metrics-three { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); gap: 12px; }
+    .dashboard-page .sc-mt5 .sc-metrics-three b { font-size: 14px; line-height: 1.3; color: var(--ink); font-weight: 600; letter-spacing: 0; }
+    .dashboard-page .sc-mt5 #mt5-floating { color: var(--ink) !important; }
+    .dashboard-page .sc-mt5 .sc-metrics-three span { display: block; margin-top: 3px; }
     .dashboard-page .sc-mode { font-size: 12px; }
     .dashboard-page .sc-metrics i { font-style: normal; }
     .dashboard-page .sc-metrics #wins-losses-inline { display: block; margin: 0; padding: 0; text-align: left; white-space: nowrap; font-size: 17px; line-height: 1.25; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -634,8 +653,8 @@
     .dashboard-page .sc-table tr + tr td { border-top: 1px solid var(--line); }
     .dashboard-page .sc-table th:nth-child(3) { padding-left: 14px; border-left: 1px solid var(--line); }
     .dashboard-page .sc-table td:nth-child(4) { padding-right: 0; }
-    .dashboard-page .sc-table th { width: 31%; color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; white-space: normal; }
-    .dashboard-page .sc-table td { width: 19%; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+    .dashboard-page .sc-table th { width: 30%; color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; white-space: normal; }
+    .dashboard-page .sc-table td { width: 20%; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
     .dashboard-page .sc-table td b { color: var(--ink) !important; font-size: 14px; font-weight: 650; }
     .dashboard-page .sc-table tr:hover td, .dashboard-page .sc-table tr:hover th { background: transparent; }
     .dashboard-page .sc-help { min-width: 0; max-width: 100%; margin-top: 10px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
@@ -655,22 +674,21 @@
     :root[data-theme="light"] .dashboard-page .pill.tone-warn { color: #8b713b; }
     :root[data-theme="light"] .dashboard-page .pill.tone-info { color: #587a98; }
     .dashboard-page #wins-losses { white-space: nowrap; }
-    @media (min-width: 641px) and (max-width: 900px) {
-      .dashboard-page .summary-card[aria-label="Ringkasan operasional"] { grid-template-columns: minmax(250px, .8fr) minmax(0, 1.2fr); }
-    }
-    @media (max-width: 640px) {
+    @media (max-width: 1024px) {
       .dashboard-page .summary-card[aria-label="Ringkasan operasional"] { grid-template-columns: minmax(0, 1fr); grid-template-areas: "overview" "signals"; }
-      .dashboard-page .summary-card[aria-label="Ringkasan operasional"] > .sc-overview { border-right: 0; border-bottom: 1px solid var(--line); }
+      .dashboard-page .summary-card[aria-label="Ringkasan operasional"] > .sc-overview { grid-template-columns: minmax(0, 1fr); border-right: 0; border-bottom: 1px solid var(--line); }
+      .dashboard-page .sc-summary-status { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .dashboard-page .sc-block { padding: 8px 10px; }
       .dashboard-page #mt5-live-section { padding: 12px; margin: 10px 0; }
       .dashboard-page .sc-status { padding: 0; gap: 6px; flex-wrap: wrap; }
       .dashboard-page .sc-mt5 .sc-summary-status { min-height: 34px; padding: 0 2px 4px; align-items: center; }
-      .dashboard-page .sc-summary-status > .sc-chip:nth-child(3) { margin-left: auto; padding: 0; }
+      .dashboard-page .sc-summary-status > .sc-chip:nth-child(3) { margin-left: 0; padding: 0 4px; }
       .dashboard-page .sc-chip { min-height: 30px; padding: 4px 11px; font-size: 11px; }
       .dashboard-page .sc-mt5 .sc-chip { min-height: 28px; padding: 0 7px; font-size: 11px; line-height: 1; }
       .dashboard-page #mt5-live-chip { min-width: 104px; min-height: 42px; font-size: 12px; }
       .dashboard-page #mt5-live-status { min-width: 90px; min-height: 38px; padding: 6px 12px; font-size: 13px; }
       .dashboard-page .sc-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 8px; }
+      .dashboard-page .sc-metrics b { white-space: nowrap; overflow-wrap: normal; }
       .dashboard-page .sc-mt5 .sc-profit { display: block; margin-top: 4px; }
       .dashboard-page .sc-mt5 .sc-profit-label { margin: 0; }
       .dashboard-page .sc-mt5 .sc-profit b { font-size: 23px; line-height: 1.2; color: var(--ink); font-weight: 650; }
@@ -678,10 +696,6 @@
       .dashboard-page .sc-mt5 .sc-metrics-three b { font-size: 12px; line-height: 1.3; color: var(--ink); font-weight: 600; letter-spacing: 0; white-space: nowrap; }
       .dashboard-page .sc-mt5 #mt5-floating { color: var(--ink) !important; }
       .dashboard-page .sc-mt5 .sc-metrics-three span { display: block; margin-top: 3px; }
-      .dashboard-page .sc-table { font-size: 12px; }
-      .dashboard-page .sc-table th, .dashboard-page .sc-table td { padding: 4px 5px 4px 0; }
-      .dashboard-page .sc-table th { width: 29%; font-size: 10px; }
-      .dashboard-page .sc-table td { width: 21%; }
     }
     button:not(.secondary):not(.danger):not(.icon-button) { background: var(--action); border-color: var(--action); color: var(--on-action); box-shadow: none; }
     button:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.06); }
@@ -698,7 +712,7 @@
     tbody tr:hover { background: color-mix(in srgb,var(--action) 8%,transparent); }
     th { color: var(--muted); }
     footer { color: var(--muted); padding-top: 24px; }
-    @media (max-width: 640px) {
+    @media (max-width: 1024px) {
       .dashboard-page .sc-profit b { font-size: 24px; }
       .dashboard-page .sc-metrics { gap: 7px; }
       .dashboard-page .sc-metrics b { font-size: 15px; }

@@ -63,7 +63,8 @@ def get_dashboard_stats(db: Session) -> dict[str, int | float]:
     daily_loss = calculate_daily_loss(trades, day_start_utc=day_start_utc)
     return {
         "signals_total": sum(status_counts.values()),
-        "signals_executed": status_counts["EXECUTED"],
+        # WIN/LOSS/BE are terminal states for signals that reached execution.
+        "signals_executed": status_counts["EXECUTED"] + status_counts["WIN"] + status_counts["LOSS"] + status_counts["BE"],
         "signals_pending": status_counts["PENDING"] + status_counts["CLAIMED"],
         "signals_processing": status_counts["PROCESSING"],
         "signals_rejected": status_counts["REJECTED"] + status_counts["FAILED"],
