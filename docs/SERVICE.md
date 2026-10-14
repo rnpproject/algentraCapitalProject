@@ -24,7 +24,7 @@ Gunakan Windows Server terkelola, Python 3.12 64-bit, NSSM, Cloudflare Tunnel, k
      -NssmPath 'C:\Tools\nssm\win64\nssm.exe'
    ```
 
-   Service `AlgentraCoreApi` memakai akun virtual terbatas `NT SERVICE\AlgentraCoreApi`, bind ke `127.0.0.1:8000`, berjalan satu worker tanpa reload, dan mengatur restart otomatis. Setelah konfigurasi siap:
+   Service `AlgentraCoreApi` memakai akun virtual terbatas `NT SERVICE\AlgentraCoreApi`, bind ke `127.0.0.1:8000`, berjalan satu worker tanpa reload, dan mengatur restart otomatis. Core API hanya melayani API JSON (`/api/*`, `/v1/*`), `/health`, `/ready`, `/downloads/*`, dan websocket — ia tidak menyajikan halaman web apa pun; seluruh web disajikan oleh Next.js di Vercel. Setelah konfigurasi siap:
 
    ```powershell
    Start-Service AlgentraCoreApi
@@ -61,7 +61,9 @@ Task berjalan pada sesi interaktif akun Windows yang mendaftarkannya; login ke a
 
 ## Cloudflare Tunnel dan Vercel
 
-Pasang named Cloudflare Tunnel sebagai service/task terpisah dengan ingress ke `http://127.0.0.1:8000`. Aktifkan TLS/HSTS di Cloudflare; jangan buka port 8000 ke internet atau bind backend ke interface publik.
+Pasang named Cloudflare Tunnel sebagai service/task terpisah dengan ingress ke `http://127.0.0.1:8000`. Tunnel ini hanya mengekspos Core API (bukan web); jangan buka port 8000 ke internet atau bind backend ke interface publik. Aktifkan TLS/HSTS di Cloudflare.
+
+Web disajikan sepenuhnya dan hanya oleh Next.js di Vercel (`apps/web`); tidak ada web kedua di Windows Server.
 
 Pada Vercel:
 
