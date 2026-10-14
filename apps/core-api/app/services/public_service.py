@@ -4,11 +4,9 @@ import json
 import math
 import re
 from datetime import datetime, time, timedelta, timezone
-from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session
 
-from ..core.config import get_settings
 from ..models import (
     MT5MasterEquityCandle,
     utc_now,
@@ -16,7 +14,6 @@ from ..models import (
 from ..core.time_utils import WIB, as_utc, wib_iso
 from ..repositories.public_performance import PublicPerformanceRepository
 from ..state import master_snapshot_state
-from .registration import LAUNCH_AT, registration_is_open, registration_launch_pending
 
 
 MARKET_SYMBOL_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
@@ -26,63 +23,6 @@ def equity_session_start(now: datetime) -> datetime:
     wib_now = as_utc(now).astimezone(WIB)
     session_date = wib_now.date() if wib_now.hour >= 7 else wib_now.date() - timedelta(days=1)
     return datetime.combine(session_date, time(hour=7), tzinfo=WIB).astimezone(timezone.utc)
-
-
-def _public_contact_context(db: Session) -> dict[str, object]:
-    settings = get_settings()
-    whatsapp_digits = re.sub(r"\D", "", settings.contact_whatsapp or "")
-    whatsapp = whatsapp_digits if 8 <= len(whatsapp_digits) <= 15 else None
-    email = (settings.contact_email or "").strip()
-    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
-        email = ""
-
-    social_settings = (
-        ("Instagram", settings.contact_instagram, ("instagram.com",), "instagram"),
-        ("Grup Telegram", settings.contact_telegram, ("t.me", "telegram.me"), "telegram"),
-        ("Admin Telegram", settings.contact_telegram_admin, ("t.me", "telegram.me"), "telegram"),
-        ("Facebook", settings.contact_facebook, ("facebook.com", "fb.com"), "facebook"),
-        ("LinkedIn", settings.contact_linkedin, ("linkedin.com",), "linkedin"),
-        ("X", settings.contact_x, ("x.com", "twitter.com"), "x"),
-        ("YouTube", settings.contact_youtube, ("youtube.com", "youtu.be"), "youtube"),
-        ("TikTok", settings.contact_tiktok, ("tiktok.com",), "tiktok"),
-        ("Website", settings.contact_website, ("algentracapital.my.id",), "website"),
-    )
-    socials = []
-    for label, raw_url, allowed_hosts, icon in social_settings:
-        url = (raw_url or "").strip()
-        safe_url = None
-        try:
-            parsed = urlsplit(url)
-            hostname = (parsed.hostname or "").casefold()
-        except ValueError:
-            parsed = None
-            hostname = ""
-        if parsed and (
-            parsed.scheme == "https"
-            and parsed.username is None
-            and parsed.password is None
-            and any(hostname == host or hostname.endswith(f".{host}") for host in allowed_hosts)
-        ):
-            safe_url = url
-        if safe_url:
-            path = parsed.path.strip("/")
-            if label in {"Instagram", "TikTok", "Admin Telegram"}:
-                display = f"@{path.lstrip('@')}"
-            elif label == "Website":
-                display = parsed.netloc.casefold()
-            else:
-                display = path
-            socials.append({"label": label, "url": safe_url, "icon": icon, "display": display})
-
-    return {
-        "contact_person": (settings.contact_person_name or "").strip(),
-        "contact_whatsapp": whatsapp,
-        "contact_email": email,
-        "contact_socials": socials,
-        "registration_open": registration_is_open(db),
-        "registration_launch_pending": registration_launch_pending(db),
-        "registration_launch_at": LAUNCH_AT.isoformat(),
-    }
 
 
 def public_performance_payload(db: Session, *, include_equity_curve: bool = True) -> dict[str, object]:

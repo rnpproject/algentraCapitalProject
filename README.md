@@ -12,6 +12,7 @@ Dokumentasi dipisahkan menurut tugas:
 ## Prasyarat production
 
 - Windows Server terkelola, Python 3.12 64-bit, NSSM, dan akses administrator untuk instalasi.
+- Core API di Windows hanya melayani API JSON; seluruh halaman web disajikan oleh Next.js di Vercel — tidak ada web yang disajikan dari Windows Server.
 - Project Supabase production terpisah dengan TLS dan role runtime `algentra_api`; jangan gunakan Supabase `anon` atau `service_role`.
 - DNS/domain dan named Cloudflare Tunnel menuju Core API lokal di `127.0.0.1:8000`. Jangan buka port API secara langsung ke internet.
 - Schema database production sudah diprovisikan pada revision yang cocok dengan rilis. Ikuti prosedur snapshot schema dan pemeriksaan marker pada [panduan development](docs/DEVELOPMENT.md#menyiapkan-schema-awal-production); jalankan provisioning satu kali sebagai DBA pada database production kosong/awal, bukan pada database aktif.

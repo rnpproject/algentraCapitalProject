@@ -2,14 +2,12 @@ from contextlib import asynccontextmanager
 import asyncio
 import secrets
 import os
-from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from urllib.parse import urlsplit
 
@@ -17,8 +15,7 @@ from .auth import seed_admin
 from .core.config import PROJECT_ROOT, get_settings
 from .core.bff_security import BFFSignatureMiddleware
 from .services.cs_service import cleanup_expired_conversations_periodically, purge_expired_conversations
-from .domain.client_plans import CLIENT_PLANS
-from .database import Base, SessionLocal, engine, ensure_schema_ready, get_db, migrate_schema
+from .database import Base, SessionLocal, engine, ensure_schema_ready, migrate_schema
 from .models import Signal, utc_now
 from .repositories.settings import SettingsRepository
 from .realtime.public_realtime import public_performance_hub
@@ -37,6 +34,8 @@ from .api.v1 import (
 from .api.v1.mt5 import require_client_id
 from .services.public_service import public_performance_payload
 from .services.signal_service import SignalService
+from .services.stats_service import get_dashboard_stats
+from .services.risk_controls import risk_state
 from .core.security import (
     DatabaseSessionMiddleware,
     RateLimitMiddleware,
@@ -44,12 +43,9 @@ from .core.security import (
     csrf_token,
     require_csrf,
 )
-from .services.stats_service import get_dashboard_stats
-from .services.risk_controls import risk_state
 from .core.time_utils import wib_iso
 from .services.payment_bot import payment_review_bot
 from .state import ea_heartbeat_state, master_snapshot_state
-from .state import MasterAccountSnapshot, MasterPosition
 
 
 @asynccontextmanager
@@ -196,6 +192,7 @@ async def validation_error_response(_: Request, exc: RequestValidationError) -> 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_response(request: Request, exc: StarletteHTTPException):
+    # API-only: every error (including 404) is JSON. The web UI lives on Vercel.
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
@@ -268,6 +265,10 @@ def readiness() -> JSONResponse:
             content={"status": "not_ready", "checks": {"database": "unavailable"}},
         )
     return JSONResponse(content={"status": "ready", "checks": {"database": "ok"}})
+
+
+# NOTE: halaman web (login, dashboard, dsb.) disajikan oleh Next.js di Vercel.
+# Core API di Windows hanya melayani API JSON, health, unduhan, dan websocket.
 
 
 @app.get("/downloads/MT5FollowerCopyEA.mq5", response_class=FileResponse, include_in_schema=False)

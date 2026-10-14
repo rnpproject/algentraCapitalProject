@@ -48,7 +48,10 @@ def test_admin_login_protects_and_unlocks_dashboard_routes():
         old_cookie = response.headers["set-cookie"].split(";", 1)[0]
         cookie_value = old_cookie.split("=", 1)[1]
         assert "admin" not in cookie_value
-        assert client.get("/parser-test").status_code == 200
+        # Halaman web sudah pindah ke Vercel; Core API hanya melayani API JSON.
+        removed_page = client.get("/parser-test")
+        assert removed_page.status_code == 404
+        assert removed_page.json() == {"detail": "Not Found"}
         assert client.get("/api/stats").json()["winrate"] == 0.0
         assert client.post("/api/auth/logout").status_code == 403
         assert client.post("/api/auth/logout", headers={"X-CSRF-Token": csrf}).status_code == 200
@@ -343,13 +346,14 @@ def test_startup_syncs_changed_admin_password_from_environment():
 
 def test_dashboard_endpoints_csv_and_websocket_after_login():
     with TestClient(app) as client:
-        assert client.get("/dashboard").status_code == 401
+        # Halaman /dashboard sudah pindah ke Vercel; Core API hanya melayani API JSON.
+        assert client.get("/dashboard").status_code == 404
         login = client.post(
             "/api/auth/login",
             json={"username": "admin", "password": "M1-Testing-Password-123"},
         )
         assert login.status_code == 200
-        assert client.get("/dashboard").status_code == 200
+        assert client.get("/dashboard").status_code == 404
 
         stats = client.get("/api/stats")
         assert stats.status_code == 200
