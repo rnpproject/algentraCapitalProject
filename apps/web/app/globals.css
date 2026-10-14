@@ -1019,8 +1019,13 @@
   .qris-box .transaction-note { margin:10px 0 0; }
   .qris-code { display:block; width:220px; height:220px; margin:12px auto; border-radius:12px; background:#fff; }
   .qris-box .toolbar { margin-top:10px; }
-  .payment-divider { display:flex; align-items:center; gap:10px; margin:14px 0; color:var(--muted); font-size:11px; }
-  .payment-divider::before, .payment-divider::after { content:""; flex:1; border-top:1px solid var(--line); }
+  .payment-method-picker { display:grid; gap:8px; margin:12px 0; }
+  .payment-method-option { display:flex; align-items:center; gap:12px; padding:10px 14px; border:1px solid var(--glass-border); border-radius:var(--radius-control); background:var(--glass-raised); cursor:pointer; }
+  .payment-method-option--active { border-color:var(--action); box-shadow:0 0 0 1px var(--action); }
+  .payment-method-option input[type=radio] { width:16px; height:16px; margin:0; flex:none; accent-color:var(--action); cursor:pointer; }
+  .payment-method-option__body { display:flex; flex-direction:column; gap:2px; }
+  .payment-method-option__body strong { color:var(--ink); font-size:13.5px; }
+  .payment-method-option__body small { color:var(--muted); font-size:11.5px; }
   .transaction-proof-form { margin:12px 0; padding-top:12px; border-top:1px solid var(--line); }
   .transaction-proof-form[hidden] { display:none; }
   .transaction-proof-form button { margin-top:10px; }

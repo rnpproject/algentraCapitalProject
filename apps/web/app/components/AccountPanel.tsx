@@ -682,8 +682,9 @@ export function AccountPanel() {
     event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
+    const form = event.currentTarget;
     setAccountMessage("");
-    const formData = new FormData(event.currentTarget);
+    const formData = new FormData(form);
     const mode = String(formData.get("execution_mode") || "EA");
     const payload = {
       execution_mode: mode,
@@ -697,7 +698,7 @@ export function AccountPanel() {
         "payments/orders",
         { method: "POST", body: JSON.stringify(payload) }
       );
-      event.currentTarget.reset();
+      form.reset();
       setExecutionMode("EA");
       setSelectedVps(null);
       modeTouched.current = false;

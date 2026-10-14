@@ -103,7 +103,9 @@ function OrderDetails({ order, plans }: { order: PaymentOrder; plans: Record<str
 function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () => void }) {
   const [charge, setCharge] = useState<QrisCharge | null>(null);
   const [creating, setCreating] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
+  const [syncMessage, setSyncMessage] = useState("");
   const refreshRef = useRef(onRefresh);
   refreshRef.current = onRefresh;
 
@@ -121,6 +123,48 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
       setCreating(false);
     }
   }
+
+  async function loadExisting() {
+    try {
+      const state = await apiRequest<QrisCharge>(`payments/orders/${order.id}/qris`);
+      if (state.qr_code_url) setCharge(state);
+    } catch {
+      // Belum ada charge QRIS aktif.
+    }
+  }
+
+  async function syncStatus() {
+    setSyncing(true);
+    setError("");
+    setSyncMessage("");
+    try {
+      const result = await apiRequest<{ order_status: string; result: string }>(
+        `payments/orders/${order.id}/qris/sync`,
+        { method: "POST" }
+      );
+      onRefresh();
+      if (result.order_status === "APPROVED") {
+        setSyncMessage("Pembayaran terverifikasi! Akun Copy Trading Anda sedang dibuat.");
+      } else if (result.result === "PAYMENT_FAILED") {
+        setSyncMessage("Kode QR sudah kedaluwarsa. Buat QR baru untuk mencoba lagi.");
+      } else {
+        setSyncMessage(
+          "Pembayaran belum terdeteksi di Midtrans. Jika Anda sudah membayar, tunggu sebentar lalu coba lagi."
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal memeriksa status.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  // Saat kartu dibuka: tampilkan QR yang masih aktif, atau buat baru otomatis.
+  useEffect(() => {
+    if (order.payment_method === "QRIS") void loadExisting();
+    else void createCharge();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id]);
 
   // Selama QR ditampilkan, refresh status order tiap 4 detik.
   useEffect(() => {
@@ -142,7 +186,7 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
       {!charge ? (
         <>
           <button type="button" onClick={() => void createCharge()} disabled={creating}>
-            {creating ? "Membuat kode QR…" : order.payment_method === "QRIS" ? "Buat QR baru" : "Bayar dengan QRIS"}
+            {creating ? "Membuat kode QR…" : "Buat kode QR"}
           </button>
           {error ? (
             <p className="status" role="alert">
@@ -168,7 +212,20 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
             width={220}
             height={220}
           />
+          {syncMessage ? <p className="transaction-note">{syncMessage}</p> : null}
+          {error ? (
+            <p className="status" role="alert">
+              {error}
+            </p>
+          ) : null}
           <div className="toolbar">
+            <button
+              type="button"
+              onClick={() => void syncStatus()}
+              disabled={syncing}
+            >
+              {syncing ? "Memeriksa…" : "Saya sudah bayar, cek status"}
+            </button>
             <button
               type="button"
               className="secondary"
@@ -194,6 +251,8 @@ function TransactionsPanelInner() {
   const [proofFormOrderId, setProofFormOrderId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [receiptOrder, setReceiptOrder] = useState<PaymentOrder | null>(null);
+  const [qrisAvailable, setQrisAvailable] = useState(false);
+  const [payMethod, setPayMethod] = useState<Record<number, "qris" | "manual">>({});
   const fingerprintRef = useRef("");
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -214,8 +273,11 @@ function TransactionsPanelInner() {
     apiRequest<Record<string, Plan>>("mt5/plans")
       .then(setPlans)
       .catch(() => {});
-    apiRequest<{ instructions: string | null }>("payments/manual-instructions")
-      .then((result) => setInstructions(result.instructions))
+    apiRequest<{ instructions: string | null; qris_available?: boolean }>("payments/manual-instructions")
+      .then((result) => {
+        setInstructions(result.instructions);
+        setQrisAvailable(result.qris_available === true);
+      })
       .catch(() => {});
     const requested = Number(searchParams.get("order")) || null;
     if (requested && requested > 0) setExpandedOrderId(requested);
@@ -420,31 +482,75 @@ function TransactionsPanelInner() {
 
                     {order.status === "PENDING_PAYMENT" && expandedOrderId === order.id && (
                       <>
-                        <QrisPayment order={order} onRefresh={() => void loadOrders(true)} />
-                        <div className="payment-divider" aria-hidden="true">
-                          <span>atau bayar manual</span>
-                        </div>
-                        <p className="transaction-note">{instructions || instructionFallback}</p>
-                        {proofFormOrderId !== order.id ? (
-                          <button type="button" onClick={() => setProofFormOrderId(order.id)}>
-                            Saya sudah bayar
-                          </button>
-                        ) : (
-                          <form
-                            className="transaction-proof-form"
-                            onSubmit={(event) => void uploadProof(event, order)}
+                        {qrisAvailable ? (
+                          <div
+                            className="payment-method-picker"
+                            role="radiogroup"
+                            aria-label="Pilih metode pembayaran"
                           >
-                            <label>
-                              Unggah bukti transaksi (JPG, PNG, atau WebP, maksimal 5 MB)
-                              <input
-                                type="file"
-                                name="file"
-                                accept=".jpg,.jpeg,.png,.webp"
-                                required
-                              />
-                            </label>
-                            <button type="submit">Kirim bukti transaksi</button>
-                          </form>
+                            {(["qris", "manual"] as const).map((value) => {
+                              const active = (payMethod[order.id] ?? "qris") === value;
+                              return (
+                                <label
+                                  key={value}
+                                  className={`payment-method-option${
+                                    active ? " payment-method-option--active" : ""
+                                  }`}
+                                >
+                                  <input
+                                    type="radio"
+                                    name={`pay-method-${order.id}`}
+                                    checked={active}
+                                    onChange={() =>
+                                      setPayMethod((prev) => ({ ...prev, [order.id]: value }))
+                                    }
+                                  />
+                                  <span className="payment-method-option__body">
+                                    <strong>
+                                      {value === "qris" ? "QRIS · Otomatis" : "Manual"}
+                                    </strong>
+                                    <small>
+                                      {value === "qris"
+                                        ? "Scan QR, akun langsung aktif tanpa menunggu admin"
+                                        : "Transfer lalu kirim bukti, diperiksa admin"}
+                                    </small>
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                        {(payMethod[order.id] ?? "qris") === "qris" && qrisAvailable ? (
+                          <QrisPayment
+                            key={`qris-${order.id}`}
+                            order={order}
+                            onRefresh={() => void loadOrders(true)}
+                          />
+                        ) : (
+                          <>
+                            <p className="transaction-note">{instructions || instructionFallback}</p>
+                            {proofFormOrderId !== order.id ? (
+                              <button type="button" onClick={() => setProofFormOrderId(order.id)}>
+                                Saya sudah bayar
+                              </button>
+                            ) : (
+                              <form
+                                className="transaction-proof-form"
+                                onSubmit={(event) => void uploadProof(event, order)}
+                              >
+                                <label>
+                                  Unggah bukti transaksi (JPG, PNG, atau WebP, maksimal 5 MB)
+                                  <input
+                                    type="file"
+                                    name="file"
+                                    accept=".jpg,.jpeg,.png,.webp"
+                                    required
+                                  />
+                                </label>
+                                <button type="submit">Kirim bukti transaksi</button>
+                              </form>
+                            )}
+                          </>
                         )}
                       </>
                     )}
