@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiRequest } from "../lib/api";
+import { formatInteger, formatMoney } from "../lib/format";
 
 type Performance = {
   master_account?: { available?: boolean; online?: boolean; balance?: number | null; equity?: number | null; currency?: string | null; trade_mode?: string | null };
@@ -17,11 +18,11 @@ export function PerformancePanel() {
     {error && <p className="muted">Data performa belum tersedia saat ini.</p>}
     {report?.master_account?.available
       ? <div className="cards">
-          <article className="card"><span className="eyebrow">Status</span><h2>{report.master_account.online ? "Online" : "Offline"}</h2></article>
-          <article className="card"><span className="eyebrow">Balance</span><h2>{report.master_account.balance ?? "—"} {report.master_account.currency ?? ""}</h2></article>
-          <article className="card"><span className="eyebrow">Equity</span><h2>{report.master_account.equity ?? "—"} {report.master_account.currency ?? ""}</h2></article>
+          <article className="card"><span className="eyebrow">Status</span><h2 className={report.master_account.online ? "tone-pos" : "tone-neg"}>{report.master_account.online ? "Online" : "Offline"}</h2></article>
+          <article className="card"><span className="eyebrow">Balance</span><h2>{formatMoney(report.master_account.balance, report.master_account.currency)}</h2></article>
+          <article className="card"><span className="eyebrow">Equity</span><h2>{formatMoney(report.master_account.equity, report.master_account.currency)}</h2></article>
         </div>
       : report && <p className="muted">Belum ada laporan akun utama.</p>}
-    {report?.equity_curve?.length ? <p className="muted">{report.equity_curve.length} titik equity · {report.registered_clients ?? 0} klien terdaftar</p> : null}
+    {report?.equity_curve?.length ? <p className="muted">{formatInteger(report.equity_curve.length)} titik equity · {formatInteger(report.registered_clients ?? 0)} klien terdaftar</p> : null}
   </section>;
 }

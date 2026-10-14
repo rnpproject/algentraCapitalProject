@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiRequest } from "../lib/api";
+import { formatInteger, formatLots, formatMoney, formatPrice, numberTone, toneClass } from "../lib/format";
 
 type DashboardStats = {
   signals_total?: number; signals_executed?: number; signals_pending?: number; signals_rejected?: number;
@@ -73,20 +74,21 @@ export function DashboardPanel() {
     };
   }, []);
   const metrics = [
-    ["Sinyal", stats?.signals_total], ["Dieksekusi", stats?.signals_executed],
-    ["Menunggu", stats?.signals_pending], ["Klien", stats?.active_clients]
+    ["Sinyal", stats?.signals_total, ""], ["Dieksekusi", stats?.signals_executed, "pos"],
+    ["Menunggu", stats?.signals_pending, "warn"], ["Ditolak", stats?.signals_rejected, "neg"], ["Klien", stats?.active_clients, ""]
   ] as const;
+  const mt5Status = mt5?.online ? "pos" : mt5?.available ? "warn" : "neg";
   return <section className="section">
     <span className="eyebrow">Workspace privat</span><h1 style={{ fontSize: 48 }}>Dashboard admin</h1>
     <div className="actions"><Link className="button" href="/telegram-setup">Pengaturan Telegram</Link><Link className="button" href="/parser-test">Uji parser</Link><Link className="button" href="/">Lihat situs</Link></div>
     {error && <p className="error" role="alert">{error}</p>}
-    {stats && <div className="cards">{metrics.map(([label, value]) => <article className="card" key={label}><span className="eyebrow">{label}</span><h2>{value ?? "—"}</h2></article>)}</div>}
-    {stats && <div className="panel"><p>Status EA: <strong>{stats.ea_online ? "Online" : "Offline"}</strong></p><p>Status Telegram: <strong>{stats.telegram_connected ? "Terhubung" : "Terputus"}</strong></p></div>}
+    {stats && <div className="cards">{metrics.map(([label, value, tone]) => <article className="card" key={label}><span className="eyebrow">{label}</span><h2 className={value ? toneClass(tone) : ""}>{formatInteger(value)}</h2></article>)}</div>}
+    {stats && <div className="panel"><p>Status EA: <strong className={stats.ea_online ? "tone-pos" : "tone-neg"}>{stats.ea_online ? "Online" : "Offline"}</strong></p><p>Status Telegram: <strong className={stats.telegram_connected ? "tone-pos" : "tone-neg"}>{stats.telegram_connected ? "Terhubung" : "Terputus"}</strong></p></div>}
     <section className="panel mt5-live-panel" aria-live="polite">
       <header className="mt5-live-heading">
         <div><span className="eyebrow">Data terminal</span><h2>MT5 live</h2></div>
         <div className="mt5-live-status">
-          <strong className={mt5?.online ? "is-online" : ""}>
+          <strong className={`${mt5?.online ? "is-online " : ""}${toneClass(mt5Status)}`}>
             {mt5?.online ? "Online" : mt5?.available ? "Data basi" : "Menunggu terminal"}
           </strong>
           <span>Update: {formatTime(mt5?.observed_at ?? null)}</span>
@@ -95,13 +97,13 @@ export function DashboardPanel() {
       {mt5Error && <p className="error" role="alert">{mt5Error}</p>}
       <div className="mt5-account-grid">
         {[
-          ["Balance", mt5?.account ? `${mt5.account.balance} ${mt5.account.currency}` : "—"],
-          ["Equity", mt5?.account ? `${mt5.account.equity} ${mt5.account.currency}` : "—"],
-          ["Floating P/L", mt5?.account ? `${mt5.account.floating_profit} ${mt5.account.currency}` : "—"],
-          ["Mode", mt5?.account?.trade_mode ?? "—"],
-          ["Posisi terbuka", mt5?.positions.length ?? 0],
-        ].map(([label, value]) => <article className="mt5-account-item" key={label}>
-          <span className="muted">{label}</span><strong>{value}</strong>
+          ["Balance", mt5?.account ? formatMoney(mt5.account.balance, mt5.account.currency) : "—", ""],
+          ["Equity", mt5?.account ? formatMoney(mt5.account.equity, mt5.account.currency) : "—", ""],
+          ["Floating P/L", mt5?.account ? formatMoney(mt5.account.floating_profit, mt5.account.currency) : "—", mt5?.account ? numberTone(mt5.account.floating_profit) : ""],
+          ["Mode", mt5?.account?.trade_mode ?? "—", ""],
+          ["Posisi terbuka", formatInteger(mt5?.positions.length ?? 0), ""],
+        ].map(([label, value, tone]) => <article className="mt5-account-item" key={label}>
+          <span className="muted">{label}</span><strong className={toneClass(tone as "" | "pos" | "neg")}>{value}</strong>
         </article>)}
       </div>
       <div className="mt5-live-columns">
@@ -111,8 +113,8 @@ export function DashboardPanel() {
             ? <div className="table-wrap"><table>
                 <thead><tr><th>Ticket</th><th>Simbol</th><th>Arah</th><th>Lot</th><th>Entry</th><th>SL</th><th>TP</th></tr></thead>
                 <tbody>{mt5.positions.map((position) => <tr key={position.ticket}>
-                  <td>{position.ticket}</td><td>{position.symbol}</td><td>{position.action}</td><td>{position.lots}</td>
-                  <td>{position.entry_price}</td><td>{position.sl ?? "—"}</td><td>{position.tp ?? "—"}</td>
+                  <td>{position.ticket}</td><td>{position.symbol}</td><td className={position.action === "BUY" ? "tone-pos" : position.action === "SELL" ? "tone-neg" : ""}>{position.action}</td><td>{formatLots(position.lots)}</td>
+                  <td>{formatPrice(position.entry_price)}</td><td>{formatPrice(position.sl)}</td><td>{formatPrice(position.tp)}</td>
                 </tr>)}</tbody>
               </table></div>
             : <p className="muted">Tidak ada posisi terbuka.</p>}
@@ -123,7 +125,7 @@ export function DashboardPanel() {
             ? <div className="table-wrap"><table>
                 <thead><tr><th>Simbol</th><th>Bid</th><th>Ask</th><th>Update</th></tr></thead>
                 <tbody>{mt5.market_quotes.map((quote) => <tr key={quote.symbol}>
-                  <td>{quote.symbol}</td><td>{quote.bid}</td><td>{quote.ask}</td>
+                  <td>{quote.symbol}</td><td>{formatPrice(quote.bid)}</td><td>{formatPrice(quote.ask)}</td>
                   <td>{new Date(quote.time_msc).toLocaleTimeString("id-ID")}</td>
                 </tr>)}</tbody>
               </table></div>
