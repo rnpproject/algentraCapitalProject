@@ -10,11 +10,13 @@ class StatisticsRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def dashboard_data(self) -> tuple[list[str], list[tuple[str | None, float | None]], int]:
+    def dashboard_data(self) -> tuple[list[str], list[tuple[str | None, float | None, object]], int, list[str]]:
         statuses = list(self._session.scalars(select(Signal.status)))
-        trade_rows = list(self._session.execute(select(Trade.result, Trade.profit)).all())
+        trade_rows = list(self._session.execute(select(Trade.result, Trade.profit, Trade.closed_at)).all())
         active_clients = int(self._session.scalar(select(func.count(ClientUser.id))) or 0)
-        return statuses, trade_rows, active_clients
+        known = {"EXECUTED", "PENDING", "CLAIMED", "PROCESSING", "REJECTED", "FAILED", "IGNORED", "EXPIRED"}
+        unknown_statuses = sorted({status.upper() for status in statuses if status.upper() not in known})
+        return statuses, trade_rows, active_clients, unknown_statuses
 
     def group_signal_counts(self) -> list[tuple[str | None, str | None, int]]:
         rows = self._session.execute(

@@ -2,12 +2,13 @@ from collections import Counter
 from collections.abc import Iterable
 from typing import Any
 
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 from ..repositories.statistics import StatisticsRepository
 from ..core.time_utils import as_utc, wib_iso
+from ..core.time_utils import wib_datetime_to_utc_naive
 from ..state import ea_heartbeat_state
 
 
@@ -34,8 +35,19 @@ def calculate_trade_stats(trades: Iterable[Any]) -> dict[str, int | float]:
     }
 
 
+def calculate_daily_loss(trades: Iterable[Any], *, day_start_utc: datetime) -> float:
+    loss = 0.0
+    for trade in trades:
+        closed_at = getattr(trade, "closed_at", None)
+        if closed_at is None:
+            continue
+        if as_utc(closed_at).replace(tzinfo=None) >= day_start_utc:
+            loss += min(0.0, float(getattr(trade, "profit", 0.0) or 0.0))
+    return round(abs(loss), 2)
+
+
 def get_dashboard_stats(db: Session) -> dict[str, int | float]:
-    signal_rows, trades, active_clients = StatisticsRepository(db).dashboard_data()
+    signal_rows, trades, active_clients, unknown_signal_statuses = StatisticsRepository(db).dashboard_data()
     status_counts = Counter(status.upper() for status in signal_rows)
     trade_stats = calculate_trade_stats(trades)
     ea = ea_heartbeat_state.current()
@@ -45,15 +57,24 @@ def get_dashboard_stats(db: Session) -> dict[str, int | float]:
         ea_online = bool(ea.active and (datetime.now(timezone.utc) - heartbeat).total_seconds() <= 90)
     else:
         ea_online = False
+    now_utc = datetime.now(timezone.utc)
+    today_wib = now_utc.astimezone(timezone(timedelta(hours=7))).date()
+    day_start_utc = wib_datetime_to_utc_naive(datetime.combine(today_wib, time.min))
+    daily_loss = calculate_daily_loss(trades, day_start_utc=day_start_utc)
     return {
         "signals_total": sum(status_counts.values()),
         "signals_executed": status_counts["EXECUTED"],
         "signals_pending": status_counts["PENDING"] + status_counts["CLAIMED"],
+        "signals_processing": status_counts["PROCESSING"],
         "signals_rejected": status_counts["REJECTED"] + status_counts["FAILED"],
         "signals_ignored": status_counts["IGNORED"],
+        "signals_expired": status_counts["EXPIRED"],
+        "signal_status_unknown": bool(unknown_signal_statuses),
+        "signal_status_unknown_values": unknown_signal_statuses,
         "active_clients": active_clients,
         "ea_online": ea_online,
         "ea_last_heartbeat": wib_iso(heartbeat),
+        "daily_loss": daily_loss,
         **trade_stats,
     }
 

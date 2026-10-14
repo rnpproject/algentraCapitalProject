@@ -2,7 +2,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.stats_service import calculate_trade_stats
+from datetime import datetime, timezone
+
+from app.services.stats_service import calculate_daily_loss, calculate_trade_stats, get_dashboard_stats
 
 
 @pytest.mark.parametrize(
@@ -37,3 +39,44 @@ def test_winrate_excludes_break_even_and_open_trades():
 
     assert stats["winrate"] == pytest.approx(50.0)
     assert stats["total_profit"] == pytest.approx(7.0)
+
+
+def test_dashboard_signal_categories_cover_expired_and_report_unknown_statuses(monkeypatch):
+    from app.services import stats_service
+
+    class FakeStatisticsRepository:
+        def __init__(self, _db):
+            pass
+
+        def dashboard_data(self):
+            return ["EXECUTED", "PENDING", "CLAIMED", "PROCESSING", "REJECTED", "FAILED", "IGNORED", "EXPIRED", "MYSTERY"], [], 0, ["MYSTERY"]
+
+    monkeypatch.setattr(stats_service, "StatisticsRepository", FakeStatisticsRepository)
+    result = get_dashboard_stats(object())
+
+    categorized = (
+        result["signals_executed"]
+        + result["signals_pending"]
+        + result["signals_processing"]
+        + result["signals_rejected"]
+        + result["signals_ignored"]
+        + result["signals_expired"]
+    )
+    assert result["signals_total"] == 9
+    assert categorized == 8
+    assert result["signals_processing"] == 1
+    assert result["signals_expired"] == 1
+    assert result["signal_status_unknown"] is True
+    assert result["signal_status_unknown_values"] == ["MYSTERY"]
+
+
+def test_daily_loss_counts_only_closed_negative_trades_on_or_after_day_start():
+    day_start = datetime(2026, 10, 13, 17, 0)  # 00.00 WIB, stored UTC naive
+    trades = [
+        SimpleNamespace(profit=-45.25, closed_at=datetime(2026, 10, 13, 18, 0, tzinfo=timezone.utc)),
+        SimpleNamespace(profit=80.0, closed_at=datetime(2026, 10, 13, 19, 0, tzinfo=timezone.utc)),
+        SimpleNamespace(profit=-30.0, closed_at=datetime(2026, 10, 13, 16, 59, tzinfo=timezone.utc)),
+        SimpleNamespace(profit=-20.0, closed_at=None),
+    ]
+
+    assert calculate_daily_loss(trades, day_start_utc=day_start) == 45.25
