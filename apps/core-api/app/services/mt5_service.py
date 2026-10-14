@@ -169,7 +169,7 @@ def list_client_plans(_owner_id: int = Depends(require_client_id)) -> dict[str, 
     return {**CLIENT_PLANS, **get_service_plans()}
 
 
-def service_pricing(_owner_id: int = Depends(require_client_id)) -> dict[str, int]:
+def service_pricing(_owner_id: int = Depends(require_client_id)) -> dict[str, object]:
     """Harga layanan copy trading dari .env untuk form hubungkan akun di web."""
     return _service_pricing()
 
