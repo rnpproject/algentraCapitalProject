@@ -642,7 +642,7 @@ export default function PublicPage() {
     };
   }, []);
   /* ================= RENDER ================= */
-  const person = contact?.person || "-";
+  const person = contact?.person || "";
   const whatsapp = contact?.whatsapp || "";
   const email = contact?.email || "";
   const socials = contact?.socials ?? [];
@@ -998,7 +998,7 @@ export default function PublicPage() {
           <div className="contact-grid">
             <article className="contact-card">
               <h3>Narahubung</h3>
-              <p className="contact-person">{person}</p>
+              {person ? <p className="contact-person">{person}</p> : null}
               <div className="contact-links">
                 {whatsapp && (
                   <a
@@ -1024,7 +1024,7 @@ export default function PublicPage() {
                     </span>
                   </a>
                 )}
-                <div className={`cs-chat-widget${email ? "" : " cs-chat-widget--only"}`}>
+                <div className="contact-email-cs">
                   {email && (
                     <a className="contact-link" href={`mailto:${email}`}>
                       <svg
@@ -1044,17 +1044,19 @@ export default function PublicPage() {
                       </span>
                     </a>
                   )}
-                  <button
-                    className="contact-link cs-chat-launcher"
-                    id="cs-chat-open"
-                    type="button"
-                    onClick={() => window.dispatchEvent(new CustomEvent("algentra:cs-open"))}
-                  >
-                    <Mascot className="cs-contact-mascot" />
-                    <span>
-                      Chat CS<small>ALGENTRA siap membantu</small>
-                    </span>
-                  </button>
+                  <div className={`cs-chat-widget${email ? "" : " cs-chat-widget--only"}`}>
+                    <button
+                      className="contact-link cs-chat-launcher"
+                      id="cs-chat-open"
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent("algentra:cs-open"))}
+                    >
+                      <Mascot className="cs-contact-mascot" />
+                      <span>
+                        Chat CS<small>ALGENTRA siap membantu</small>
+                      </span>
+                    </button>
+                  </div>
                 </div>
                 {!hasContactDirect && (
                   <>
