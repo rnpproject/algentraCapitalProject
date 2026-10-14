@@ -1,0 +1,309 @@
+From 41f0532bff484f2b8bbabaefb0e70287b97e29e4 Mon Sep 17 00:00:00 2001
+From: claude <noreply@anthropic.com>
+Date: Wed, 14 Oct 2026 14:03:53 +0000
+Subject: [PATCH] Web hanya di Vercel: Core API API-only, hapus rewrite
+ catch-all, arsipkan template Jinja
+
+---
+ apps/core-api/app/api/v1/public.py            |  28 +----
+ apps/core-api/app/main.py                     | 107 +-----------------
+ .../legacy-jinja-templates}/404.html          |   0
+ .../legacy-jinja-templates}/_cs_mascot.html   |   0
+ .../legacy-jinja-templates}/account.html      |   0
+ .../legacy-jinja-templates}/admin_login.html  |   0
+ .../legacy-jinja-templates}/base.html         |   0
+ .../legacy-jinja-templates}/dashboard.html    |   0
+ .../forgot_password.html                      |   0
+ .../legacy-jinja-templates}/login.html        |   0
+ .../legacy-jinja-templates}/parser_test.html  |   0
+ .../legacy-jinja-templates}/public.html       |   0
+ .../legacy-jinja-templates}/register.html     |   0
+ .../telegram_setup.html                       |   0
+ .../legacy-jinja-templates}/transactions.html |   0
+ apps/web/next.config.ts                       |   5 -
+ 16 files changed, 4 insertions(+), 136 deletions(-)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/404.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/_cs_mascot.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/account.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/admin_login.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/base.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/dashboard.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/forgot_password.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/login.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/parser_test.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/public.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/register.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/telegram_setup.html (100%)
+ rename apps/{core-api/app/templates => web/legacy-jinja-templates}/transactions.html (100%)
+
+diff --git a/apps/core-api/app/api/v1/public.py b/apps/core-api/app/api/v1/public.py
+index bdadee4..50dfdac 100644
+--- a/apps/core-api/app/api/v1/public.py
++++ b/apps/core-api/app/api/v1/public.py
+@@ -1,30 +1,18 @@
+-from pathlib import Path
+ from urllib.parse import urlsplit, urlunsplit
+ 
+-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+-from fastapi.responses import HTMLResponse, RedirectResponse
+-from fastapi.templating import Jinja2Templates
++from fastapi import APIRouter, Depends, HTTPException, Query
++from fastapi.responses import RedirectResponse
+ from sqlalchemy.orm import Session
+ 
+ from ...core.config import get_settings
+ from ...database import get_db
+-from ...services.public_service import _public_contact_context, public_performance_payload
++from ...services.public_service import public_performance_payload
+ from ...services.registration import registration_is_open
+ 
+ 
+ router = APIRouter(tags=["public"])
+ 
+ 
+-def template_context(_: Request) -> dict[str, str | None]:
+-    return {"public_music_url": get_settings().public_music_url}
+-
+-
+-templates = Jinja2Templates(
+-    directory=str(Path(__file__).resolve().parents[2] / "templates"),
+-    context_processors=[template_context],
+-)
+-
+-
+ @router.get("/api/public/performance")
+ @router.get("/v1/public/performance")
+ def public_performance(
+@@ -51,13 +39,3 @@ def site_music() -> RedirectResponse:
+         raw_path = "/" + "/".join((path_segments[0], path_segments[1], *path_segments[3:]))
+         music_url = urlunsplit(("https", "raw.githubusercontent.com", raw_path, parsed_url.query, ""))
+     return RedirectResponse(music_url, status_code=307)
+-
+-
+-@router.get("/", response_class=HTMLResponse)
+-def public_home(request: Request, db: Session = Depends(get_db)):
+-    return templates.TemplateResponse(request=request, name="public.html", context=_public_contact_context(db))
+-
+-
+-@router.get("/performance", response_class=HTMLResponse)
+-def public_performance_page(request: Request, db: Session = Depends(get_db)):
+-    return templates.TemplateResponse(request=request, name="public.html", context=_public_contact_context(db))
+diff --git a/apps/core-api/app/main.py b/apps/core-api/app/main.py
+index 39c4bcc..c9cf8c8 100644
+--- a/apps/core-api/app/main.py
++++ b/apps/core-api/app/main.py
+@@ -6,8 +6,7 @@ from pathlib import Path
+ 
+ from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+ from fastapi.exceptions import RequestValidationError
+-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+-from fastapi.templating import Jinja2Templates
++from fastapi.responses import FileResponse, JSONResponse
+ from sqlalchemy import select, text
+ from sqlalchemy.exc import SQLAlchemyError
+ from sqlalchemy.orm import Session
+@@ -36,7 +35,6 @@ from .api.v1 import (
+     tg as tg_router,
+ )
+ from .api.v1.mt5 import require_client_id
+-from .services.registration import registration_is_open
+ from .services.public_service import public_performance_payload
+ from .services.signal_service import SignalService
+ from .core.security import (
+@@ -196,21 +194,8 @@ async def validation_error_response(_: Request, exc: RequestValidationError) ->
+     return JSONResponse(status_code=422, content={"detail": errors})
+ 
+ 
+-templates = Jinja2Templates(
+-    directory=str(Path(__file__).resolve().parent / "templates"),
+-    context_processors=[public_router.template_context],
+-)
+-
+-
+ @app.exception_handler(StarletteHTTPException)
+ async def http_exception_response(request: Request, exc: StarletteHTTPException):
+-    if exc.status_code == 404 and not request.url.path.startswith("/api/"):
+-        return templates.TemplateResponse(
+-            request=request,
+-            name="404.html",
+-            context={"requested_path": request.url.path},
+-            status_code=404,
+-        )
+     return JSONResponse(
+         status_code=exc.status_code,
+         content={"detail": exc.detail},
+@@ -285,75 +270,6 @@ def readiness() -> JSONResponse:
+     return JSONResponse(content={"status": "ready", "checks": {"database": "ok"}})
+ 
+ 
+-@app.get("/login", response_class=HTMLResponse)
+-def login_page(request: Request, db: Session = Depends(get_db)):
+-    if isinstance(request.session.get("client_user_id"), int):
+-        return RedirectResponse("/account", status_code=303)
+-    if request.session.get("admin_username"):
+-        return RedirectResponse("/dashboard", status_code=303)
+-    return templates.TemplateResponse(
+-        request=request,
+-        name="login.html",
+-        context={"registration_open": registration_is_open(db)},
+-    )
+-
+-
+-@app.get("/loginAdmin", response_class=HTMLResponse, include_in_schema=False)
+-def admin_login_page(request: Request):
+-    if request.session.get("admin_username"):
+-        return RedirectResponse("/dashboard", status_code=303)
+-    return templates.TemplateResponse(request=request, name="admin_login.html", context={})
+-
+-
+-@app.get("/register", response_class=HTMLResponse)
+-def register_page(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+-    if not registration_is_open(db):
+-        return RedirectResponse("/#registration-launch", status_code=303)
+-    return templates.TemplateResponse(
+-        request=request,
+-        name="register.html",
+-        context={"registration_open": True},
+-    )
+-
+-
+-@app.get("/forgot-password", response_class=HTMLResponse)
+-def forgot_password_page(request: Request) -> HTMLResponse:
+-    return templates.TemplateResponse(request=request, name="forgot_password.html", context={})
+-
+-
+-@app.get("/account", response_class=HTMLResponse)
+-def client_account_page(
+-    request: Request,
+-    _: int = Depends(require_client_id),
+-) -> HTMLResponse:
+-    return templates.TemplateResponse(
+-        request=request,
+-        name="account.html",
+-        context={
+-            "csrf_token": request.session["csrf_token"],
+-            "client_plans": CLIENT_PLANS,
+-            "managed_copy_enabled": get_settings().copier_worker_api_key is not None,
+-            "payment_manual_instructions": get_settings().payment_manual_instructions,
+-        },
+-    )
+-
+-
+-@app.get("/transactions", response_class=HTMLResponse)
+-def client_transactions_page(
+-    request: Request,
+-    _: int = Depends(require_client_id),
+-) -> HTMLResponse:
+-    return templates.TemplateResponse(
+-        request=request,
+-        name="transactions.html",
+-        context={
+-            "csrf_token": request.session["csrf_token"],
+-            "client_plans": CLIENT_PLANS,
+-            "payment_manual_instructions": get_settings().payment_manual_instructions,
+-        },
+-    )
+-
+-
+ @app.get("/downloads/MT5FollowerCopyEA.mq5", response_class=FileResponse, include_in_schema=False)
+ def download_mt5_follower_copy_ea_source(_: int = Depends(require_client_id)) -> FileResponse:
+     return FileResponse(
+@@ -397,27 +313,6 @@ def download_mt5_follower_copy_ea_binary(_: int = Depends(require_client_id)) ->
+     return _compiled_mt5_ea_download("MT5FollowerCopyEA.ex5")
+ 
+ 
+-@app.get("/parser-test", response_class=HTMLResponse)
+-def parser_test_page(request: Request, _: str = Depends(require_admin)) -> HTMLResponse:
+-    return templates.TemplateResponse(
+-        request=request, name="parser_test.html", context={"csrf_token": request.session["csrf_token"]}
+-    )
+-
+-
+-@app.get("/telegram-setup", response_class=HTMLResponse)
+-def telegram_setup_page(request: Request, _: str = Depends(require_admin)) -> HTMLResponse:
+-    return templates.TemplateResponse(
+-        request=request, name="telegram_setup.html", context={"csrf_token": request.session["csrf_token"]}
+-    )
+-
+-
+-@app.get("/dashboard", response_class=HTMLResponse)
+-def dashboard_page(request: Request, _: str = Depends(require_admin)) -> HTMLResponse:
+-    return templates.TemplateResponse(
+-        request=request, name="dashboard.html", context={"csrf_token": request.session["csrf_token"]}
+-    )
+-
+-
+ @app.websocket("/ws")
+ async def dashboard_websocket(websocket: WebSocket) -> None:
+     if not websocket.scope.get("session", {}).get("admin_username"):
+diff --git a/apps/core-api/app/templates/404.html b/apps/web/legacy-jinja-templates/404.html
+similarity index 100%
+rename from apps/core-api/app/templates/404.html
+rename to apps/web/legacy-jinja-templates/404.html
+diff --git a/apps/core-api/app/templates/_cs_mascot.html b/apps/web/legacy-jinja-templates/_cs_mascot.html
+similarity index 100%
+rename from apps/core-api/app/templates/_cs_mascot.html
+rename to apps/web/legacy-jinja-templates/_cs_mascot.html
+diff --git a/apps/core-api/app/templates/account.html b/apps/web/legacy-jinja-templates/account.html
+similarity index 100%
+rename from apps/core-api/app/templates/account.html
+rename to apps/web/legacy-jinja-templates/account.html
+diff --git a/apps/core-api/app/templates/admin_login.html b/apps/web/legacy-jinja-templates/admin_login.html
+similarity index 100%
+rename from apps/core-api/app/templates/admin_login.html
+rename to apps/web/legacy-jinja-templates/admin_login.html
+diff --git a/apps/core-api/app/templates/base.html b/apps/web/legacy-jinja-templates/base.html
+similarity index 100%
+rename from apps/core-api/app/templates/base.html
+rename to apps/web/legacy-jinja-templates/base.html
+diff --git a/apps/core-api/app/templates/dashboard.html b/apps/web/legacy-jinja-templates/dashboard.html
+similarity index 100%
+rename from apps/core-api/app/templates/dashboard.html
+rename to apps/web/legacy-jinja-templates/dashboard.html
+diff --git a/apps/core-api/app/templates/forgot_password.html b/apps/web/legacy-jinja-templates/forgot_password.html
+similarity index 100%
+rename from apps/core-api/app/templates/forgot_password.html
+rename to apps/web/legacy-jinja-templates/forgot_password.html
+diff --git a/apps/core-api/app/templates/login.html b/apps/web/legacy-jinja-templates/login.html
+similarity index 100%
+rename from apps/core-api/app/templates/login.html
+rename to apps/web/legacy-jinja-templates/login.html
+diff --git a/apps/core-api/app/templates/parser_test.html b/apps/web/legacy-jinja-templates/parser_test.html
+similarity index 100%
+rename from apps/core-api/app/templates/parser_test.html
+rename to apps/web/legacy-jinja-templates/parser_test.html
+diff --git a/apps/core-api/app/templates/public.html b/apps/web/legacy-jinja-templates/public.html
+similarity index 100%
+rename from apps/core-api/app/templates/public.html
+rename to apps/web/legacy-jinja-templates/public.html
+diff --git a/apps/core-api/app/templates/register.html b/apps/web/legacy-jinja-templates/register.html
+similarity index 100%
+rename from apps/core-api/app/templates/register.html
+rename to apps/web/legacy-jinja-templates/register.html
+diff --git a/apps/core-api/app/templates/telegram_setup.html b/apps/web/legacy-jinja-templates/telegram_setup.html
+similarity index 100%
+rename from apps/core-api/app/templates/telegram_setup.html
+rename to apps/web/legacy-jinja-templates/telegram_setup.html
+diff --git a/apps/core-api/app/templates/transactions.html b/apps/web/legacy-jinja-templates/transactions.html
+similarity index 100%
+rename from apps/core-api/app/templates/transactions.html
+rename to apps/web/legacy-jinja-templates/transactions.html
+diff --git a/apps/web/next.config.ts b/apps/web/next.config.ts
+index 8451166..728656c 100644
+--- a/apps/web/next.config.ts
++++ b/apps/web/next.config.ts
+@@ -2,11 +2,6 @@ import type { NextConfig } from "next";
+ 
+ const nextConfig: NextConfig = {
+   poweredByHeader: false,
+-  // Web asli disajikan oleh core-api (template Jinja); Next hanya meneruskan semua request.
+-  async rewrites() {
+-    const origin = (process.env.CORE_API_ORIGIN ?? "http://127.0.0.1:8000").replace(/\/$/, "");
+-    return { beforeFiles: [{ source: "/:path*", destination: `${origin}/:path*` }], afterFiles: [], fallback: [] };
+-  },
+   async headers() {
+     return [{
+       source: "/:path*",
+-- 
+2.43.0
+
