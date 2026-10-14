@@ -309,27 +309,31 @@
     .plan-option__availability { padding:3px 7px; border:1px solid var(--line); border-radius:999px; color:var(--muted) !important; font-size:9px !important; font-weight:700 !important; letter-spacing:.06em; text-transform:uppercase; }
     .plan-option strong { margin-top:auto; padding-top:8px; color:var(--ink); font-size:15px; }
     .plan-picker > .field-help { margin-bottom:0; }
-    .price-cards { display:grid; grid-template-columns:minmax(0, 1fr); gap:10px; }
-    .price-cards--two { grid-template-columns:repeat(2, minmax(0, 1fr)); }
-    .price-card { display:flex; flex-direction:column; gap:6px; padding:16px; border:1px solid var(--glass-border); border-radius:var(--radius-control); background:var(--glass-raised); }
-    .price-card__name { color:var(--ink); font-size:15px; font-weight:800; }
-    .price-card__opt { color:var(--muted); font-size:12px; font-weight:600; }
-    .price-card__desc { color:var(--muted); font-size:12.5px; line-height:1.55; }
-    .price-card__price { margin-top:auto; padding-top:10px; color:var(--ink); font-size:19px; }
-    .price-card--check { cursor:pointer; }
-    .price-card--check input[type=radio] { width:18px; height:18px; margin:0 0 2px; accent-color:var(--action); flex:none; cursor:pointer; }
-    .price-card--check:has(input:checked) { border-color:var(--action); box-shadow:0 0 0 2px color-mix(in srgb, var(--action) 28%, transparent); }
-    .vps-picker { margin-top:14px; }
-    .vps-picker__title { margin:0 0 10px; font-size:13px; font-weight:750; color:var(--ink); }
-    .price-total { margin:12px 0 0; font-size:14px; color:var(--muted); }
-    .price-total strong { color:var(--ink); font-size:16px; }
+    .plan-picker--compact > legend { font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); }
+    .price-list { border:1px solid var(--glass-border); border-radius:var(--radius-control); background:var(--glass-raised); overflow:hidden; }
+    .price-list--summary { margin-top:10px; }
+    .price-row { display:flex; align-items:center; gap:12px; padding:9px 14px; }
+    .price-row + .price-row { border-top:1px solid var(--glass-border); }
+    .price-row__body { display:block; flex:1; min-width:0; }
+    .price-row__name { display:flex; align-items:center; gap:8px; color:var(--ink); font-size:13.5px; font-weight:700; }
+    .price-row__desc { display:block; margin-top:2px; color:var(--muted); font-size:11.5px; line-height:1.5; }
+    .price-row__price { color:var(--ink); font-size:14px; font-weight:800; white-space:nowrap; }
+    label.price-row { cursor:pointer; }
+    label.price-row:has(input:checked) { background:color-mix(in srgb, var(--action) 9%, transparent); }
+    .price-row:has(input:disabled) { opacity:.55; cursor:not-allowed; }
+    .price-row input[type=radio] { width:16px; height:16px; margin:0; flex:none; accent-color:var(--action); cursor:pointer; }
+    .price-row:has(input:disabled) input { cursor:not-allowed; }
+    .price-list__total { display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--glass-border); padding:9px 14px; color:var(--muted); font-size:13px; }
+    .price-list__total strong { color:var(--ink); font-size:15px; }
+    .mini-title { margin:14px 0 8px; color:var(--muted); font-size:10.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+    .mini-title__opt { letter-spacing:0; text-transform:none; font-weight:600; }
     .account-fields { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:14px; margin:6px 0 18px; }
     .account-fields label { display:flex; flex-direction:column; gap:6px; font-size:13px; font-weight:650; color:var(--ink); }
     .account-fields .field-help { margin-top:2px; }
     .form-actions { display:flex; justify-content:flex-end; }
     .form-actions button { width:auto; padding:11px 26px; white-space:nowrap; }
     @media (max-width: 720px) {
-      .price-cards--two, .account-fields { grid-template-columns:minmax(0, 1fr); }
+      .account-fields { grid-template-columns:minmax(0, 1fr); }
       .form-actions { justify-content:stretch; }
       .form-actions button { width:100%; }
     }
