@@ -79,6 +79,15 @@ def _expected_merchant_id() -> str | None:
     return merchant_id.strip() if merchant_id and merchant_id.strip() else None
 
 
+def _qr_code_url(transaction_id: str | None) -> str | None:
+    """URL gambar QR dari Midtrans. Pola ini stabil per dokumentasi:
+    {base}/v2/qris/{transaction_id}/qr-code — jadi QR lama tetap bisa
+    ditampilkan lagi tanpa kolom tambahan di database."""
+    if not transaction_id:
+        return None
+    return f"{_base_url()}/v2/qris/{transaction_id}/qr-code"
+
+
 def create_qris_charge(db: Session, *, order_id: int, owner_id: int) -> dict[str, object]:
     """Buat transaksi QRIS Midtrans untuk order milik user. Mengembalikan URL kode QR."""
     if not midtrans_configured():
@@ -180,6 +189,55 @@ def _notification_amount_idr(payload: dict[str, object]) -> int | None:
         return None
 
 
+def _apply_midtrans_result(
+    db: Session,
+    order: PaymentOrder,
+    *,
+    transaction_status: str,
+    fraud_status: str,
+    transaction_id: str | None,
+    gross_amount_idr: int | None,
+) -> tuple[str, int | None]:
+    """Terapkan hasil transaksi Midtrans yang sudah terverifikasi ke order.
+
+    Dipakai bersama oleh webhook (data terverifikasi via signature) dan
+    sync manual (data langsung dari API Midtrans). Idempotent."""
+    if gross_amount_idr is None or gross_amount_idr != order.total_idr:
+        logger.warning(
+            "Nominal Midtrans tidak cocok (order %s): %s vs %s",
+            order.id, gross_amount_idr, order.total_idr,
+        )
+        return "AMOUNT_MISMATCH", None
+
+    order.midtrans_status = transaction_status
+    if transaction_id:
+        order.midtrans_transaction_id = transaction_id
+    db.commit()
+
+    if transaction_status in SUCCESS_STATUSES and fraud_status == "accept":
+        status, account_id = approve_paid_order(db, order.id)
+        logger.info("Midtrans %s: order %s -> %s", transaction_status, order.id, status)
+        return status, account_id
+    if transaction_status in FAILURE_STATUSES:
+        if order.status == "PENDING_PAYMENT":
+            # Kembalikan ke menunggu pembayaran agar user bisa coba lagi.
+            order.payment_method = "MANUAL"
+            order.midtrans_order_id = None
+            order.midtrans_transaction_id = None
+            db.commit()
+        logger.info("Midtrans %s: order %s dibatalkan/dikedaluwarsa", transaction_status, order.id)
+        return "PAYMENT_FAILED", None
+    return "PENDING", None
+
+
+def _reset_qris_to_manual(db: Session, order: PaymentOrder, reason: str) -> None:
+    order.payment_method = "MANUAL"
+    order.midtrans_order_id = None
+    order.midtrans_transaction_id = None
+    order.midtrans_status = reason
+    db.commit()
+
+
 def handle_notification(db: Session, payload: dict[str, object]) -> tuple[str, int | None]:
     """Proses webhook Midtrans. Mengembalikan (status, account_id). Selalu idempotent."""
     if not verify_notification_signature(payload):
@@ -193,41 +251,83 @@ def handle_notification(db: Session, payload: dict[str, object]) -> tuple[str, i
         logger.warning("Notifikasi Midtrans untuk order tak dikenal: %s", midtrans_order_id)
         return "UNKNOWN_ORDER", None
 
-    amount_idr = _notification_amount_idr(payload)
-    if amount_idr is None or amount_idr != order.total_idr:
-        logger.warning(
-            "Notifikasi Midtrans nominal tidak cocok (order %s): %s vs %s",
-            order.id, payload.get("gross_amount"), order.total_idr,
-        )
-        return "AMOUNT_MISMATCH", None
-
     expected_merchant = _expected_merchant_id()
     merchant_id = str(payload.get("merchant_id") or "").strip()
     if expected_merchant and merchant_id != expected_merchant:
         logger.warning("Notifikasi Midtrans merchant_id tidak cocok (order %s)", order.id)
         return "MERCHANT_MISMATCH", None
 
-    transaction_status = str(payload.get("transaction_status") or "")
-    fraud_status = str(payload.get("fraud_status") or "accept")
-    order.midtrans_status = transaction_status
-    order.midtrans_transaction_id = str(payload.get("transaction_id") or order.midtrans_transaction_id)
-    db.commit()
+    return _apply_midtrans_result(
+        db,
+        order,
+        transaction_status=str(payload.get("transaction_status") or ""),
+        fraud_status=str(payload.get("fraud_status") or "accept"),
+        transaction_id=str(payload.get("transaction_id") or "") or None,
+        gross_amount_idr=_notification_amount_idr(payload),
+    )
 
-    if transaction_status in SUCCESS_STATUSES and fraud_status == "accept":
-        status, account_id = approve_paid_order(db, order.id)
-        logger.info("Notifikasi Midtrans %s: order %s -> %s", transaction_status, order.id, status)
-        return status, account_id
-    if transaction_status in FAILURE_STATUSES:
-        if order.status == "PENDING_PAYMENT":
-            # Kembalikan ke menunggu pembayaran agar user bisa coba lagi.
-            order.payment_method = "MANUAL"
-            order.midtrans_order_id = None
-            order.midtrans_transaction_id = None
-            order.midtrans_status = transaction_status
-            db.commit()
-        logger.info("Notifikasi Midtrans %s: order %s dibatalkan/dikedaluwarsa", transaction_status, order.id)
-        return "PAYMENT_FAILED", None
-    return "PENDING", None
+
+def sync_qris_status(db: Session, *, order_id: int, owner_id: int) -> dict[str, object]:
+    """Cek status langsung ke API Midtrans lalu terapkan ke order.
+
+    Fallback bila webhook tidak sampai (mis. notification URL belum
+    dikonfigurasi). Data diambil langsung dari Midtrans memakai Server Key,
+    jadi terpercaya tanpa perlu verifikasi signature."""
+    if not midtrans_configured():
+        raise MidtransNotConfigured("Pembayaran QRIS belum tersedia.")
+    repository = PaymentRepository(db)
+    order = repository.get_for_owner(order_id, owner_id)
+    if order is None:
+        raise MidtransOrderNotFound("Pesanan tidak ditemukan")
+    if order.payment_method != "QRIS" or not order.midtrans_order_id:
+        raise MidtransOrderConflict("Pesanan ini tidak memakai QRIS.")
+    if order.status != "PENDING_PAYMENT":
+        return {
+            "order_id": order.id,
+            "order_status": order.status,
+            "midtrans_status": order.midtrans_status,
+            "result": order.status,
+            "account_id": order.account_id,
+        }
+
+    try:
+        response = httpx.get(
+            f"{_base_url()}/v2/{order.midtrans_order_id}/status",
+            headers={"Accept": "application/json", **_auth_header()},
+            timeout=30.0,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("Sync Midtrans gagal terhubung (%s)", type(exc).__name__)
+        raise MidtransError("Tidak dapat menghubungi Midtrans. Coba lagi sebentar.") from exc
+    if response.status_code == 404:
+        _reset_qris_to_manual(db, order, "expire")
+        return {
+            "order_id": order.id,
+            "order_status": order.status,
+            "midtrans_status": "expire",
+            "result": "PAYMENT_FAILED",
+            "account_id": None,
+        }
+    if response.status_code != 200:
+        logger.warning("Sync Midtrans ditolak (HTTP %s)", response.status_code)
+        raise MidtransError("Midtrans menolak permintaan status.")
+
+    data = response.json()
+    status, account_id = _apply_midtrans_result(
+        db,
+        order,
+        transaction_status=str(data.get("transaction_status") or ""),
+        fraud_status=str(data.get("fraud_status") or "accept"),
+        transaction_id=str(data.get("transaction_id") or "") or None,
+        gross_amount_idr=_notification_amount_idr(data),
+    )
+    return {
+        "order_id": order.id,
+        "order_status": order.status,
+        "midtrans_status": order.midtrans_status,
+        "result": status,
+        "account_id": account_id,
+    }
 
 
 def get_qris_state(db: Session, *, order_id: int, owner_id: int) -> dict[str, object] | None:
@@ -241,4 +341,6 @@ def get_qris_state(db: Session, *, order_id: int, owner_id: int) -> dict[str, ob
         "status": order.status,
         "midtrans_status": order.midtrans_status,
         "midtrans_order_id": order.midtrans_order_id,
+        "qr_code_url": _qr_code_url(order.midtrans_transaction_id),
+        "gross_amount": order.total_idr,
     }

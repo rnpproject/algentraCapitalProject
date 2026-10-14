@@ -46,9 +46,12 @@ def list_payment_orders(
 @router.get("/manual-instructions")
 def manual_payment_instructions(
     _owner_id: int = Depends(require_client_id),
-) -> dict[str, str | None]:
+) -> dict[str, object]:
     """Instruksi pembayaran manual untuk ditampilkan di halaman transaksi web."""
-    return {"instructions": get_settings().payment_manual_instructions}
+    return {
+        "instructions": get_settings().payment_manual_instructions,
+        "qris_available": midtrans_service.midtrans_configured(),
+    }
 
 
 @router.get("/orders/{order_id}/proof")
@@ -165,6 +168,25 @@ def qris_payment_state(
     if state is None:
         raise HTTPException(status_code=404, detail="Status QRIS tidak ditemukan")
     return state
+
+
+@router.post("/orders/{order_id}/qris/sync")
+def sync_qris_payment(
+    order_id: int,
+    owner_id: int = Depends(require_client_id),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    """Cek status langsung ke Midtrans (fallback bila webhook tidak sampai)."""
+    try:
+        return midtrans_service.sync_qris_status(db, order_id=order_id, owner_id=owner_id)
+    except midtrans_service.MidtransNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except midtrans_service.MidtransOrderNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except midtrans_service.MidtransOrderConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except midtrans_service.MidtransError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/midtrans/notification", include_in_schema=False)
