@@ -5,7 +5,7 @@
 {% endblock %}
 {% block content %}
 <main id="main" tabindex="-1" class="page-shell dashboard-page">
-    <div class="page-heading"><div><span class="eyebrow">Algentra Capital / Operations</span><h1>Operations workspace</h1><p class="page-description">Pantau sinyal, hasil eksekusi, performa trade, dan batas risiko dalam satu tampilan.</p></div><div class="heading-aside"><button id="refresh-all" class="secondary" type="button">Muat ulang data</button><label class="auto-refresh-toggle" title="Perbarui ringkasan dan sinyal terbaru otomatis"><input type="checkbox" id="auto-refresh" checked> Auto refresh</label></div></div>
+    <div class="page-heading"><div><span class="eyebrow">Algentra Capital / Operations</span><h1>Operations workspace</h1><p class="page-description">Pantau sinyal, hasil eksekusi, performa trade, dan batas risiko dalam satu tampilan.</p></div></div>
     <section id="registration-controls" aria-labelledby="registration-controls-heading">
       <span class="eyebrow">Public site</span><h2 id="registration-controls-heading">Pendaftaran client</h2>
       <p id="registration-state" class="section-help" role="status">Memuat status pendaftaran...</p>
@@ -14,34 +14,40 @@
         <button id="registration-open" type="button">Buka pendaftaran</button>
         <button id="registration-close" class="secondary" type="button">Tutup pendaftaran</button>
       </div>
-      <p id="registration-message" class="status" role="status"></p>
+      <p id="registration-message" class="status" role="status" hidden></p>
     </section>
-    <div class="cards">
-      <div class="card"><span>Total signal</span><b id="signals-total">&mdash;</b><small>Semua sinyal yang tercatat.</small></div>
-      <div class="card"><span>Tereksekusi</span><b id="signals-executed">&mdash;</b><small>Order yang diterima terminal MT5.</small></div>
-      <div class="card"><span>Pending</span><b id="signals-pending">&mdash;</b><small>Menunggu diklaim oleh EA.</small></div>
-      <div class="card"><span>Ditolak / gagal</span><b id="signals-rejected">&mdash;</b><small>Periksa alasan pada log sistem.</small></div>
-      <div class="card"><span>Diabaikan</span><b id="signals-ignored">&mdash;</b><small>Bukan sinyal atau tidak lolos aturan.</small></div>
-      <div class="card"><span>Total registrasi</span><b id="active-clients">&mdash;</b><small>Akun klien yang sudah verifikasi email.</small></div>
-      <div class="card"><span>Win / Loss</span><b id="wins-losses">&mdash;</b><small>Hasil trade yang sudah ditutup.</small></div>
-      <div class="card"><span>Winrate</span><b id="winrate">&mdash;</b><small>Persentase hasil trade positif.</small></div>
-      <div class="card"><span>Total profit</span><b id="total-profit">&mdash;</b><small>Profit terealisasi semua trade.</small></div>
-      <div class="card"><span>EA</span><b id="ea-status">&mdash;</b><small id="ea-heartbeat" class="muted">Status heartbeat EA.</small></div>
-      <div class="card"><span>Telegram</span><b id="telegram-status">&mdash;</b><small id="telegram-account" class="muted">Koneksi akun sumber.</small></div>
-      <div class="card"><span>Gemini</span><b id="gemini-status">&mdash;</b><small id="gemini-model" class="muted">Model parser aktif.</small></div>
-      <div class="card"><span>Mode trading</span><b id="trading-mode">&mdash;</b><small id="trading-guard" class="muted">Status kill switch dan posisi EA.</small></div>
-      <div class="card"><span>Rugi terealisasi hari ini</span><b id="daily-loss">&mdash;</b><small class="muted">Informasi saja; tidak membatasi trading.</small></div>
-    </div>
+    <section class="summary-card" aria-label="Ringkasan operasional">
+      <div class="sc-overview">
+        <div class="sc-block sc-summary-status">
+          <span id="ea-status" class="sc-chip sc-dot tone-pos">EA Online</span>
+          <span id="telegram-status" class="sc-chip sc-dot">Telegram</span>
+          <span id="gemini-status" class="sc-chip sc-dot">Gemini</span>
+          <small id="ea-heartbeat" class="muted" hidden>Status heartbeat EA.</small><small id="telegram-account" class="muted" hidden>Koneksi akun sumber.</small><small id="gemini-model" class="muted" hidden>Model parser aktif.</small>
+        </div>
+        <div class="sc-block sc-performance">
+          <div class="sc-profit"><div class="sc-profit-label"><span>TOTAL PROFIT</span><span id="wins-losses" class="sc-win-loss">&mdash;W / &mdash;L</span></div><b id="total-profit">&mdash;</b></div>
+          <div class="sc-metrics">
+            <div><b id="winrate">&mdash;</b><span>Winrate</span></div>
+            <div><b id="wins-losses-inline">&mdash; / &mdash;</b><span>Win / Lose</span></div>
+            <div><b id="daily-loss">&mdash;</b><span>Rugi hari ini</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="sc-block sc-signals">
+        <div class="sc-label">Sinyal <em>Total <b id="signals-total">&mdash;</b></em></div>
+        <table class="sc-table"><tbody>
+          <tr><th scope="row">Tereksekusi</th><td><b id="signals-executed">&mdash;</b></td><th scope="row">Pending</th><td><b id="signals-pending">&mdash;</b></td></tr>
+          <tr><th scope="row">Ditolak</th><td><b id="signals-rejected">&mdash;</b></td><th scope="row">Diabaikan</th><td><b id="signals-ignored">&mdash;</b></td></tr>
+          <tr><th scope="row">Diproses</th><td><b id="signals-processing">&mdash;</b></td><th scope="row"></th><td></td></tr>
+        </tbody></table>
+        <details class="sc-help"><summary>Arti istilah</summary><p>Eksekusi mencakup order yang diterima terminal MT5. Pending mencakup sinyal yang menunggu diklaim. Diproses mencakup sinyal yang sudah diklaim EA dan sedang menunggu hasil. Ditolak mencakup penolakan dan kegagalan. Diabaikan adalah pesan yang bukan sinyal atau tidak lolos aturan.</p></details>
+      </div>
+    </section>
+    <p id="signal-status-warning" class="signal-status-warning" role="status" hidden></p>
 
     <section id="mt5-live-section" aria-live="polite">
-      <div class="page-heading"><div><h2>Data MT5 live</h2><p id="mt5-live-updated" class="section-help">Menunggu snapshot terminal...</p></div><strong id="mt5-live-status" role="status">Menghubungkan</strong></div>
-      <div class="cards">
-        <div class="card"><span>Balance</span><b id="mt5-balance">&mdash;</b></div>
-        <div class="card"><span>Equity</span><b id="mt5-equity">&mdash;</b></div>
-        <div class="card"><span>Floating P/L</span><b id="mt5-floating">&mdash;</b></div>
-        <div class="card"><span>Mode akun</span><b id="mt5-mode">&mdash;</b></div>
-        <div class="card"><span>Posisi terbuka</span><b id="mt5-position-count">0</b></div>
-      </div>
+      <div class="page-heading"><div><h2>Data MT5 live</h2><p id="mt5-live-updated" class="section-help">Menunggu snapshot terminal...</p></div><strong id="mt5-live-status" class="sc-dot" role="status">Menghubungkan</strong></div>
+      <div class="summary-card sc-mt5"><div class="sc-block"><div class="sc-status sc-summary-status"><span id="mt5-mode" class="sc-chip sc-dot">DEMO</span><span id="mt5-live-chip" class="sc-chip sc-dot tone-pos">LIVE</span></div><div class="sc-profit"><div class="sc-profit-label"><span>EQUITY</span></div><b id="mt5-equity">&mdash;</b></div><div class="sc-metrics sc-metrics-three"><div><b id="mt5-balance">&mdash;</b><span>Balance</span></div><div><b id="mt5-floating">&mdash;</b><span>Floating P/L</span></div><div><b id="mt5-position-count">0</b><span>Posisi terbuka</span></div></div></div></div>
       <div class="grid">
         <section><h3>Posisi terminal</h3><div class="table-wrap"><table><thead><tr><th>Ticket</th><th>Simbol</th><th>Arah</th><th>Lot</th><th>Entry</th><th>SL</th><th>TP</th></tr></thead><tbody id="mt5-positions-table"></tbody></table></div></section>
         <section><h3>Harga pasar</h3><div class="table-wrap"><table><thead><tr><th>Simbol</th><th>Bid</th><th>Ask</th><th>Update</th></tr></thead><tbody id="mt5-quotes-table"></tbody></table></div></section>
@@ -146,34 +152,47 @@ const $ = (selector) => document.querySelector(selector);
       for (const [key,value] of Object.entries(values)) if (value) params.set(key, value);
       return params.size ? `${base}?${params}` : base;
     }
+    const statsCache = {};
     function applyStats(stats) {
-      const countTone = {signals_executed: (v) => v > 0 ? "pos" : "", signals_pending: (v) => v > 0 ? "warn" : "", signals_rejected: (v) => v > 0 ? "neg" : "", signals_ignored: () => "muted"};
-      for (const key of ["signals_total","signals_executed","signals_pending","signals_rejected","signals_ignored","active_clients"]) {
+      Object.assign(statsCache, stats);
+      for (const key of ["signals_total","signals_executed","signals_pending","signals_processing","signals_rejected","signals_ignored","active_clients"]) {
         if (stats[key] == null) continue;
-        setCard(`#${key.replaceAll("_", "-")}`, F.integer(stats[key]), countTone[key]?.(Number(stats[key])) || "");
+        setCard(`#${key.replaceAll("_", "-")}`, F.integer(stats[key]));
       }
       if (stats.winrate != null) setCard("#winrate", F.percent(stats.winrate), Number(stats.winrate) >= 50 ? "pos" : "warn");
       if (stats.total_profit != null) setCard("#total-profit", F.decimal2(stats.total_profit), F.numberTone(stats.total_profit));
       if (stats.wins != null && stats.losses != null) {
         const winsLosses = $("#wins-losses");
         winsLosses.replaceChildren();
-        const wins = document.createElement("span"); wins.textContent = F.integer(stats.wins); F.setTone(wins, Number(stats.wins) > 0 ? "pos" : "");
-        const losses = document.createElement("span"); losses.textContent = F.integer(stats.losses); F.setTone(losses, Number(stats.losses) > 0 ? "neg" : "");
-        winsLosses.append(wins, " / ", losses);
+        const wins = document.createElement("span"); wins.textContent = `${F.integer(stats.wins)}W`;
+        const separator = document.createTextNode(" / ");
+        const losses = document.createElement("span"); losses.textContent = `${F.integer(stats.losses)}L`;
+        winsLosses.append(wins, separator, losses);
       }
-      if ("ea_online" in stats) setCard("#ea-status", stats.ea_online ? "ONLINE" : "OFFLINE", stats.ea_online ? "pos" : "neg");
+      if (stats.wins != null && stats.losses != null) {
+        const inlineWins = $("#wins-losses-inline");
+        inlineWins.replaceChildren();
+        const inlineWinValue = document.createElement("span"); inlineWinValue.textContent = F.integer(stats.wins);
+        const inlineLossValue = document.createElement("span"); inlineLossValue.textContent = F.integer(stats.losses);
+        inlineWins.append(inlineWinValue, " / ", inlineLossValue);
+      }
+      if ("ea_online" in stats) { setCard("#ea-status", stats.ea_online ? "EA Online" : "EA Offline", stats.ea_online ? "pos" : "neg"); }
       if ("ea_last_heartbeat" in stats) $("#ea-heartbeat").textContent = stats.ea_last_heartbeat ? displayTime(stats.ea_last_heartbeat) : "Belum ada heartbeat";
-      if ("telegram_connected" in stats) setCard("#telegram-status", stats.telegram_connected ? "CONNECTED" : "DISCONNECTED", stats.telegram_connected ? "pos" : "neg");
+      if ("telegram_connected" in stats) setCard("#telegram-status", stats.telegram_connected ? "Telegram" : "Telegram Offline", stats.telegram_connected ? "pos" : "neg");
       if ("telegram_account" in stats) $("#telegram-account").textContent = stats.telegram_account || "";
-      if ("gemini_configured" in stats) setCard("#gemini-status", stats.gemini_configured ? "READY" : "KEY BELUM DIATUR", stats.gemini_configured ? "pos" : "warn");
+      if ("gemini_configured" in stats) setCard("#gemini-status", stats.gemini_configured ? "Gemini" : "Gemini Belum Siap", stats.gemini_configured ? "pos" : "warn");
       if ("gemini_model" in stats) $("#gemini-model").textContent = stats.gemini_model || "";
-      if ("kill_switch" in stats) setCard("#trading-mode", stats.kill_switch ? "PAUSED" : "LIVE", stats.kill_switch ? "warn" : "pos");
-      if ("kill_switch" in stats && "open_trades" in stats) {
-        $("#trading-guard").textContent = stats.kill_switch ? "Trading dijeda oleh kill switch" : `${F.integer(stats.open_trades)} posisi EA terbuka · tanpa batas jumlah`;
-      }
       if (stats.daily_loss != null && Number.isFinite(Number(stats.daily_loss))) {
         const loss = Number(stats.daily_loss);
         setCard("#daily-loss", F.decimal2(Math.abs(loss)), loss === 0 ? "" : "neg");
+      }
+      const signalBreakdown = Number(statsCache.signals_executed || 0) + Number(statsCache.signals_pending || 0) + Number(statsCache.signals_processing || 0) + Number(statsCache.signals_rejected || 0) + Number(statsCache.signals_ignored || 0) + Number(statsCache.signals_expired || 0);
+      const totalSignals = Number(statsCache.signals_total);
+      const mismatch = statsCache.signal_status_unknown || (Number.isFinite(totalSignals) && signalBreakdown !== totalSignals);
+      const signalWarning = $("#signal-status-warning");
+      if (signalWarning) {
+        signalWarning.hidden = !mismatch;
+        signalWarning.textContent = mismatch ? `Periksa data sinyal: ${statsCache.signal_status_unknown_values?.join(", ") || "jumlah kategori tidak sama dengan total"}.` : "";
       }
     }
     async function loadStats() { applyStats(await api("/api/stats")); }
@@ -182,11 +201,12 @@ const $ = (selector) => document.querySelector(selector);
       const account = live.account;
       const liveStatus = live.online ? "ONLINE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL";
       setCard("#mt5-live-status", liveStatus, F.statusTone(liveStatus));
+      setCard("#mt5-live-chip", live.online ? "LIVE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL", F.statusTone(liveStatus));
       $("#mt5-live-updated").textContent = live.observed_at ? `Snapshot terakhir ${displayTime(live.observed_at)}` : "Belum menerima snapshot dari MT5.";
       setCard("#mt5-balance", account ? F.money(account.balance, account.currency) : "—");
       setCard("#mt5-equity", account ? F.money(account.equity, account.currency) : "—", account ? F.numberTone(Number(account.equity) - Number(account.balance)) : "");
       setCard("#mt5-floating", account ? F.money(account.floating_profit, account.currency) : "—", account ? F.numberTone(account.floating_profit) : "");
-      setCard("#mt5-mode", account?.trade_mode ? account.trade_mode.toUpperCase() : "—", account?.trade_mode === "real" ? "warn" : account?.trade_mode === "demo" ? "info" : "");
+      setCard("#mt5-mode", account?.trade_mode ? account.trade_mode.toUpperCase() : "Mode akun", account?.trade_mode === "real" ? "warn" : account?.trade_mode === "demo" ? "info" : "");
       $("#mt5-position-count").textContent = F.integer(live.positions.length);
       draw("#mt5-positions-table", ["ticket","symbol","action","lots","entry_price","sl","tp"], live.positions, {
         format: {lots: F.lots, entry_price: F.price, sl: (v) => Number(v) > 0 ? F.price(v) : "—", tp: (v) => Number(v) > 0 ? F.price(v) : "—"},
@@ -215,7 +235,6 @@ const $ = (selector) => document.querySelector(selector);
       const groups = (await api("/api/groups/stats")).sort((a, b) => b.signals_total - a.signals_total).slice(0, 8);
       draw("#groups-table", ["group_name","signals_total","wins","losses","winrate","profit"], groups, {
         format: {signals_total: F.integer, wins: F.integer, losses: F.integer, winrate: F.percent, profit: F.decimal2},
-        tone: {wins: (v) => Number(v) > 0 ? "pos" : "", losses: (v) => Number(v) > 0 ? "neg" : "", winrate: (v) => Number(v) >= 50 ? "pos" : "warn", profit: (v) => F.numberTone(v)},
         numeric: ["signals_total","wins","losses","winrate","profit"]
       });
       if (typeof Chart === "undefined") return;
@@ -299,6 +318,7 @@ const $ = (selector) => document.querySelector(selector);
       const message=$("#registration-message");
       const buttons=[$("#registration-open"),$("#registration-close")];
       buttons.forEach((button)=>button.disabled=true);
+      message.hidden=false;
       message.textContent="Menyimpan status pendaftaran...";
       try {
         await api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({values:{registration_open:isOpen}})});
@@ -313,7 +333,6 @@ const $ = (selector) => document.querySelector(selector);
       try { await Promise.all([loadStatsAndSignals(),loadMt5Live(),loadGroups(),loadLogs(),loadTrades(),loadProfitChart()]); }
       catch(error) { $("#connection").textContent=`Gagal memuat: ${error.message}`; }
     }
-    $("#refresh-all")?.addEventListener("click",refresh);
     $("#filter-logs").addEventListener("click",loadLogs);
     $("#filter-trades").addEventListener("click",()=>loadTrades(0));
     $("#trades-prev").addEventListener("click",()=>loadTrades(tradePage-1));
@@ -342,12 +361,12 @@ const $ = (selector) => document.querySelector(selector);
     function startPolling() {
       if (pollingTimer) return;
       $("#connection").textContent="Realtime tidak tersedia; ringkasan diperbarui tiap 5 detik.";
-      pollingTimer=setInterval(()=>{if($("#auto-refresh").checked && !document.hidden) loadStatsAndSignals().catch(()=>{});},5000);
+      pollingTimer=setInterval(()=>{if(!document.hidden) loadStatsAndSignals().catch(()=>{});},5000);
     }
     function startMt5Polling() {
       if (mt5PollingTimer) return;
       mt5PollingTimer=setInterval(()=>{
-        if($("#auto-refresh").checked && !document.hidden) {
+        if(!document.hidden) {
           loadMt5Live().catch((error)=>{ setCard("#mt5-live-status", `GAGAL: ${error.message}`, "neg"); });
         }
       },2000);
@@ -358,7 +377,7 @@ const $ = (selector) => document.querySelector(selector);
       const fallback=setTimeout(()=>{if(socket.readyState!==WebSocket.OPEN){startPolling();socket.close();}},8000);
       socket.onopen=()=>{clearTimeout(fallback);if(pollingTimer){clearInterval(pollingTimer);pollingTimer=null;}$("#connection").textContent="Realtime tersambung.";};
       socket.onmessage=(event)=>{
-        if(!$("#auto-refresh").checked || document.hidden) return;
+        if(document.hidden) return;
         const message=JSON.parse(event.data);
         if(message.stats) applyStats(message.stats);
         if(message.latest_signal_id!==lastSignalId){

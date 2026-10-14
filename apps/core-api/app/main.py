@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 import asyncio
 import secrets
+import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -50,6 +51,7 @@ from .services.risk_controls import risk_state
 from .core.time_utils import wib_iso
 from .services.payment_bot import payment_review_bot
 from .state import ea_heartbeat_state, master_snapshot_state
+from .state import MasterAccountSnapshot, MasterPosition
 
 
 @asynccontextmanager
@@ -62,6 +64,11 @@ async def lifespan(_: FastAPI):
         Base.metadata.create_all(bind=engine)
     else:
         ensure_schema_ready()
+    if config.app_env == "development" and engine.dialect.name == "sqlite" and os.environ.get("PREVIEW_DUMMY_DATA") == "1":
+        from .seed_preview_data import main as seed_preview, publish_preview_runtime
+
+        seed_preview()
+        publish_preview_runtime()
     with SessionLocal() as db:
         seed_admin(db, config)
         app_settings = SettingsRepository(db)
