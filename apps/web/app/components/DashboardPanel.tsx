@@ -1,69 +1,151 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import Script from "next/script";
+import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiRequest } from "../lib/api";
-import { formatInteger, formatMoney, formatNumber, numberTone, toneClass } from "../lib/format";
+import {
+  formatInteger,
+  formatLots,
+  formatMoney,
+  formatNumber,
+  formatPrice,
+  numberTone,
+  toneClass,
+  type Tone,
+} from "../lib/format";
 
-type Stats = Record<string, number | string | boolean | null | undefined>;
+type Stats = Record<string, number | string | boolean | string[] | null | undefined>;
 type Mt5Live = {
-  online: boolean; available: boolean; observed_at?: string | null;
+  online: boolean;
+  available: boolean;
+  observed_at?: string | null;
   account?: {
-    balance?: number | null; equity?: number | null; floating_profit?: number | null;
-    currency?: string | null; trade_mode?: string | null;
+    balance?: number | null;
+    equity?: number | null;
+    floating_profit?: number | null;
+    currency?: string | null;
+    trade_mode?: string | null;
   } | null;
-  positions: Array<{ ticket: string; symbol: string; action: string; lots: number; entry_price: number; sl: number; tp: number }>;
+  positions: Array<{
+    ticket: string;
+    symbol: string;
+    action: string;
+    lots: number;
+    entry_price: number;
+    sl: number;
+    tp: number;
+  }>;
   market_quotes: Array<{ symbol: string; bid: number; ask: number; time_msc: number }>;
 };
 type Signal = {
-  created_at: string; group_name?: string | null; group_id?: string | null; raw_text: string;
-  normalized_text?: string | null; confidence?: number | null; status: string; ticket?: string | null; profit?: number | null;
+  created_at: string;
+  group_name?: string | null;
+  group_id?: string | null;
+  raw_text: string;
+  normalized_text?: string | null;
+  confidence?: number | null;
+  status: string;
+  ticket?: string | null;
+  profit?: number | null;
 };
-type GroupStat = { group_name: string; signals_total: number; wins: number; losses: number; winrate: number; profit: number };
+type GroupStat = {
+  group_name: string;
+  signals_total: number;
+  wins: number;
+  losses: number;
+  winrate: number;
+  profit: number;
+};
 type LogEntry = { created_at: string; level: string; source: string; message: string };
 type Trade = {
-  opened_at: string; closed_at?: string | null; group_name?: string | null; ticket: string;
-  symbol: string; action: string; lots: number; entry: number; profit?: number | null; result?: string | null;
+  opened_at: string;
+  closed_at?: string | null;
+  group_name?: string | null;
+  ticket: string;
+  symbol: string;
+  action: string;
+  lots: number;
+  entry: number;
+  profit?: number | null;
+  result?: string | null;
 };
 
-const wibTime = (value?: string | null) =>
-  value ? `${new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : "—";
+const EMPTY = "—";
 const TRADE_PAGE_SIZE = 10;
 
-function query(base: string, values: Record<string, string>): string {
+const displayTime = (value?: string | null) =>
+  value ? new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : EMPTY;
+
+const formatPercent = (value: number | string | null | undefined) => {
+  const text = formatNumber(value, 0, 2);
+  return text === EMPTY ? text : `${text}%`;
+};
+
+const STATUS_TONES: Record<string, string[]> = {
+  pos: ["EXECUTED", "WIN", "ONLINE", "CONNECTED", "READY", "LIVE", "BUY", "VALID", "RUNNING", "APPROVED", "OK", "TERSAMBUNG"],
+  neg: ["REJECTED", "FAILED", "LOSS", "ERROR", "OFFLINE", "DISCONNECTED", "SELL", "INVALID", "STOPPED", "CRITICAL", "KEY BELUM DIATUR", "CANCELLED"],
+  warn: ["PENDING", "CLAIMED", "WARN", "WARNING", "PAUSED", "DATA BASI", "MENUNGGU TERMINAL", "BE", "CHECKING", "STARTING", "PAYMENT_SUBMITTED", "PENDING_PAYMENT"],
+  info: ["INFO", "MARKET", "LIMIT", "STOP", "AUTO"],
+  muted: ["IGNORED", "EXPIRED", "UNCHECKED"],
+};
+
+function statusTone(text: unknown): Tone {
+  const key = String(text ?? "").trim().toUpperCase();
+  for (const [tone, names] of Object.entries(STATUS_TONES)) if (names.includes(key)) return tone as Tone;
+  if (key.startsWith("GAGAL")) return "neg";
+  return "";
+}
+
+function queryWithFilters(base: string, values: Record<string, string>): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) if (value) params.set(key, value);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
 
-function StatCard({ label, value, tone }: { label: string; value: string; tone?: string }) {
-  return (
-    <article className="card">
-      <span className="eyebrow">{label}</span>
-      <h2 className={tone ? toneClass(tone as "pos" | "neg" | "warn" | "info" | "muted") : undefined}>{value}</h2>
-    </article>
-  );
-}
+const num = (value: unknown) => (typeof value === "number" ? value : Number(value ?? 0));
 
 export function DashboardPanel() {
+  const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [live, setLive] = useState<Mt5Live | null>(null);
+  const [mt5Error, setMt5Error] = useState("");
   const [signals, setSignals] = useState<Signal[]>([]);
   const [groups, setGroups] = useState<GroupStat[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [profitTrades, setProfitTrades] = useState<Trade[]>([]);
   const [tradePage, setTradePage] = useState(0);
   const [hasMoreTrades, setHasMoreTrades] = useState(false);
-  const [settings, setSettings] = useState<Record<string, unknown>>({});
-  const [error, setError] = useState("");
+  const [registrationOpen, setRegistrationOpenState] = useState<boolean | null>(null);
+  const [registrationMessage, setRegistrationMessage] = useState("");
+  const [registrationBusy, setRegistrationBusy] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [geminiMessage, setGeminiMessage] = useState("");
-  const [registrationMessage, setRegistrationMessage] = useState("");
+  const [connection, setConnection] = useState("Menghubungkan realtime…");
   const [logLevel, setLogLevel] = useState("");
   const [logSearch, setLogSearch] = useState("");
-  const [tradeFilters, setTradeFilters] = useState({ date_from: "", date_to: "", group_id: "", symbol: "", result: "" });
+  const [tradeFilters, setTradeFilters] = useState({
+    date_from: "",
+    date_to: "",
+    group_id: "",
+    symbol: "",
+    result: "",
+  });
+  const [confidenceThreshold, setConfidenceThreshold] = useState("");
+  const [maxMarketDeviation, setMaxMarketDeviation] = useState("");
+  const [entryMode, setEntryMode] = useState("PARTIAL");
   const [symbolMapping, setSymbolMapping] = useState("");
-  const [busySettings, setBusySettings] = useState(false);
+  const [allowUpdates, setAllowUpdates] = useState(false);
+  const [killSwitch, setKillSwitch] = useState(false);
+  const [geminiModel, setGeminiModel] = useState("");
+  const [chartReady, setChartReady] = useState(false);
+  const tradePageRef = useRef(0);
+  const groupChartRef = useRef<{ destroy: () => void } | null>(null);
+  const profitChartRef = useRef<{ destroy: () => void } | null>(null);
+  const groupCanvasRef = useRef<HTMLCanvasElement>(null);
+  const profitCanvasRef = useRef<HTMLCanvasElement>(null);
 
   async function loadStatsAndSignals() {
     const [freshStats, freshSignals] = await Promise.all([
@@ -74,8 +156,10 @@ export function DashboardPanel() {
     setSignals(freshSignals);
   }
 
-  async function loadLive() {
-    setLive(await apiRequest<Mt5Live>("dashboard/mt5-live"));
+  async function loadMt5Live() {
+    const fresh = await apiRequest<Mt5Live>("dashboard/mt5-live");
+    setLive(fresh);
+    setMt5Error("");
   }
 
   async function loadGroups() {
@@ -84,7 +168,11 @@ export function DashboardPanel() {
   }
 
   async function loadLogs() {
-    setLogs(await apiRequest<LogEntry[]>(query("dashboard/logs", { level: logLevel, search: logSearch, limit: "5" })));
+    setLogs(
+      await apiRequest<LogEntry[]>(
+        queryWithFilters("dashboard/logs", { level: logLevel, search: logSearch, limit: "5" })
+      )
+    );
   }
 
   async function loadTrades(page: number) {
@@ -98,72 +186,253 @@ export function DashboardPanel() {
       limit: String(TRADE_PAGE_SIZE + 1),
       offset: String(safePage * TRADE_PAGE_SIZE),
     };
-    const rows = await apiRequest<Trade[]>(query("dashboard/trades", values));
+    const rows = await apiRequest<Trade[]>(queryWithFilters("dashboard/trades", values));
     setHasMoreTrades(rows.length > TRADE_PAGE_SIZE);
     setTrades(rows.slice(0, TRADE_PAGE_SIZE));
     setTradePage(safePage);
+    tradePageRef.current = safePage;
+  }
+
+  async function loadProfitChart() {
+    setProfitTrades(await apiRequest<Trade[]>("dashboard/trades?limit=30"));
   }
 
   async function loadSettings() {
     const data = await apiRequest<Record<string, unknown>>("settings");
-    setSettings(data);
+    setRegistrationOpenState((data.registration_open as boolean | undefined) ?? true);
+    setConfidenceThreshold(String((data.confidence_threshold as number | undefined) ?? 0.75));
+    setMaxMarketDeviation(String((data.max_market_deviation_pct as number | undefined) ?? 5));
+    setEntryMode(String((data.entry_mode as string | undefined) ?? "PARTIAL"));
     const mapping = data.symbol_mapping as Record<string, string> | undefined;
     setSymbolMapping(JSON.stringify(mapping ?? { GOLD: "XAUUSD", XAU: "XAUUSD", EMAS: "XAUUSD" }, null, 2));
+    setAllowUpdates((data.allow_updates as boolean | undefined) ?? false);
+    setKillSwitch((data.kill_switch as boolean | undefined) ?? false);
+    const model = data.gemini_model;
+    setGeminiModel(typeof model === "string" ? model : "");
   }
 
   async function refresh() {
+    await Promise.all([
+      loadStatsAndSignals(),
+      loadMt5Live(),
+      loadGroups(),
+      loadLogs(),
+      loadTrades(tradePageRef.current),
+      loadProfitChart(),
+    ]);
+  }
+
+  // apiRequest tidak membawa status HTTP; untuk mendeteksi 401 (belum login admin)
+  // cek status mentah dari endpoint yang sama tanpa mengarang endpoint baru.
+  async function isUnauthorized(): Promise<boolean> {
     try {
-      await Promise.all([loadStatsAndSignals(), loadLive(), loadGroups(), loadLogs(), loadTrades(tradePage)]);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Gagal memuat dashboard.");
+      const response = await fetch("/api/core/dashboard/stats", { cache: "no-store" });
+      return response.status === 401;
+    } catch {
+      return false;
     }
   }
 
   useEffect(() => {
-    void refresh();
-    void loadSettings().catch((reason) => setSettingsMessage(reason instanceof Error ? reason.message : "Gagal memuat settings."));
-    const timer = setInterval(() => {
-      if (document.hidden) return;
-      void loadStatsAndSignals().catch(() => undefined);
-      void loadLive().catch(() => undefined);
+    let cancelled = false;
+    async function boot() {
+      try {
+        await refresh();
+      } catch (reason) {
+        if (await isUnauthorized()) {
+          router.replace("/admin/login");
+          return;
+        }
+        if (!cancelled)
+          setConnection(`Gagal memuat: ${reason instanceof Error ? reason.message : "Gagal memuat dashboard."}`);
+      }
+    }
+    void boot();
+    void loadSettings().catch((reason) => {
+      if (!cancelled)
+        setSettingsMessage(reason instanceof Error ? reason.message : "Gagal memuat settings.");
+    });
+    // Pengganti WebSocket (tidak bisa lewat Vercel serverless): polling tiap 5 detik.
+    const pollTimer = setInterval(() => {
+      if (document.hidden || cancelled) return;
+      void loadStatsAndSignals().catch(() => {
+        if (!cancelled) setConnection("Realtime tidak tersedia; ringkasan diperbarui tiap 5 detik.");
+      });
     }, 5000);
-    return () => clearInterval(timer);
+    // MT5 live: polling tiap 2 detik.
+    const mt5Timer = setInterval(() => {
+      if (document.hidden || cancelled) return;
+      void loadMt5Live().catch((reason) => {
+        if (!cancelled) setMt5Error(reason instanceof Error ? reason.message : "Gagal memuat MT5.");
+      });
+    }, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(pollTimer);
+      clearInterval(mt5Timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!chartReady) return;
+    const canvas = groupCanvasRef.current;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ChartLib = (window as any).Chart;
+    if (!canvas || !ChartLib) return;
+    if (groupChartRef.current) {
+      groupChartRef.current.destroy();
+      groupChartRef.current = null;
+    }
+    const labels = groups.map((g) => g.group_name);
+    const data = {
+      labels,
+      datasets: [
+        {
+          label: "Win",
+          data: groups.map((g) => g.wins),
+          backgroundColor: "#1f9d72",
+          barPercentage: 0.72,
+          categoryPercentage: 0.65,
+          maxBarThickness: 24,
+        },
+        {
+          label: "Loss",
+          data: groups.map((g) => g.losses),
+          backgroundColor: "#d85858",
+          barPercentage: 0.72,
+          categoryPercentage: 0.65,
+          maxBarThickness: 24,
+        },
+      ],
+    };
+    groupChartRef.current = new ChartLib(canvas, {
+      type: "bar",
+      data,
+      options: {
+        responsive: true,
+        onResize(chart: { options: Record<string, unknown> }, size: { width: number }) {
+          const mobile = size.width <= 600;
+          const scales = chart.options.scales as Record<string, Record<string, Record<string, unknown>>>;
+          scales.x.ticks.display = !mobile;
+          scales.x.ticks.maxRotation = mobile ? 0 : 45;
+          scales.x.ticks.minRotation = 0;
+        },
+        interaction: { mode: "index", intersect: false },
+        plugins: { legend: { position: "top", labels: { boxWidth: 14, boxHeight: 8, padding: 12, font: { size: 11 } } } },
+        scales: {
+          x: {
+            ticks: {
+              display: window.innerWidth > 600,
+              maxRotation: 45,
+              minRotation: 0,
+              font: { size: 10 },
+            },
+            grid: { display: false },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: {
+              precision: 0,
+              padding: 4,
+              font: { size: 10 },
+              callback: (value: unknown) => formatInteger(value as number),
+            },
+          },
+        },
+      },
+    });
+    return () => {
+      groupChartRef.current?.destroy();
+      groupChartRef.current = null;
+    };
+  }, [groups, chartReady]);
+
+  useEffect(() => {
+    if (!chartReady) return;
+    const canvas = profitCanvasRef.current;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ChartLib = (window as any).Chart;
+    if (!canvas || !ChartLib) return;
+    if (profitChartRef.current) {
+      profitChartRef.current.destroy();
+      profitChartRef.current = null;
+    }
+    const closed = profitTrades
+      .filter((t) => t.closed_at)
+      .sort((a, b) => new Date(a.closed_at as string).getTime() - new Date(b.closed_at as string).getTime());
+    let total = 0;
+    const points = closed.map((t) => ({ x: displayTime(t.closed_at), y: (total += Number(t.profit)) }));
+    const data = {
+      labels: points.map((p) => p.x),
+      datasets: [
+        {
+          label: "Profit kumulatif",
+          data: points.map((p) => p.y),
+          borderColor: points.length && points[points.length - 1].y < 0 ? "#ff7b7b" : "#4ade80",
+          tension: 0.2,
+        },
+      ],
+    };
+    profitChartRef.current = new ChartLib(canvas, {
+      type: "line",
+      data,
+      options: {
+        responsive: true,
+        scales: {
+          y: { beginAtZero: false, ticks: { callback: (value: unknown) => formatNumber(value as number, 0, 2) } },
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) =>
+                `${ctx.dataset.label}: ${formatNumber(ctx.parsed.y, 2, 2)}`,
+            },
+          },
+        },
+      },
+    });
+    return () => {
+      profitChartRef.current?.destroy();
+      profitChartRef.current = null;
+    };
+  }, [profitTrades, chartReady]);
+
   async function setRegistrationOpen(isOpen: boolean) {
-    setRegistrationMessage("Menyimpan status pendaftaran…");
+    setRegistrationBusy(true);
+    setRegistrationMessage("Menyimpan status pendaftaran...");
     try {
-      await apiRequest("settings", { method: "PUT", body: JSON.stringify({ values: { registration_open: isOpen } }) });
+      await apiRequest("settings", {
+        method: "PUT",
+        body: JSON.stringify({ values: { registration_open: isOpen } }),
+      });
       setRegistrationMessage(isOpen ? "Pendaftaran dibuka." : "Pendaftaran ditutup.");
       await loadSettings();
     } catch (reason) {
-      setRegistrationMessage(`Gagal: ${reason instanceof Error ? reason.message : "unknown"}`);
+      setRegistrationMessage(`Gagal mengubah status: ${reason instanceof Error ? reason.message : "unknown"}`);
+    } finally {
+      setRegistrationBusy(false);
     }
   }
 
   async function submitSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusySettings(true);
     setSettingsMessage("");
     try {
-      const form = new FormData(event.currentTarget);
       const values = {
-        confidence_threshold: Number(form.get("confidence_threshold")),
-        symbol_mapping: JSON.parse(String(form.get("symbol_mapping") ?? "{}")),
-        max_market_deviation_pct: Number(form.get("max_market_deviation_pct")),
-        entry_mode: String(form.get("entry_mode") ?? "PARTIAL"),
-        allow_updates: form.get("allow_updates") === "on",
-        kill_switch: form.get("kill_switch") === "on",
+        confidence_threshold: Number(confidenceThreshold),
+        symbol_mapping: JSON.parse(symbolMapping || "{}"),
+        max_market_deviation_pct: Number(maxMarketDeviation),
+        entry_mode: entryMode,
+        allow_updates: allowUpdates,
+        kill_switch: killSwitch,
       };
       await apiRequest("settings", { method: "PUT", body: JSON.stringify({ values }) });
       setSettingsMessage("Settings tersimpan.");
       await loadSettings();
-      await refresh();
+      void refresh().catch(() => undefined);
     } catch (reason) {
       setSettingsMessage(`Gagal: ${reason instanceof Error ? reason.message : "unknown"}`);
-    } finally {
-      setBusySettings(false);
     }
   }
 
@@ -171,269 +440,765 @@ export function DashboardPanel() {
     event.preventDefault();
     setGeminiMessage("");
     try {
-      const form = new FormData(event.currentTarget);
-      const result = await apiRequest<{ gemini_model?: string; gemini_configured?: boolean }>("settings/gemini-config", {
-        method: "PUT",
-        body: JSON.stringify({ model: String(form.get("gemini_model") ?? "").trim() }),
-      });
-      setGeminiMessage(`Tersimpan. Model: ${result.gemini_model ?? "—"}; API key ${result.gemini_configured ? "terpasang" : "belum ada"}.`);
+      const result = await apiRequest<{ gemini_model?: string; gemini_configured?: boolean }>(
+        "settings/gemini-config",
+        { method: "PUT", body: JSON.stringify({ model: geminiModel.trim() }) }
+      );
+      setGeminiMessage(
+        `Tersimpan. Model: ${result.gemini_model ?? EMPTY}; API key ${result.gemini_configured ? "terpasang" : "belum ada"}.`
+      );
       await loadStatsAndSignals();
     } catch (reason) {
       setGeminiMessage(`Gagal: ${reason instanceof Error ? reason.message : "unknown"}`);
     }
   }
 
-  const num = (value: unknown) => (typeof value === "number" ? value : Number(value ?? 0));
-  const registrationOpen = settings.registration_open !== false;
-  const liveStatus = !live ? "Menghubungkan" : live.online ? "ONLINE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL";
+  // ---- Turunan tampilan dari state (cermin applyStats di template asli) ----
+  const signalInt = (key: string) =>
+    stats && stats[key] != null ? formatInteger(stats[key] as number) : EMPTY;
+  const wins = stats?.wins != null ? num(stats.wins) : null;
+  const losses = stats?.losses != null ? num(stats.losses) : null;
+  const winrate = stats?.winrate != null ? num(stats.winrate) : null;
+  const totalProfit = stats?.total_profit != null ? num(stats.total_profit) : null;
+  const dailyLoss = stats?.daily_loss != null && Number.isFinite(num(stats.daily_loss)) ? num(stats.daily_loss) : null;
+
+  const eaOnline = stats?.ea_online;
+  const telegramConnected = stats?.telegram_connected;
+  const geminiConfigured = stats?.gemini_configured;
+
+  const breakdown =
+    ["signals_executed", "signals_pending", "signals_processing", "signals_rejected", "signals_ignored", "signals_expired"].reduce(
+      (sum, key) => sum + num(stats?.[key] ?? 0),
+      0
+    );
+  const totalSignals = stats ? Number(stats.signals_total) : NaN;
+  const mismatch = Boolean(
+    stats &&
+      (stats.signal_status_unknown ||
+        (Number.isFinite(totalSignals) && breakdown !== totalSignals))
+  );
+  const mismatchValues = Array.isArray(stats?.signal_status_unknown_values)
+    ? (stats?.signal_status_unknown_values as string[])
+    : [];
+
+  const liveStatus: { text: string; tone: Tone } = mt5Error
+    ? { text: `GAGAL: ${mt5Error}`, tone: "neg" }
+    : !live
+      ? { text: "Menghubungkan", tone: "" }
+      : {
+          text: live.online ? "ONLINE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL",
+          tone: statusTone(live.online ? "ONLINE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL"),
+        };
+  const liveChip: { text: string; tone: Tone } = !live
+    ? { text: "LIVE", tone: "pos" }
+    : {
+        text: live.online ? "LIVE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL",
+        tone: statusTone(live.online ? "ONLINE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL"),
+      };
+  const account = live?.account ?? null;
+  const mt5Mode = account?.trade_mode ? account.trade_mode.toUpperCase() : "Mode akun";
+  const mt5ModeTone: Tone =
+    account?.trade_mode === "real" ? "warn" : account?.trade_mode === "demo" ? "info" : "";
+  const mt5Equity = account ? formatMoney(account.equity, account.currency) : EMPTY;
+  const mt5EquityTone = account ? numberTone(num(account.equity) - num(account.balance)) : "";
+  const mt5Floating = account ? formatMoney(account.floating_profit, account.currency) : EMPTY;
+  const mt5FloatingTone = account ? numberTone(account.floating_profit) : "";
+  const mt5Updated = live?.observed_at
+    ? `Snapshot terakhir ${displayTime(live.observed_at)}`
+    : "Belum menerima snapshot dari MT5.";
+
+  const logsExportHref = `/api/core/${queryWithFilters("dashboard/logs/export.csv", {
+    level: logLevel,
+    search: logSearch,
+  })}`;
+  const tradeExportValues: Record<string, string> = {
+    date_from: tradeFilters.date_from ? `${tradeFilters.date_from}T00:00:00` : "",
+    date_to: tradeFilters.date_to ? `${tradeFilters.date_to}T23:59:59` : "",
+    group_id: tradeFilters.group_id,
+    symbol: tradeFilters.symbol,
+    result: tradeFilters.result,
+  };
+  const tradesExportHref = `/api/core/${queryWithFilters("dashboard/trades/export.csv", tradeExportValues)}`;
 
   return (
     <>
-      <section className="panel section">
-        <span className="eyebrow">Algentra Capital · Operations</span>
-        <h2>Operations workspace</h2>
-        <p className="muted">Pantau sinyal, hasil eksekusi, performa trade, dan batas risiko dalam satu tampilan.</p>
-        {error && <p className="error" role="alert">{error}</p>}
-      </section>
-
-      <section className="panel section">
-        <span className="eyebrow">Public site</span>
-        <h2>Pendaftaran client</h2>
-        <p className="muted" role="status">{registrationOpen ? "Pendaftaran terbuka. Form daftar terlihat di situs publik." : "Pendaftaran ditutup. Situs publik menampilkan hitung mundur launching."}</p>
-        <div className="actions">
-          <button className="button primary" disabled={registrationOpen} onClick={() => void setRegistrationOpen(true)}>Buka pendaftaran</button>
-          <button className="button" disabled={!registrationOpen} onClick={() => void setRegistrationOpen(false)}>Tutup pendaftaran</button>
+      <Script
+        src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+        strategy="afterInteractive"
+        onLoad={() => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const ChartLib = (window as any).Chart;
+          if (ChartLib) {
+            ChartLib.defaults.color = "#9bb0c2";
+            ChartLib.defaults.borderColor = "#253c50";
+            setChartReady(true);
+          }
+        }}
+      />
+      <main className="page-shell dashboard-page" id="main-content">
+        <div className="page-heading">
+          <div>
+            <span className="eyebrow">Algentra Capital / Operations</span>
+            <h1>Operations workspace</h1>
+            <p className="page-description">
+              Pantau sinyal, hasil eksekusi, performa trade, dan batas risiko dalam satu tampilan.
+            </p>
+          </div>
         </div>
-        {registrationMessage && <p className="muted" role="status">{registrationMessage}</p>}
-      </section>
 
-      <section className="panel section">
-        <span className="eyebrow">Ringkasan operasional</span>
-        <div className="cards">
-          <StatCard label="EA" value={stats ? (stats.ea_online ? "EA Online" : "EA Offline") : "—"} tone={stats ? (stats.ea_online ? "pos" : "neg") : undefined} />
-          <StatCard label="Telegram" value={stats ? (stats.telegram_connected ? "Terhubung" : "Offline") : "—"} tone={stats ? (stats.telegram_connected ? "pos" : "neg") : undefined} />
-          <StatCard label="Gemini" value={stats ? (stats.gemini_configured ? "Siap" : "Belum siap") : "—"} tone={stats ? (stats.gemini_configured ? "pos" : "warn") : undefined} />
-          <StatCard label="Total profit" value={stats ? formatNumber(num(stats.total_profit), 2, 2) : "—"} tone={stats ? numberTone(num(stats.total_profit)) : undefined} />
-          <StatCard label="Winrate" value={stats && stats.winrate !== null && stats.winrate !== undefined ? `${formatNumber(num(stats.winrate), 0, 1)}%` : "—"} />
-          <StatCard label="Win / Loss" value={stats ? `${formatInteger(num(stats.wins))} / ${formatInteger(num(stats.losses))}` : "—"} />
-          <StatCard label="Rugi hari ini" value={stats ? formatNumber(Math.abs(num(stats.daily_loss)), 2, 2) : "—"} tone={stats && num(stats.daily_loss) !== 0 ? "neg" : undefined} />
-          <StatCard label="Kill switch" value={stats ? (stats.kill_switch ? "AKTIF" : "Mati") : "—"} tone={stats ? (stats.kill_switch ? "neg" : "pos") : undefined} />
-        </div>
-        {stats && (
-          <p className="muted">
-            Sinyal: {formatInteger(num(stats.signals_total))} total · {formatInteger(num(stats.signals_executed))} tereksekusi ·{" "}
-            {formatInteger(num(stats.signals_pending))} pending · {formatInteger(num(stats.signals_processing))} diproses ·{" "}
-            {formatInteger(num(stats.signals_rejected))} ditolak · {formatInteger(num(stats.signals_ignored))} diabaikan
+        <section id="registration-controls" aria-labelledby="registration-controls-heading">
+          <span className="eyebrow">Public site</span>
+          <h2 id="registration-controls-heading">Pendaftaran client</h2>
+          <p id="registration-state" className="section-help" role="status">
+            {registrationOpen === null
+              ? "Memuat status pendaftaran..."
+              : registrationOpen
+                ? "Pendaftaran terbuka. Form daftar terlihat di situs publik."
+                : "Pendaftaran ditutup. Situs publik menampilkan hitung mundur launching."}
           </p>
-        )}
-      </section>
-
-      <section className="panel section">
-        <span className="eyebrow">MT5 live</span>
-        <h2>Data MT5 live <span className={toneClass(live?.online ? "pos" : "warn")}>· {liveStatus}</span></h2>
-        <p className="muted">{live?.observed_at ? `Snapshot terakhir ${wibTime(live.observed_at)}` : "Menunggu snapshot terminal…"}</p>
-        {live?.account && (
-          <div className="cards">
-            <StatCard label="Equity" value={formatMoney(live.account.equity, live.account.currency)} />
-            <StatCard label="Balance" value={formatMoney(live.account.balance, live.account.currency)} />
-            <StatCard label="Floating P/L" value={formatMoney(live.account.floating_profit, live.account.currency)} tone={numberTone(live.account.floating_profit)} />
-            <StatCard label="Posisi terbuka" value={formatInteger(live.positions.length)} />
+          <p className="muted">
+            Jika ditutup sebelum launching, pendaftaran akan otomatis terbuka pada 16 Januari 2027 pukul 09.00
+            WIB.
+          </p>
+          <div className="toolbar">
+            <button
+              id="registration-open"
+              type="button"
+              disabled={registrationOpen === true || registrationBusy}
+              onClick={() => void setRegistrationOpen(true)}
+            >
+              Buka pendaftaran
+            </button>
+            <button
+              id="registration-close"
+              className="secondary"
+              type="button"
+              disabled={registrationOpen === false || registrationBusy}
+              onClick={() => void setRegistrationOpen(false)}
+            >
+              Tutup pendaftaran
+            </button>
           </div>
-        )}
-        <h3>Posisi terminal</h3>
-        <div className="table-wrap"><table>
-          <thead><tr><th>Ticket</th><th>Simbol</th><th>Arah</th><th>Lot</th><th>Entry</th><th>SL</th><th>TP</th></tr></thead>
-          <tbody>
-            {(live?.positions ?? []).map((position) => (
-              <tr key={position.ticket}>
-                <td>{position.ticket}</td><td>{position.symbol}</td><td>{position.action}</td>
-                <td>{formatNumber(position.lots, 2, 3)}</td><td>{formatNumber(position.entry_price, 2, 5)}</td>
-                <td>{Number(position.sl) > 0 ? formatNumber(position.sl, 2, 5) : "—"}</td>
-                <td>{Number(position.tp) > 0 ? formatNumber(position.tp, 2, 5) : "—"}</td>
-              </tr>
-            ))}
-            {(live?.positions ?? []).length === 0 && <tr><td colSpan={7} className="muted">Tidak ada posisi terbuka.</td></tr>}
-          </tbody>
-        </table></div>
-        <h3>Harga pasar</h3>
-        <div className="table-wrap"><table>
-          <thead><tr><th>Simbol</th><th>Bid</th><th>Ask</th><th>Update</th></tr></thead>
-          <tbody>
-            {(live?.market_quotes ?? []).map((quote) => (
-              <tr key={quote.symbol}>
-                <td>{quote.symbol}</td><td>{formatNumber(quote.bid, 2, 5)}</td><td>{formatNumber(quote.ask, 2, 5)}</td>
-                <td>{wibTime(new Date(Number(quote.time_msc)).toISOString())}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table></div>
-      </section>
+          {registrationMessage && (
+            <p id="registration-message" className="status" role="status">
+              {registrationMessage}
+            </p>
+          )}
+        </section>
 
-      <section className="panel section">
-        <span className="eyebrow">Sinyal</span>
-        <h2>Signal terbaru</h2>
-        <p className="muted">Lima pesan terbaru beserta hasil parsing, confidence, status pemrosesan, dan ticket order.</p>
-        <div className="table-wrap"><table>
-          <thead><tr><th>Waktu</th><th>Grup</th><th>Pesan</th><th>Parsing</th><th>Confidence</th><th>Status</th><th>Ticket</th><th>Profit</th></tr></thead>
-          <tbody>
-            {signals.map((signal, index) => (
-              <tr key={`${signal.created_at}-${index}`}>
-                <td>{wibTime(signal.created_at)}</td>
-                <td>{signal.group_name || signal.group_id || "—"}</td>
-                <td>{signal.raw_text.length > 60 ? `${signal.raw_text.slice(0, 60)}…` : signal.raw_text}</td>
-                <td>{signal.normalized_text || "—"}</td>
-                <td>{signal.confidence === null || signal.confidence === undefined ? "—" : formatNumber(signal.confidence, 2, 2)}</td>
-                <td>{signal.status}</td>
-                <td>{signal.ticket || "—"}</td>
-                <td className={toneClass(numberTone(signal.profit))}>{signal.profit === null || signal.profit === undefined ? "—" : formatNumber(signal.profit, 2, 2)}</td>
-              </tr>
-            ))}
-            {signals.length === 0 && <tr><td colSpan={8} className="muted">Belum ada sinyal.</td></tr>}
-          </tbody>
-        </table></div>
-      </section>
-
-      <section className="panel section">
-        <span className="eyebrow">Grup</span>
-        <h2>Win dan loss per grup</h2>
-        <p className="muted">Bandingkan akurasi dan profit dari setiap grup sumber.</p>
-        <div className="table-wrap"><table>
-          <thead><tr><th>Grup</th><th>Signal</th><th>Win</th><th>Loss</th><th>Winrate</th><th>Profit</th></tr></thead>
-          <tbody>
-            {groups.map((group) => (
-              <tr key={group.group_name}>
-                <td>{group.group_name}</td><td>{formatInteger(group.signals_total)}</td>
-                <td>{formatInteger(group.wins)}</td><td>{formatInteger(group.losses)}</td>
-                <td>{formatNumber(Number(group.winrate), 0, 1)}%</td>
-                <td className={toneClass(numberTone(group.profit))}>{formatNumber(group.profit, 2, 2)}</td>
-              </tr>
-            ))}
-            {groups.length === 0 && <tr><td colSpan={6} className="muted">Belum ada data grup.</td></tr>}
-          </tbody>
-        </table></div>
-      </section>
-
-      <section className="panel section">
-        <span className="eyebrow">Log</span>
-        <h2>Log sistem</h2>
-        <div className="actions">
-          <label className="field">Level
-            <select value={logLevel} onChange={(event) => setLogLevel(event.target.value)}>
-              <option value="">Semua level</option><option value="INFO">INFO</option>
-              <option value="WARN">WARN</option><option value="ERROR">ERROR</option>
-            </select>
-          </label>
-          <label className="field">Cari
-            <input value={logSearch} onChange={(event) => setLogSearch(event.target.value)} placeholder="Cari log" />
-          </label>
-          <button className="button" onClick={() => void loadLogs().catch((reason) => setError(reason instanceof Error ? reason.message : "Gagal memuat log."))}>Filter log</button>
-          <a className="button" href={`/api/core/${query("dashboard/logs/export.csv", { level: logLevel, search: logSearch })}`}>Export CSV</a>
-        </div>
-        <div className="table-wrap"><table>
-          <thead><tr><th>Waktu</th><th>Level</th><th>Sumber</th><th>Pesan</th></tr></thead>
-          <tbody>
-            {logs.map((log, index) => (
-              <tr key={`${log.created_at}-${index}`}>
-                <td>{wibTime(log.created_at)}</td><td>{log.level}</td><td>{log.source}</td><td>{log.message}</td>
-              </tr>
-            ))}
-            {logs.length === 0 && <tr><td colSpan={4} className="muted">Tidak ada log.</td></tr>}
-          </tbody>
-        </table></div>
-      </section>
-
-      <section className="panel section">
-        <span className="eyebrow">Trade</span>
-        <h2>Riwayat trade</h2>
-        <p className="muted">Filter transaksi yang telah dilaporkan EA; tabel menampilkan 10 per halaman. Unduh CSV untuk data lengkap.</p>
-        <div className="actions">
-          <label className="field">Dari<input type="date" value={tradeFilters.date_from} onChange={(event) => setTradeFilters({ ...tradeFilters, date_from: event.target.value })} /></label>
-          <label className="field">Sampai<input type="date" value={tradeFilters.date_to} onChange={(event) => setTradeFilters({ ...tradeFilters, date_to: event.target.value })} /></label>
-          <label className="field">Group ID<input value={tradeFilters.group_id} onChange={(event) => setTradeFilters({ ...tradeFilters, group_id: event.target.value })} placeholder="Group ID" /></label>
-          <label className="field">Symbol<input value={tradeFilters.symbol} onChange={(event) => setTradeFilters({ ...tradeFilters, symbol: event.target.value })} placeholder="Symbol" /></label>
-          <label className="field">Hasil
-            <select value={tradeFilters.result} onChange={(event) => setTradeFilters({ ...tradeFilters, result: event.target.value })}>
-              <option value="">Semua hasil</option><option value="WIN">WIN</option>
-              <option value="LOSS">LOSS</option><option value="BE">BE</option>
-            </select>
-          </label>
-          <button className="button" onClick={() => void loadTrades(0).catch((reason) => setError(reason instanceof Error ? reason.message : "Gagal memuat trade."))}>Filter trade</button>
-          <a className="button" href={`/api/core/${query("dashboard/trades/export.csv", {
-            date_from: tradeFilters.date_from ? `${tradeFilters.date_from}T00:00:00` : "",
-            date_to: tradeFilters.date_to ? `${tradeFilters.date_to}T23:59:59` : "",
-            group_id: tradeFilters.group_id, symbol: tradeFilters.symbol, result: tradeFilters.result,
-          })}`}>Export CSV</a>
-        </div>
-        <div className="table-wrap"><table>
-          <thead><tr><th>Waktu</th><th>Grup</th><th>Ticket</th><th>Symbol</th><th>Arah</th><th>Lot</th><th>Entry</th><th>Profit</th><th>Hasil</th></tr></thead>
-          <tbody>
-            {trades.map((trade) => (
-              <tr key={trade.ticket}>
-                <td>{wibTime(trade.opened_at)}</td><td>{trade.group_name || "—"}</td><td>{trade.ticket}</td>
-                <td>{trade.symbol}</td><td>{trade.action}</td><td>{formatNumber(trade.lots, 2, 3)}</td>
-                <td>{formatNumber(trade.entry, 2, 5)}</td>
-                <td className={toneClass(numberTone(trade.profit))}>{trade.profit === null || trade.profit === undefined ? "—" : formatNumber(trade.profit, 2, 2)}</td>
-                <td>{trade.result || "—"}</td>
-              </tr>
-            ))}
-            {trades.length === 0 && <tr><td colSpan={9} className="muted">Tidak ada trade.</td></tr>}
-          </tbody>
-        </table></div>
-        <div className="actions">
-          <button className="button" disabled={tradePage === 0} onClick={() => void loadTrades(tradePage - 1)}>Sebelumnya</button>
-          <span className="muted">Halaman {tradePage + 1}</span>
-          <button className="button" disabled={!hasMoreTrades} onClick={() => void loadTrades(tradePage + 1)}>Berikutnya</button>
-        </div>
-      </section>
-
-      <section className="panel section">
-        <span className="eyebrow">Risk &amp; configuration</span>
-        <h2>Settings</h2>
-        <p className="muted">Memengaruhi validasi sinyal dan guard backend. Trading berjalan live; gunakan kill switch untuk menjeda distribusi sinyal.</p>
-        <form onSubmit={(event) => void submitSettings(event)}>
-          <h3>Aturan sinyal</h3>
-          <label className="field">Confidence threshold
-            <input name="confidence_threshold" type="number" min="0" max="1" step="0.01" defaultValue={String(settings.confidence_threshold ?? 0.75)} key={`ct-${String(settings.confidence_threshold)}`} />
-            <span className="muted">Minimum keyakinan parser agar sinyal diteruskan.</span>
-          </label>
-          <label className="field">Deviasi harga maksimal (%)
-            <input name="max_market_deviation_pct" type="number" min="0.1" step="0.1" defaultValue={String(settings.max_market_deviation_pct ?? 5)} key={`mmd-${String(settings.max_market_deviation_pct)}`} />
-            <span className="muted">Tolak market entry yang terlalu jauh dari harga sinyal.</span>
-          </label>
-          <label className="field">Mode entry
-            <select name="entry_mode" defaultValue={String(settings.entry_mode ?? "PARTIAL")} key={`em-${String(settings.entry_mode)}`}>
-              <option value="PARTIAL">Partial entry</option>
-              <option value="SINGLE">Single entry</option>
-            </select>
-          </label>
-          <label className="field">Symbol mapping (JSON)
-            <textarea name="symbol_mapping" rows={4} value={symbolMapping} onChange={(event) => setSymbolMapping(event.target.value)} />
-            <span className="muted">Alias simbol sinyal ke nama instrumen broker.</span>
-          </label>
-          <label className="field">
-            <span><input name="allow_updates" type="checkbox" defaultChecked={settings.allow_updates === true} key={`au-${String(settings.allow_updates)}`} /> Izinkan update signal</span>
-            <span className="muted">Aktifkan pengelolaan posisi seperti close atau geser SL.</span>
-          </label>
-          <label className="field">
-            <span><input name="kill_switch" type="checkbox" defaultChecked={settings.kill_switch === true} key={`ks-${String(settings.kill_switch)}`} /> <strong>Pause trading (kill switch)</strong></span>
-            <span className="muted">Hentikan distribusi sinyal ke EA sampai dimatikan.</span>
-          </label>
-          <div className="actions">
-            <button className="button primary" disabled={busySettings} type="submit">{busySettings ? "Menyimpan…" : "Simpan settings"}</button>
+        <section className="summary-card" aria-label="Ringkasan operasional">
+          <div className="sc-overview">
+            <div className="sc-block sc-summary-status">
+              <span id="ea-status" className={`sc-chip sc-dot ${toneClass(eaOnline === undefined ? "pos" : eaOnline ? "pos" : "neg")}`}>
+                {eaOnline === undefined ? "EA Online" : eaOnline ? "EA Online" : "EA Offline"}
+              </span>
+              <span id="telegram-status" className={`sc-chip sc-dot ${toneClass(telegramConnected === undefined ? "" : telegramConnected ? "pos" : "neg")}`}>
+                {telegramConnected === undefined ? "Telegram" : telegramConnected ? "Telegram" : "Telegram Offline"}
+              </span>
+              <span id="gemini-status" className={`sc-chip sc-dot ${toneClass(geminiConfigured === undefined ? "" : geminiConfigured ? "pos" : "warn")}`}>
+                {geminiConfigured === undefined ? "Gemini" : geminiConfigured ? "Gemini" : "Gemini Belum Siap"}
+              </span>
+              <small id="ea-heartbeat" className="muted" hidden>
+                {typeof stats?.ea_last_heartbeat === "string" && stats.ea_last_heartbeat
+                  ? displayTime(stats.ea_last_heartbeat)
+                  : "Status heartbeat EA."}
+              </small>
+              <small id="telegram-account" className="muted" hidden>
+                {typeof stats?.telegram_account === "string" && stats.telegram_account
+                  ? stats.telegram_account
+                  : "Koneksi akun sumber."}
+              </small>
+              <small id="gemini-model" className="muted" hidden>
+                {typeof stats?.gemini_model === "string" && stats.gemini_model
+                  ? stats.gemini_model
+                  : "Model parser aktif."}
+              </small>
+            </div>
+            <div className="sc-block sc-performance">
+              <div className="sc-profit">
+                <div className="sc-profit-label">
+                  <span>TOTAL PROFIT</span>
+                  <span id="wins-losses" className="sc-win-loss">
+                    {wins !== null && losses !== null ? (
+                      <>
+                        <span>{formatInteger(wins)}W</span>
+                        {" / "}
+                        <span>{formatInteger(losses)}L</span>
+                      </>
+                    ) : (
+                      <>—W / —L</>
+                    )}
+                  </span>
+                </div>
+                <b id="total-profit" className={toneClass(totalProfit !== null ? numberTone(totalProfit) : "")}>
+                  {totalProfit !== null ? formatNumber(totalProfit, 2, 2) : EMPTY}
+                </b>
+              </div>
+              <div className="sc-metrics">
+                <div>
+                  <b id="winrate" className={toneClass(winrate !== null ? (winrate >= 50 ? "pos" : "warn") : "")}>
+                    {winrate !== null ? formatPercent(winrate) : EMPTY}
+                  </b>
+                  <span>Winrate</span>
+                </div>
+                <div>
+                  <b id="wins-losses-inline">
+                    {wins !== null && losses !== null ? (
+                      <>
+                        <span>{formatInteger(wins)}</span>
+                        {" / "}
+                        <span>{formatInteger(losses)}</span>
+                      </>
+                    ) : (
+                      <>— / —</>
+                    )}
+                  </b>
+                  <span>Win / Lose</span>
+                </div>
+                <div>
+                  <b id="daily-loss" className={toneClass(dailyLoss !== null && dailyLoss !== 0 ? "neg" : "")}>
+                    {dailyLoss !== null ? formatNumber(Math.abs(dailyLoss), 2, 2) : EMPTY}
+                  </b>
+                  <span>Rugi hari ini</span>
+                </div>
+              </div>
+            </div>
           </div>
-          {settingsMessage && <p className="muted" role="status">{settingsMessage}</p>}
-        </form>
-        <form onSubmit={(event) => void submitGemini(event)}>
-          <h3>Parser Gemini</h3>
-          <label className="field">Model
-            <input name="gemini_model" defaultValue={typeof settings.gemini_model === "string" ? settings.gemini_model : ""} key={`gm-${String(settings.gemini_model)}`} placeholder="gemini-3.8-flash" />
-          </label>
-          <div className="actions">
-            <button className="button" type="submit">Simpan model</button>
+          <div className="sc-block sc-signals">
+            <div className="sc-label">
+              Sinyal <em>Total <b id="signals-total">{signalInt("signals_total")}</b></em>
+            </div>
+            <table className="sc-table">
+              <tbody>
+                <tr>
+                  <th scope="row">Tereksekusi</th>
+                  <td><b id="signals-executed">{signalInt("signals_executed")}</b></td>
+                  <th scope="row">Pending</th>
+                  <td><b id="signals-pending">{signalInt("signals_pending")}</b></td>
+                </tr>
+                <tr>
+                  <th scope="row">Ditolak</th>
+                  <td><b id="signals-rejected">{signalInt("signals_rejected")}</b></td>
+                  <th scope="row">Diabaikan</th>
+                  <td><b id="signals-ignored">{signalInt("signals_ignored")}</b></td>
+                </tr>
+                <tr>
+                  <th scope="row">Diproses</th>
+                  <td><b id="signals-processing">{signalInt("signals_processing")}</b></td>
+                  <th scope="row"></th>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+            <details className="sc-help">
+              <summary>Arti istilah</summary>
+              <p>
+                Eksekusi mencakup order yang diterima terminal MT5. Pending mencakup sinyal yang menunggu
+                diklaim. Diproses mencakup sinyal yang sudah diklaim EA dan sedang menunggu hasil. Ditolak
+                mencakup penolakan dan kegagalan. Diabaikan adalah pesan yang bukan sinyal atau tidak lolos
+                aturan.
+              </p>
+            </details>
           </div>
-          {geminiMessage && <p className="muted" role="status">{geminiMessage}</p>}
-        </form>
-      </section>
+        </section>
+        <p id="signal-status-warning" className="signal-status-warning" role="status" hidden={!mismatch}>
+          {mismatch
+            ? `Periksa data sinyal: ${mismatchValues.join(", ") || "jumlah kategori tidak sama dengan total"}.`
+            : ""}
+        </p>
+
+        <section id="mt5-live-section" aria-live="polite">
+          <div className="page-heading">
+            <div>
+              <h2>Data MT5 live</h2>
+              <p id="mt5-live-updated" className="section-help">
+                {live ? mt5Updated : "Menunggu snapshot terminal..."}
+              </p>
+            </div>
+            <strong id="mt5-live-status" className={`sc-dot ${toneClass(liveStatus.tone)}`} role="status">
+              {liveStatus.text}
+            </strong>
+          </div>
+          <div className="summary-card sc-mt5">
+            <div className="sc-block">
+              <div className="sc-status sc-summary-status">
+                <span id="mt5-mode" className={`sc-chip sc-dot ${toneClass(mt5ModeTone)}`}>
+                  {account ? mt5Mode : "DEMO"}
+                </span>
+                <span id="mt5-live-chip" className={`sc-chip sc-dot ${toneClass(liveChip.tone)}`}>
+                  {liveChip.text}
+                </span>
+              </div>
+              <div className="sc-profit">
+                <div className="sc-profit-label">
+                  <span>EQUITY</span>
+                </div>
+                <b id="mt5-equity" className={toneClass(mt5EquityTone)}>
+                  {mt5Equity}
+                </b>
+              </div>
+              <div className="sc-metrics sc-metrics-three">
+                <div>
+                  <b id="mt5-balance">{account ? formatMoney(account.balance, account.currency) : EMPTY}</b>
+                  <span>Balance</span>
+                </div>
+                <div>
+                  <b id="mt5-floating" className={toneClass(mt5FloatingTone)}>
+                    {mt5Floating}
+                  </b>
+                  <span>Floating P/L</span>
+                </div>
+                <div>
+                  <b id="mt5-position-count">{formatInteger(live ? live.positions.length : 0)}</b>
+                  <span>Posisi terbuka</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="grid">
+            <section>
+              <h3>Posisi terminal</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Ticket</th>
+                      <th>Simbol</th>
+                      <th>Arah</th>
+                      <th>Lot</th>
+                      <th>Entry</th>
+                      <th>SL</th>
+                      <th>TP</th>
+                    </tr>
+                  </thead>
+                  <tbody id="mt5-positions-table">
+                    {(live?.positions ?? []).map((position) => (
+                      <tr key={position.ticket}>
+                        <td>{position.ticket}</td>
+                        <td>{position.symbol}</td>
+                        <td>
+                          <span className={`pill ${toneClass(statusTone(position.action))}`}>
+                            {position.action}
+                          </span>
+                        </td>
+                        <td className="num">{formatLots(position.lots)}</td>
+                        <td className="num">{formatPrice(position.entry_price)}</td>
+                        <td className="num">{Number(position.sl) > 0 ? formatPrice(position.sl) : EMPTY}</td>
+                        <td className="num">{Number(position.tp) > 0 ? formatPrice(position.tp) : EMPTY}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            <section>
+              <h3>Harga pasar</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Simbol</th>
+                      <th>Bid</th>
+                      <th>Ask</th>
+                      <th>Update</th>
+                    </tr>
+                  </thead>
+                  <tbody id="mt5-quotes-table">
+                    {(live?.market_quotes ?? []).map((quote) => (
+                      <tr key={quote.symbol}>
+                        <td>{quote.symbol}</td>
+                        <td className="num">{formatPrice(quote.bid)}</td>
+                        <td className="num">{formatPrice(quote.ask)}</td>
+                        <td>{displayTime(new Date(Number(quote.time_msc)).toISOString())}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section>
+          <h2>Signal terbaru</h2>
+          <p className="section-help">
+            Lima pesan terbaru beserta hasil parsing, confidence, status pemrosesan, dan ticket order.
+          </p>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Waktu</th>
+                  <th>Grup</th>
+                  <th>Pesan</th>
+                  <th>Parsing</th>
+                  <th>Confidence</th>
+                  <th>Status</th>
+                  <th>Ticket</th>
+                  <th>Profit</th>
+                </tr>
+              </thead>
+              <tbody id="signals-table">
+                {signals.map((signal, index) => {
+                  const confidenceTone =
+                    signal.confidence === null || signal.confidence === undefined
+                      ? ""
+                      : Number(signal.confidence) >= 0.75
+                        ? "pos"
+                        : "warn";
+                  return (
+                    <tr key={`${signal.created_at}-${index}`}>
+                      <td>{displayTime(signal.created_at)}</td>
+                      <td>{signal.group_name || signal.group_id || EMPTY}</td>
+                      <td>{signal.raw_text}</td>
+                      <td>{signal.normalized_text || EMPTY}</td>
+                      <td className={`num ${toneClass(confidenceTone)}`}>
+                        {signal.confidence === null || signal.confidence === undefined
+                          ? EMPTY
+                          : formatNumber(signal.confidence, 2, 2)}
+                      </td>
+                      <td>
+                        <span className={`pill ${toneClass(statusTone(signal.status))}`}>{signal.status}</span>
+                      </td>
+                      <td>{signal.ticket || EMPTY}</td>
+                      <td className={`num ${toneClass(numberTone(signal.profit))}`}>
+                        {signal.profit === null || signal.profit === undefined
+                          ? EMPTY
+                          : formatNumber(signal.profit, 2, 2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <div className="grid">
+          <section>
+            <h2>Win dan loss per grup</h2>
+            <p className="section-help">Bandingkan akurasi dan profit dari setiap grup sumber.</p>
+            <canvas id="group-chart" height={180} ref={groupCanvasRef}></canvas>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Grup</th>
+                    <th>Signal</th>
+                    <th>Win</th>
+                    <th>Loss</th>
+                    <th>Winrate</th>
+                    <th>Profit</th>
+                  </tr>
+                </thead>
+                <tbody id="groups-table">
+                  {groups.map((group) => (
+                    <tr key={group.group_name}>
+                      <td>{group.group_name}</td>
+                      <td className="num">{formatInteger(group.signals_total)}</td>
+                      <td className="num">{formatInteger(group.wins)}</td>
+                      <td className="num">{formatInteger(group.losses)}</td>
+                      <td className="num">{formatPercent(group.winrate)}</td>
+                      <td className="num">{formatNumber(group.profit, 2, 2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section>
+            <h2>Profit kumulatif</h2>
+            <p className="section-help">Perubahan profit terealisasi dari waktu ke waktu.</p>
+            <canvas id="profit-chart" height={220} ref={profitCanvasRef}></canvas>
+          </section>
+        </div>
+
+        <section>
+          <h2>Log sistem</h2>
+          <p className="section-help">Lima log terbaru. Gunakan filter untuk mempersempit level atau kata kunci.</p>
+          <div className="toolbar">
+            <select id="log-level" title="Batasi log ke level tertentu" value={logLevel} onChange={(event) => setLogLevel(event.target.value)}>
+              <option value="">Semua level</option>
+              <option value="INFO">INFO</option>
+              <option value="WARN">WARN</option>
+              <option value="ERROR">ERROR</option>
+            </select>
+            <input
+              id="log-search"
+              placeholder="Cari log"
+              title="Cari kata di sumber atau pesan log"
+              value={logSearch}
+              onChange={(event) => setLogSearch(event.target.value)}
+            />
+            <button id="filter-logs" type="button" onClick={() => void loadLogs().catch(() => undefined)}>
+              Filter log
+            </button>
+            <a id="logs-export" href={logsExportHref}>
+              Export CSV
+            </a>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Waktu</th>
+                  <th>Level</th>
+                  <th>Sumber</th>
+                  <th>Pesan</th>
+                </tr>
+              </thead>
+              <tbody id="logs-table">
+                {logs.map((log, index) => (
+                  <tr key={`${log.created_at}-${index}`}>
+                    <td>{displayTime(log.created_at)}</td>
+                    <td>
+                      <span className={`pill ${toneClass(statusTone(log.level))}`}>{log.level}</span>
+                    </td>
+                    <td>{log.source}</td>
+                    <td>{log.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <h2>Riwayat trade</h2>
+          <p className="section-help">
+            Filter transaksi yang telah dilaporkan EA; tabel menampilkan 10 per halaman (satu query per halaman).
+            Unduh CSV untuk data lengkap.
+          </p>
+          <div className="toolbar">
+            <input
+              type="date"
+              id="date-from"
+              title="Tanggal awal trade"
+              value={tradeFilters.date_from}
+              onChange={(event) => setTradeFilters({ ...tradeFilters, date_from: event.target.value })}
+            />
+            <input
+              type="date"
+              id="date-to"
+              title="Tanggal akhir trade"
+              value={tradeFilters.date_to}
+              onChange={(event) => setTradeFilters({ ...tradeFilters, date_to: event.target.value })}
+            />
+            <input
+              id="trade-group"
+              placeholder="Group ID"
+              title="Filter berdasarkan ID grup Telegram"
+              value={tradeFilters.group_id}
+              onChange={(event) => setTradeFilters({ ...tradeFilters, group_id: event.target.value })}
+            />
+            <input
+              id="trade-symbol"
+              placeholder="Symbol"
+              title="Filter berdasarkan simbol"
+              value={tradeFilters.symbol}
+              onChange={(event) => setTradeFilters({ ...tradeFilters, symbol: event.target.value })}
+            />
+            <select
+              id="trade-result"
+              title="Filter hasil trade"
+              value={tradeFilters.result}
+              onChange={(event) => setTradeFilters({ ...tradeFilters, result: event.target.value })}
+            >
+              <option value="">Semua hasil</option>
+              <option value="WIN">WIN</option>
+              <option value="LOSS">LOSS</option>
+              <option value="BE">BE</option>
+            </select>
+            <button id="filter-trades" type="button" onClick={() => void loadTrades(0).catch(() => undefined)}>
+              Filter trade
+            </button>
+            <a id="trades-export" href={tradesExportHref}>
+              Export CSV
+            </a>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Waktu</th>
+                  <th>Grup</th>
+                  <th>Ticket</th>
+                  <th>Symbol</th>
+                  <th>Arah</th>
+                  <th>Lot</th>
+                  <th>Entry</th>
+                  <th>Profit</th>
+                  <th>Hasil</th>
+                </tr>
+              </thead>
+              <tbody id="trades-table">
+                {trades.map((trade) => (
+                  <tr key={trade.ticket}>
+                    <td>{displayTime(trade.opened_at)}</td>
+                    <td>{trade.group_name || EMPTY}</td>
+                    <td>{trade.ticket}</td>
+                    <td>{trade.symbol}</td>
+                    <td>
+                      <span className={`pill ${toneClass(statusTone(trade.action))}`}>{trade.action}</span>
+                    </td>
+                    <td className="num">{formatLots(trade.lots)}</td>
+                    <td className="num">{formatPrice(trade.entry)}</td>
+                    <td className={`num ${toneClass(numberTone(trade.profit))}`}>
+                      {trade.profit === null || trade.profit === undefined
+                        ? EMPTY
+                        : formatNumber(trade.profit, 2, 2)}
+                    </td>
+                    <td>
+                      <span className={`pill ${toneClass(statusTone(trade.result))}`}>
+                        {trade.result || EMPTY}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="pager">
+            <button
+              id="trades-prev"
+              className="secondary"
+              type="button"
+              disabled={tradePage === 0}
+              onClick={() => void loadTrades(tradePage - 1).catch(() => undefined)}
+            >
+              Sebelumnya
+            </button>
+            <span id="trades-page">Halaman {tradePage + 1}</span>
+            <button
+              id="trades-next"
+              className="secondary"
+              type="button"
+              disabled={!hasMoreTrades}
+              onClick={() => void loadTrades(tradePage + 1).catch(() => undefined)}
+            >
+              Berikutnya
+            </button>
+          </div>
+        </section>
+
+        <section id="settings">
+          <span className="eyebrow">Risk &amp; configuration</span>
+          <h2>Settings</h2>
+          <p className="section-help">
+            Memengaruhi validasi sinyal dan guard backend. Trading berjalan live; gunakan kill switch untuk
+            menjeda distribusi sinyal. API key Gemini dan Telegram dikelola lewat environment layanan, tidak
+            dikirim ke browser.
+          </p>
+          <form id="gemini-form" className="settings-block" onSubmit={(event) => void submitGemini(event)}>
+            <h3>Parser Gemini</h3>
+            <div className="settings-row">
+              <label>
+                Model
+                <small className="field-help">ID model yang menangani klasifikasi dan ekstraksi signal.</small>
+                <input
+                  id="gemini-model-input"
+                  placeholder="gemini-3.8-flash"
+                  value={geminiModel}
+                  onChange={(event) => setGeminiModel(event.target.value)}
+                />
+              </label>
+              <div className="settings-action">
+                <button type="submit">Simpan model</button>
+              </div>
+            </div>
+            <p id="gemini-message" className="status">
+              {geminiMessage}
+            </p>
+          </form>
+          <form id="settings-form" className="settings-block" onSubmit={(event) => void submitSettings(event)}>
+            <h3>Aturan sinyal</h3>
+            <div className="settings-grid">
+              <label>
+                Confidence threshold
+                <small className="field-help">Minimum keyakinan parser agar sinyal diteruskan.</small>
+                <input
+                  type="number"
+                  id="confidence-threshold"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={confidenceThreshold}
+                  onChange={(event) => setConfidenceThreshold(event.target.value)}
+                />
+              </label>
+              <label>
+                Deviasi harga maksimal (%)
+                <small className="field-help">Tolak market entry yang terlalu jauh dari harga sinyal.</small>
+                <input
+                  type="number"
+                  id="max-market-deviation"
+                  min="0.1"
+                  step="0.1"
+                  value={maxMarketDeviation}
+                  onChange={(event) => setMaxMarketDeviation(event.target.value)}
+                />
+              </label>
+              <label>
+                Mode entry
+                <small className="field-help">Single: satu order. Partial: dibagi sesuai TP atau sisi zona entry.</small>
+                <select id="entry-mode" value={entryMode} onChange={(event) => setEntryMode(event.target.value)}>
+                  <option value="PARTIAL">Partial entry</option>
+                  <option value="SINGLE">Single entry</option>
+                </select>
+              </label>
+              <label className="span-2">
+                Symbol mapping (JSON)
+                <small className="field-help">
+                  Alias simbol sinyal ke nama instrumen broker (contoh: {"{"}"EURUSD":"EURUSD.pro"{"}"}).
+                  Harga dan ukuran lot mengikuti spesifikasi simbol broker; sinyal belum masuk posisi
+                  kedaluwarsa setelah satu jam.
+                </small>
+                <textarea
+                  id="symbol-mapping"
+                  rows={5}
+                  value={symbolMapping}
+                  onChange={(event) => setSymbolMapping(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="toggle-list">
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  id="allow-updates"
+                  checked={allowUpdates}
+                  onChange={(event) => setAllowUpdates(event.target.checked)}
+                />
+                <span>
+                  <b>Izinkan update signal</b>
+                  <small className="field-help">Aktifkan pengelolaan posisi seperti close atau geser SL.</small>
+                </span>
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  id="kill-switch"
+                  checked={killSwitch}
+                  onChange={(event) => setKillSwitch(event.target.checked)}
+                />
+                <span>
+                  <b>Pause trading (kill switch)</b>
+                  <small className="field-help">Hentikan distribusi sinyal ke EA sampai dimatikan.</small>
+                </span>
+              </label>
+            </div>
+            <div className="settings-footer">
+              <button type="submit">Simpan settings</button>
+              <span id="settings-message" className="status">
+                {settingsMessage}
+              </span>
+            </div>
+          </form>
+        </section>
+        <p id="connection" className="status">
+          {connection}
+        </p>
+      </main>
     </>
   );
 }

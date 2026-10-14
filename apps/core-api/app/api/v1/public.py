@@ -28,6 +28,18 @@ def public_registration_status(db: Session = Depends(get_db)) -> dict[str, bool]
     return {"registration_open": registration_is_open(db)}
 
 
+@router.get("/api/public/contact")
+@router.get("/v1/public/contact")
+def public_contact() -> dict[str, object]:
+    settings = get_settings()
+    return {
+        "person": settings.contact_person_name,
+        "whatsapp": settings.contact_whatsapp,
+        "email": settings.contact_email,
+        "socials": [],
+    }
+
+
 @router.get("/musik.mp3", include_in_schema=False)
 def site_music() -> RedirectResponse:
     music_url = get_settings().public_music_url

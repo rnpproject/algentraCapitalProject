@@ -1,83 +1,284 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiRequest } from "../lib/api";
 
-type TelegramStatus = { configured?: boolean; connected?: boolean; state?: string; account_name?: string | null };
+type TelegramStatus = {
+  connected?: boolean;
+  account_name?: string | null;
+  state?: string;
+  configured?: boolean;
+};
+
+type TelegramGroup = {
+  chat_id: string | number;
+  name: string;
+  enabled?: boolean;
+  alias?: string | null;
+};
+
+function errorMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : "Permintaan tidak berhasil.";
+}
 
 export function TelegramPanel() {
-  const [status, setStatus] = useState<TelegramStatus | null>(null);
+  const [statusText, setStatusText] = useState("Status: memeriksa...");
+  const [notice, setNotice] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
-  const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
-  async function refresh() {
-    try { setStatus(await apiRequest<TelegramStatus>("telegram/status")); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Status tidak dapat dimuat."); }
+  const [codeStep, setCodeStep] = useState(false);
+  const [passwordStep, setPasswordStep] = useState(false);
+  const [groups, setGroups] = useState<TelegramGroup[]>([]);
+  const [groupsLoaded, setGroupsLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function loadGroups() {
+    try {
+      const result = await apiRequest<TelegramGroup[]>("telegram/groups");
+      setGroups(Array.isArray(result) ? result : []);
+      setGroupsLoaded(true);
+    } catch (reason) {
+      setNotice(errorMessage(reason));
+    }
   }
-  useEffect(() => { void refresh(); }, []);
-  async function sendCode(event: FormEvent) {
-    event.preventDefault(); setError(""); setNotice("");
-    try { await apiRequest("telegram/send-code", { method: "POST", body: JSON.stringify({ phone }) }); setNotice("Kode diminta dari Telegram."); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Gagal meminta kode."); }
+
+  async function refreshStatus() {
+    try {
+      const status = await apiRequest<TelegramStatus>("telegram/status");
+      setStatusText(
+        status.connected
+          ? `Status: connected — ${status.account_name || "akun Telegram"}`
+          : `Status: ${status.state}${status.configured ? "" : " (API ID/HASH belum diatur pada environment backend)"}`,
+      );
+      if (status.connected) await loadGroups();
+    } catch (reason) {
+      setNotice(errorMessage(reason));
+    }
   }
-  async function verify(event: FormEvent, endpoint: string, value: Record<string, string>) {
-    event.preventDefault(); setError(""); setNotice("");
-    try { const result = await apiRequest<{ status?: string }>(`telegram/${endpoint}`, { method: "POST", body: JSON.stringify(value) }); setNotice(result.status ?? "Telegram diperbarui."); await refresh(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Verifikasi gagal."); }
+
+  useEffect(() => {
+    void refreshStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function sendCode() {
+    try {
+      const result = await apiRequest<{ phone?: string }>("telegram/send-code", {
+        method: "POST",
+        body: JSON.stringify({ phone }),
+      });
+      setCodeStep(true);
+      setNotice(`Kode dikirim ke ${result.phone}.`);
+    } catch (reason) {
+      setNotice(errorMessage(reason));
+    }
   }
-  return <section className="telegram-page">
-    <header className="telegram-heading">
-      <div>
-        <span className="eyebrow">Koneksi Telegram</span>
-        <h1>Pengaturan Telegram</h1>
-        <p className="muted">Hubungkan akun Telegram untuk mengelola sumber sinyal.</p>
+
+  async function verifyCode() {
+    try {
+      const result = await apiRequest<{ requires_2fa?: boolean }>("telegram/verify-code", {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      });
+      if (result.requires_2fa) setPasswordStep(true);
+      else await refreshStatus();
+      setNotice(result.requires_2fa ? "Masukkan password 2FA Telegram." : "Login Telegram berhasil.");
+    } catch (reason) {
+      setNotice(errorMessage(reason));
+    }
+  }
+
+  async function verifyPassword() {
+    try {
+      await apiRequest("telegram/verify-2fa", {
+        method: "POST",
+        body: JSON.stringify({ password }),
+      });
+      setPassword("");
+      await refreshStatus();
+      setNotice("Login Telegram berhasil.");
+    } catch (reason) {
+      setNotice(errorMessage(reason));
+    }
+  }
+
+  async function reconnect() {
+    try {
+      await apiRequest("telegram/reconnect", { method: "POST" });
+      await refreshStatus();
+    } catch (reason) {
+      setNotice(errorMessage(reason));
+    }
+  }
+
+  async function logoutTelegram() {
+    try {
+      await apiRequest("telegram/logout", { method: "POST" });
+      await refreshStatus();
+      setNotice("Telegram logout.");
+    } catch (reason) {
+      setNotice(errorMessage(reason));
+    }
+  }
+
+  function toggleGroup(chatId: string | number, enabled: boolean) {
+    setGroups((prev) => prev.map((group) => (group.chat_id === chatId ? { ...group, enabled } : group)));
+  }
+
+  function renameGroup(chatId: string | number, alias: string) {
+    setGroups((prev) => prev.map((group) => (group.chat_id === chatId ? { ...group, alias } : group)));
+  }
+
+  async function saveGroups() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const rows = groups.map((group) => ({
+        chat_id: group.chat_id,
+        enabled: Boolean(group.enabled),
+        alias: group.alias || null,
+      }));
+      const result = await apiRequest<{ disabled?: number }>("telegram/groups/select", {
+        method: "POST",
+        body: JSON.stringify({ groups: rows }),
+      });
+      await loadGroups();
+      setNotice(
+        result.disabled
+          ? `Whitelist tersimpan; ${result.disabled} sumber lama dinonaktifkan.`
+          : "Whitelist grup tersimpan.",
+      );
+    } catch (reason) {
+      setNotice(errorMessage(reason));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <main className="page-shell dashboard-page" id="main-content">
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">Signal sources</span>
+          <h1>Telegram Setup</h1>
+          <p className="page-description">
+            Hubungkan akun sumber, pilih grup yang boleh dibaca, dan beri alias agar sinyal mudah dilacak.
+          </p>
+        </div>
+        <p id="status" className="heading-aside">
+          {statusText}
+        </p>
       </div>
-      <p className="telegram-status" aria-live="polite">
-        <span>Status</span>
-        <strong>{status?.state ?? "Memuat"}</strong>
-        <span>{status?.account_name ?? "Belum terhubung"}</span>
-      </p>
-    </header>
-    {error && <p className="error telegram-message" role="alert">{error}</p>}
-    {notice && <p className="success telegram-message" role="status">{notice}</p>}
-    <div className="telegram-layout">
-      <section className="telegram-card telegram-login-card">
-        <div className="telegram-card-heading">
-          <h2>Hubungkan akun</h2>
-          <p className="muted">Masuk dengan nomor telepon, lalu verifikasi kode yang dikirim Telegram.</p>
-        </div>
-        <div className="telegram-login-forms">
-          <form onSubmit={sendCode}>
-            <label className="field">
-              Nomor telepon (format internasional)
-              <input autoComplete="tel" inputMode="tel" placeholder="+628123456789" value={phone} onChange={(event) => setPhone(event.target.value)} />
-            </label>
-            <button className="button primary" type="submit">Minta kode Telegram</button>
-          </form>
-          <form onSubmit={(event) => void verify(event, "verify-code", { code })}>
-            <label className="field">
-              Kode Telegram
-              <input autoComplete="one-time-code" inputMode="numeric" value={code} onChange={(event) => setCode(event.target.value)} />
-            </label>
-            <button className="button" type="submit">Verifikasi kode</button>
-          </form>
-        </div>
-      </section>
-      <section className="telegram-card telegram-twofa-card">
-        <div className="telegram-card-heading">
-          <h2>Verifikasi 2FA</h2>
-          <p className="muted">Jika akun Anda memakai kata sandi verifikasi dua langkah, masukkan di sini.</p>
-        </div>
-        <form onSubmit={(event) => void verify(event, "verify-2fa", { password })}>
-          <label className="field">
-            Kata sandi 2FA
-            <input autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+      <section id="login">
+        <h2>Hubungkan akun</h2>
+        <p className="section-help">
+          Masuk dengan nomor Telegram dalam format internasional. Kode login dan 2FA hanya dipakai untuk
+          menghubungkan session lokal.
+        </p>
+        <label htmlFor="phone">
+          Nomor telepon (format internasional)
+          <small className="field-help">Kode login Telegram akan dikirim ke aplikasi Telegram akun ini.</small>
+        </label>
+        <input
+          id="phone"
+          className="phone-input"
+          autoComplete="tel"
+          placeholder="+628123456789"
+          value={phone}
+          onChange={(event) => setPhone(event.target.value)}
+        />
+        <button id="send-code" type="button" onClick={() => void sendCode()}>
+          Kirim kode Telegram
+        </button>
+        <div id="code-step" hidden={!codeStep}>
+          <label htmlFor="code">
+            Kode Telegram
+            <small className="field-help">Masukkan kode yang diterima untuk menyelesaikan login.</small>
           </label>
-          <button className="button" type="submit">Verifikasi 2FA</button>
-        </form>
+          <input
+            id="code"
+            autoComplete="one-time-code"
+            inputMode="numeric"
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+          />
+          <button id="verify-code" type="button" onClick={() => void verifyCode()}>
+            Verifikasi kode
+          </button>
+        </div>
+        <div id="password-step" hidden={!passwordStep}>
+          <label htmlFor="password">
+            Password 2FA
+            <small className="field-help">Isi hanya jika verifikasi dua langkah aktif pada akun.</small>
+          </label>
+          <input
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          <button id="verify-password" type="button" onClick={() => void verifyPassword()}>
+            Verifikasi 2FA
+          </button>
+        </div>
       </section>
-    </div>
-  </section>;
+      <section>
+        <p className="section-help">
+          Reconnect memulihkan koneksi; Logout Telegram mencabut session lokal; Muat grup mengambil daftar grup
+          terbaru.
+        </p>
+        <button id="reconnect" className="secondary" type="button" onClick={() => void reconnect()}>
+          Reconnect
+        </button>
+        <button id="telegram-logout" className="secondary" type="button" onClick={() => void logoutTelegram()}>
+          Logout Telegram
+        </button>
+        <button id="refresh-groups" className="secondary" type="button" onClick={() => void loadGroups()}>
+          Muat grup
+        </button>
+      </section>
+      <p id="notice" role="status">
+        {notice}
+      </p>
+      <section>
+        <h2>Grup dan channel</h2>
+        <p className="section-help">
+          Centang sumber sinyal yang dipercaya. Alias hanya mengubah nama tampilan, bukan ID grup Telegram.
+        </p>
+        <div id="groups">
+          {groupsLoaded ? (
+            groups.length ? (
+              groups.map((group) => (
+                <div className="row" key={String(group.chat_id)}>
+                  <input
+                    type="checkbox"
+                    data-chat-id={String(group.chat_id)}
+                    checked={Boolean(group.enabled)}
+                    onChange={(event) => toggleGroup(group.chat_id, event.target.checked)}
+                  />
+                  <span>{group.name}</span>
+                  <input
+                    className="alias"
+                    placeholder="Alias (opsional)"
+                    data-alias-for={String(group.chat_id)}
+                    value={group.alias || ""}
+                    onChange={(event) => renameGroup(group.chat_id, event.target.value)}
+                  />
+                </div>
+              ))
+            ) : (
+              "Tidak ada grup atau channel."
+            )
+          ) : (
+            "Login untuk memuat daftar grup."
+          )}
+        </div>
+        <button id="save-groups" type="button" disabled={saving} onClick={() => void saveGroups()}>
+          {saving ? "Menyimpan…" : "Simpan whitelist"}
+        </button>
+      </section>
+    </main>
+  );
 }
