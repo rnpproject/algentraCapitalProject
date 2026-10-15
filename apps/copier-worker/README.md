@@ -107,7 +107,7 @@ Salin folder MT5 dalam mode `/portable`, salin `config/follower.example.json` ke
 - Terminal MT5 follower berjalan, login ke akun yang benar, dan path-nya cocok dengan config.
 - Algo Trading aktif dan **Allow algorithmic trading** dicentang.
 - Environment variable password tersedia untuk proses yang berjalan.
-- `account_info()` menunjukkan mode hedging; mode netting memerlukan `izinkan_netting: true` dan pemetaan posisi dapat kurang akurat.
+- Untuk managed copy, gunakan akun hedging. Probe login menolak akun netting dengan pesan khusus; copier managed sengaja tidak mengaktifkan `izinkan_netting` karena pemetaan posisi satu posisi ke satu ticket dapat kurang akurat. Mode standalone memiliki opsi terpisah, tetapi mengizinkan netting tetap membawa risiko pemetaan.
 - Simbol hasil mapping tersedia di Market Watch dan spesifikasi lot sesuai batas broker.
 - `dry_run` dan batas `max_posisi_terbuka`, `max_lot_total`, serta `max_lot_per_order` sudah ditinjau.
 - Heartbeat `heartbeat_<nama>.txt` diperbarui dan log follower tidak menunjukkan error koneksi atau order.

@@ -124,7 +124,7 @@ def test_validate_login_returns_probe_success(tmp_path, monkeypatch):
     assert message == "Login broker berhasil dan terminal siap untuk copy trading."
     assert "private-password" in calls[0][1]["input"]
     assert "private-password" not in " ".join(calls[0][0])
-    assert calls[0][1]["timeout"] == 45
+    assert calls[0][1]["timeout"] == 150
     assert calls[0][1]["env"]["TEMP"] == calls[0][1]["env"]["TMP"]
     assert "login-probe-" in calls[0][1]["env"]["TEMP"]
     assert not Path(calls[0][1]["env"]["TEMP"]).exists()
@@ -234,7 +234,7 @@ def test_validate_login_bounds_a_hung_mt5_probe(tmp_path, monkeypatch):
     worker.config = {"worker_api_key_env": "COPIER_WORKER_API_KEY"}
 
     def timeout(*_args, **_kwargs):
-        raise subprocess.TimeoutExpired("login probe", timeout=45)
+        raise subprocess.TimeoutExpired("login probe", timeout=150)
 
     monkeypatch.setattr("copytrade.managed_worker.subprocess.run", timeout)
     valid, message = worker._validate_login({
@@ -245,7 +245,7 @@ def test_validate_login_bounds_a_hung_mt5_probe(tmp_path, monkeypatch):
     })
 
     assert valid is False
-    assert "45 detik" in message
+    assert "150 detik" in message
     assert "worker utama tetap berjalan" in message
 
 

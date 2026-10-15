@@ -27,7 +27,9 @@ def main() -> None:
             "password": str(request["password"]),
             "server": str(request["server"]),
             "portable": True,
-            "timeout": 30000,
+            # A first launch may update terminal files and recompile MQL5
+            # programs before the broker connection is ready.
+            "timeout": 120000,
         }
         if not mt5.initialize(**options):
             error = mt5.last_error()
@@ -52,6 +54,13 @@ def main() -> None:
             return
         if str(getattr(account, "login", "")) != str(request["login"]):
             _result(False, "Terminal terhubung ke nomor akun yang berbeda dari yang dimasukkan.")
+            return
+        hedging_mode = getattr(mt5, "ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", 2)
+        if getattr(account, "margin_mode", None) != hedging_mode:
+            _result(
+                False,
+                "Login broker berhasil, tetapi akun bertipe Netting. Managed copier saat ini mensyaratkan akun Hedging.",
+            )
             return
         if not getattr(account, "trade_allowed", False):
             _result(False, "Login berhasil, tetapi broker menolak izin trading akun ini.")

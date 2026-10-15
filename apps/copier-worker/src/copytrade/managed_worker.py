@@ -400,14 +400,14 @@ class ManagedWorker:
                 input=probe_input,
                 capture_output=True,
                 text=True,
-                timeout=45,
+                timeout=150,
                 check=False,
             )
         except subprocess.TimeoutExpired:
-            logger.warning("Probe login MT5 akun %s melewati batas waktu 45 detik", account_id)
+            logger.warning("Probe login MT5 akun %s melewati batas waktu 150 detik", account_id)
             return (
                 False,
-                "Pemeriksaan MT5 melewati batas 45 detik (IPC timeout). Terminal tidak merespons; worker utama tetap berjalan.",
+                "Pemeriksaan MT5 melewati batas 150 detik (IPC timeout). Terminal tidak merespons; worker utama tetap berjalan.",
             )
         except OSError as exc:
             logger.warning("Probe login MT5 akun %s gagal dimulai (%s)", account_id, type(exc).__name__)
