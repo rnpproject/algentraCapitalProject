@@ -386,6 +386,13 @@ class ManagedWorker:
             }
         )
         try:
+            # Use a per-probe private IPC directory on Windows. MetaTrader's
+            # Python API otherwise uses a fixed localhost port (2346), which
+            # can collide with another terminal or a simultaneous login probe.
+            ipc_dir = account_dir / "ipc" / f"login-probe-{time.time_ns()}"
+            ipc_dir.mkdir(parents=True, exist_ok=True)
+            probe_env["TEMP"] = str(ipc_dir)
+            probe_env["TMP"] = str(ipc_dir)
             completed = subprocess.run(
                 [sys.executable, "-m", "copytrade.login_probe"],
                 cwd=Path(__file__).resolve().parents[2],
@@ -405,6 +412,8 @@ class ManagedWorker:
         except OSError as exc:
             logger.warning("Probe login MT5 akun %s gagal dimulai (%s)", account_id, type(exc).__name__)
             return False, "Worker tidak dapat memulai pemeriksaan Python API MT5."
+        finally:
+            shutil.rmtree(ipc_dir, ignore_errors=True)
         if completed.returncode != 0:
             logger.warning("Probe login MT5 akun %s berhenti dengan kode %s", account_id, completed.returncode)
             return False, "Worker tidak dapat memvalidasi login pada terminal MT5."

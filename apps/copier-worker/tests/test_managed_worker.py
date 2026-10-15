@@ -125,6 +125,9 @@ def test_validate_login_returns_probe_success(tmp_path, monkeypatch):
     assert "private-password" in calls[0][1]["input"]
     assert "private-password" not in " ".join(calls[0][0])
     assert calls[0][1]["timeout"] == 45
+    assert calls[0][1]["env"]["TEMP"] == calls[0][1]["env"]["TMP"]
+    assert "login-probe-" in calls[0][1]["env"]["TEMP"]
+    assert not Path(calls[0][1]["env"]["TEMP"]).exists()
     ini = (worker.terminals_dir / "8" / "Config" / "common.ini").read_text(encoding="utf-8")
     assert "AllowLiveTrading=1" in ini
 
