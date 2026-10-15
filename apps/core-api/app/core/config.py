@@ -44,9 +44,7 @@ class Settings(BaseSettings):
     midtrans_notification_url: str | None = Field(
         default=None, validation_alias="MIDTRANS_NOTIFICATION_URL", max_length=320
     )
-    management_fee_idr: int = Field(
-        default=150_000, validation_alias="MANAGEMENT_FEE_IDR", ge=0
-    )
+    management_fee_idr: int = Field(default=150_000, validation_alias="MANAGEMENT_FEE_IDR", ge=0)
     # Opsi VPS untuk mode EA (addon opsional). Slot tanpa VPS{n}_NAME
     # dianggap tidak tersedia dan tidak ditampilkan.
     vps1_name: str = Field(default="", validation_alias="VPS1_NAME", max_length=80)
@@ -315,4 +313,4 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     app_env = os.environ.get("APP_ENV", "development").casefold()
     env_file = PROJECT_ROOT / ".env.local" if app_env == "development" else None
-    return Settings(_env_file=env_file)
+    return Settings(_env_file=env_file)  # type: ignore[call-arg]  # pydantic-settings accepts _env_file at runtime.

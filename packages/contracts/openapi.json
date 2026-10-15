@@ -380,6 +380,38 @@
         }
       }
     },
+    "/api/auth/session": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Session Status",
+        "operationId": "session_status_api_auth_session_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "type": "object",
+                  "title": "Response Session Status Api Auth Session Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/auth/login": {
       "post": {
         "tags": [
@@ -755,6 +787,38 @@
         }
       }
     },
+    "/v1/auth/session": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Session Status",
+        "operationId": "session_status_v1_auth_session_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "type": "object",
+                  "title": "Response Session Status V1 Auth Session Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cs/chat/history": {
       "get": {
         "tags": [
@@ -881,6 +945,46 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/public/performance/stream": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Public Performance Stream",
+        "description": "Stream current public performance snapshots; EventSource handles reconnects.",
+        "operationId": "public_performance_stream_v1_public_performance_stream_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/performance/stream": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Public Performance Stream",
+        "description": "Stream current public performance snapshots; EventSource handles reconnects.",
+        "operationId": "public_performance_stream_api_public_performance_stream_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -1027,20 +1131,22 @@
         }
       }
     },
-    "/": {
+    "/v1/public/contact": {
       "get": {
         "tags": [
           "public"
         ],
-        "summary": "Public Home",
-        "operationId": "public_home__get",
+        "summary": "Public Contact",
+        "operationId": "public_contact_v1_public_contact_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
-              "text/html": {
+              "application/json": {
                 "schema": {
-                  "type": "string"
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Public Contact V1 Public Contact Get"
                 }
               }
             }
@@ -1048,21 +1154,43 @@
         }
       }
     },
-    "/performance": {
+    "/api/public/contact": {
       "get": {
         "tags": [
           "public"
         ],
-        "summary": "Public Performance Page",
-        "operationId": "public_performance_page_performance_get",
+        "summary": "Public Contact",
+        "operationId": "public_contact_api_public_contact_get",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
-              "text/html": {
+              "application/json": {
                 "schema": {
-                  "type": "string"
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Public Contact Api Public Contact Get"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/realtime/stream": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Realtime Stream",
+        "description": "Stream dashboard snapshots to browsers through the Vercel BFF.",
+        "operationId": "realtime_stream_api_realtime_stream_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -1653,6 +1781,26 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/dashboard/realtime/stream": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Realtime Stream",
+        "description": "Stream dashboard snapshots to browsers through the Vercel BFF.",
+        "operationId": "realtime_stream_v1_dashboard_realtime_stream_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -3748,6 +3896,66 @@
         }
       }
     },
+    "/api/mt5/plans": {
+      "get": {
+        "tags": [
+          "mt5"
+        ],
+        "summary": "List Client Plans",
+        "description": "Paket layanan untuk form hubungkan akun di web (single source of truth).",
+        "operationId": "list_client_plans_api_mt5_plans_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "type": "object",
+                  "title": "Response List Client Plans Api Mt5 Plans Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/mt5/pricing": {
+      "get": {
+        "tags": [
+          "mt5"
+        ],
+        "summary": "Service Pricing",
+        "description": "Harga layanan copy trading dari .env untuk form hubungkan akun di web.",
+        "operationId": "service_pricing_api_mt5_pricing_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Service Pricing Api Mt5 Pricing Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/mt5/accounts/{account_id}/managed-copy": {
       "put": {
         "tags": [
@@ -4632,6 +4840,66 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Create Account V1 Mt5 Accounts Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mt5/plans": {
+      "get": {
+        "tags": [
+          "mt5"
+        ],
+        "summary": "List Client Plans",
+        "description": "Paket layanan untuk form hubungkan akun di web (single source of truth).",
+        "operationId": "list_client_plans_v1_mt5_plans_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "type": "object",
+                  "title": "Response List Client Plans V1 Mt5 Plans Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mt5/pricing": {
+      "get": {
+        "tags": [
+          "mt5"
+        ],
+        "summary": "Service Pricing",
+        "description": "Harga layanan copy trading dari .env untuk form hubungkan akun di web.",
+        "operationId": "service_pricing_v1_mt5_pricing_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Service Pricing V1 Mt5 Pricing Get"
                 }
               }
             }
@@ -5550,6 +5818,30 @@
         }
       }
     },
+    "/api/payments/manual-instructions": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Manual Payment Instructions",
+        "description": "Instruksi pembayaran manual untuk ditampilkan di halaman transaksi web.",
+        "operationId": "manual_payment_instructions_api_payments_manual_instructions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Manual Payment Instructions Api Payments Manual Instructions Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/payments/orders/{order_id}/proof": {
       "get": {
         "tags": [
@@ -5732,6 +6024,139 @@
         }
       }
     },
+    "/api/payments/orders/{order_id}/qris": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Create Qris Payment",
+        "description": "Buat transaksi QRIS Midtrans untuk order. Mengembalikan URL kode QR.",
+        "operationId": "create_qris_payment_api_payments_orders__order_id__qris_post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Qris Payment Api Payments Orders  Order Id  Qris Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Qris Payment State",
+        "description": "Status QRIS untuk polling frontend.",
+        "operationId": "qris_payment_state_api_payments_orders__order_id__qris_get",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Qris Payment State Api Payments Orders  Order Id  Qris Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/payments/orders/{order_id}/qris/sync": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Sync Qris Payment",
+        "description": "Cek status langsung ke Midtrans (fallback bila webhook tidak sampai).",
+        "operationId": "sync_qris_payment_api_payments_orders__order_id__qris_sync_post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Sync Qris Payment Api Payments Orders  Order Id  Qris Sync Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/payments/orders": {
       "get": {
         "tags": [
@@ -5792,6 +6217,30 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/payments/manual-instructions": {
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Manual Payment Instructions",
+        "description": "Instruksi pembayaran manual untuk ditampilkan di halaman transaksi web.",
+        "operationId": "manual_payment_instructions_v1_payments_manual_instructions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Manual Payment Instructions V1 Payments Manual Instructions Get"
                 }
               }
             }
@@ -5981,6 +6430,139 @@
         }
       }
     },
+    "/v1/payments/orders/{order_id}/qris": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Create Qris Payment",
+        "description": "Buat transaksi QRIS Midtrans untuk order. Mengembalikan URL kode QR.",
+        "operationId": "create_qris_payment_v1_payments_orders__order_id__qris_post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Qris Payment V1 Payments Orders  Order Id  Qris Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Qris Payment State",
+        "description": "Status QRIS untuk polling frontend.",
+        "operationId": "qris_payment_state_v1_payments_orders__order_id__qris_get",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Qris Payment State V1 Payments Orders  Order Id  Qris Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/payments/orders/{order_id}/qris/sync": {
+      "post": {
+        "tags": [
+          "payments"
+        ],
+        "summary": "Sync Qris Payment",
+        "description": "Cek status langsung ke Midtrans (fallback bila webhook tidak sampai).",
+        "operationId": "sync_qris_payment_v1_payments_orders__order_id__qris_sync_post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Sync Qris Payment V1 Payments Orders  Order Id  Qris Sync Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
@@ -6019,150 +6601,6 @@
           },
           "503": {
             "description": "Database unavailable"
-          }
-        }
-      }
-    },
-    "/login": {
-      "get": {
-        "summary": "Login Page",
-        "operationId": "login_page_login_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/register": {
-      "get": {
-        "summary": "Register Page",
-        "operationId": "register_page_register_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/forgot-password": {
-      "get": {
-        "summary": "Forgot Password Page",
-        "operationId": "forgot_password_page_forgot_password_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/account": {
-      "get": {
-        "summary": "Client Account Page",
-        "operationId": "client_account_page_account_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/transactions": {
-      "get": {
-        "summary": "Client Transactions Page",
-        "operationId": "client_transactions_page_transactions_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/parser-test": {
-      "get": {
-        "summary": "Parser Test Page",
-        "operationId": "parser_test_page_parser_test_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/telegram-setup": {
-      "get": {
-        "summary": "Telegram Setup Page",
-        "operationId": "telegram_setup_page_telegram_setup_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/dashboard": {
-      "get": {
-        "summary": "Dashboard Page",
-        "operationId": "dashboard_page_dashboard_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "text/html": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
           }
         }
       }
@@ -6223,7 +6661,6 @@
           },
           "password": {
             "type": "string",
-            "maxLength": 72,
             "minLength": 1,
             "title": "Password"
           },
@@ -7128,8 +7565,7 @@
           },
           "password": {
             "type": "string",
-            "maxLength": 72,
-            "minLength": 12,
+            "minLength": 8,
             "title": "Password"
           }
         },
@@ -7179,7 +7615,7 @@
           },
           "plan": {
             "type": "string",
-            "pattern": "^(ZERO|PRO|EXPERT)$",
+            "pattern": "^(ZERO|PRO|EXPERT|MANAGED|EA|EA_VPS[1-5])$",
             "title": "Plan"
           },
           "execution_mode": {
@@ -7211,8 +7647,7 @@
           },
           "password": {
             "type": "string",
-            "maxLength": 72,
-            "minLength": 12,
+            "minLength": 8,
             "title": "Password"
           }
         },
@@ -7233,8 +7668,7 @@
           },
           "password": {
             "type": "string",
-            "maxLength": 72,
-            "minLength": 12,
+            "minLength": 8,
             "title": "Password"
           }
         },

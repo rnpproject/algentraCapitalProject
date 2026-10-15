@@ -59,7 +59,11 @@ async def lifespan(_: FastAPI):
         Base.metadata.create_all(bind=engine)
     else:
         ensure_schema_ready()
-    if config.app_env == "development" and engine.dialect.name == "sqlite" and os.environ.get("PREVIEW_DUMMY_DATA") == "1":
+    if (
+        config.app_env == "development"
+        and engine.dialect.name == "sqlite"
+        and os.environ.get("PREVIEW_DUMMY_DATA") == "1"
+    ):
         from .seed_preview_data import main as seed_preview, publish_preview_runtime
 
         seed_preview()

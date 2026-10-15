@@ -221,7 +221,9 @@ def _apply_midtrans_result(
     if gross_amount_idr is None or gross_amount_idr != order.total_idr:
         logger.warning(
             "Nominal Midtrans tidak cocok (order %s): %s vs %s",
-            order.id, gross_amount_idr, order.total_idr,
+            order.id,
+            gross_amount_idr,
+            order.total_idr,
         )
         return "AMOUNT_MISMATCH", None
 
@@ -252,6 +254,57 @@ def _reset_qris_to_manual(db: Session, order: PaymentOrder, reason: str) -> None
     order.midtrans_transaction_id = None
     order.midtrans_status = reason
     db.commit()
+
+
+def cancel_qris_charge(db: Session, order: PaymentOrder) -> None:
+    """Batalkan charge QRIS yang masih pending sebelum order dibatalkan lokal."""
+    if order.payment_method != "QRIS" or not order.midtrans_order_id:
+        return
+    if not midtrans_configured():
+        raise MidtransNotConfigured("Pembayaran QRIS belum dikonfigurasi.")
+    try:
+        response = httpx.post(
+            f"{_base_url()}/v2/{order.midtrans_order_id}/cancel",
+            headers={"Accept": "application/json", **_auth_header()},
+            timeout=30.0,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("Pembatalan Midtrans gagal terhubung (%s)", type(exc).__name__)
+        raise MidtransError("Tidak dapat membatalkan QRIS di Midtrans. Coba lagi sebentar.") from exc
+    if response.status_code not in (200, 201):
+        # Provider may already have processed a cancellation or payment; sync
+        # the authoritative state before deciding whether local cancel is safe.
+        try:
+            status_response = httpx.get(
+                f"{_base_url()}/v2/{order.midtrans_order_id}/status",
+                headers={"Accept": "application/json", **_auth_header()},
+                timeout=30.0,
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("Pengecekan status Midtrans gagal (%s)", type(exc).__name__)
+            raise MidtransError("Status QRIS belum dapat dipastikan. Coba batalkan pesanan lagi.") from exc
+        if status_response.status_code != 200:
+            logger.warning("Pembatalan Midtrans ditolak (HTTP %s)", response.status_code)
+            raise MidtransError("Midtrans belum dapat membatalkan QRIS ini.")
+        data = status_response.json()
+        status, _ = _apply_midtrans_result(
+            db,
+            order,
+            transaction_status=str(data.get("transaction_status") or ""),
+            fraud_status=str(data.get("fraud_status") or "accept"),
+            transaction_id=str(data.get("transaction_id") or "") or None,
+            gross_amount_idr=_notification_amount_idr(data),
+        )
+        if status != "PAYMENT_FAILED":
+            raise MidtransOrderConflict("Pembayaran sudah diproses dan pesanan tidak dapat dibatalkan.")
+    else:
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+        status = str(data.get("transaction_status") or "cancel")
+        order.midtrans_status = status
+        db.commit()
 
 
 def handle_notification(db: Session, payload: dict[str, object]) -> tuple[str, int | None]:

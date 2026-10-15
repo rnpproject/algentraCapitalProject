@@ -23,6 +23,7 @@ def _sse_performance(payload: dict[str, object]) -> bytes:
 @router.get("/v1/public/performance/stream")
 async def public_performance_stream(request: Request) -> StreamingResponse:
     """Stream current public performance snapshots; EventSource handles reconnects."""
+
     async def events():
         last_payload: dict[str, object] | None = None
         last_history_at = 0.0
@@ -45,7 +46,8 @@ async def public_performance_stream(request: Request) -> StreamingResponse:
             await asyncio.sleep(2)
 
     return StreamingResponse(
-        events(), media_type="text/event-stream",
+        events(),
+        media_type="text/event-stream",
         headers={"Cache-Control": "public, no-store, no-transform", "X-Accel-Buffering": "no"},
     )
 
