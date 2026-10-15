@@ -682,6 +682,34 @@
     :root[data-theme="light"] .dashboard-page .pill.tone-info { color: #587a98; }
     .dashboard-page #wins-losses { white-space: nowrap; }
     .account-page { width: min(100% - 40px, 1440px); margin-inline: auto; }
+    .account-page > section { padding: clamp(20px, 2.2vw, 30px); }
+    .account-page > section > h2 { font-size: clamp(19px, 1.8vw, 23px); line-height: 1.3; }
+    .account-page > section > .section-help { font-size: 13px; line-height: 1.6; }
+    .account-page .grid > .card { padding: clamp(18px, 2vw, 26px); }
+    .account-page .grid > .card > h3 { margin-bottom: 10px; font-size: 18px; line-height: 1.35; }
+    .account-page .grid > .card > p { font-size: 13px; line-height: 1.65; }
+    .account-page .grid > .card > .account-balance { margin: 18px 0 5px; font-size: 16px; line-height: 1.5; }
+    .account-page .grid > .card > .account-balance-time,
+    .account-page .grid > .card > .muted { font-size: 12px; line-height: 1.6; }
+    .account-page .grid > .card .account-state { margin: 14px 0 10px; font-size: 12px; line-height: 1.55; }
+    .account-page .grid > .card .toolbar { gap: 9px; margin-top: 18px; }
+    .account-page .grid > .card .toolbar > button { min-height: 42px; padding: 8px 13px; border-radius: 10px; font-size: 12px; line-height: 1.25; }
+    .account-page .grid > .card .toolbar > button.icon-button { width: 42px; min-width: 42px; padding: 8px; }
+    .account-page .grid > .card .account-state__dot { flex-basis: 16px; }
+    .account-page #ea-install-section > h2 { margin-bottom:10px; font-size:22px; line-height:1.3; }
+    .account-page #ea-install-section > .section-help { max-width:980px; margin-bottom:16px; font-size:14px; line-height:1.65; }
+    .account-page #ea-install-section .ea-download-button { display:inline-flex; min-height:42px; align-items:center; justify-content:center; padding:8px 13px; border:1px solid var(--line); border-radius:10px; color:var(--ink); background:color-mix(in srgb,var(--panel-raised) 80%,transparent); font:700 12px/1.25 var(--font-body); letter-spacing:0; text-transform:none; }
+    .account-page #ea-install-section .ea-download-button:hover { color:var(--ink); border-color:var(--control); background:var(--panel-raised); }
+    :root[data-theme="light"] .account-page #ea-install-section .ea-download-button { border-color:var(--control); color:var(--ink); background:var(--panel-raised); }
+    .account-page #ea-install-section > ol { margin:14px 0 18px; padding-left:28px; color:color-mix(in srgb,var(--ink) 78%,var(--muted)); font:400 14px/1.8 var(--font-body); }
+    .account-page #ea-install-section > ol li { padding-left:2px; }
+    .account-page #ea-install-section > ol li + li { margin-top:5px; }
+    .account-page #ea-install-section code { font-size:.92em; }
+    .account-page #ea-install-section .notice-box { padding:16px 18px; border-radius:12px; font-size:13px; line-height:1.7; }
+    .account-page #ea-install-section .notice-box h3 { margin-bottom:8px; font-size:15px; line-height:1.4; }
+    .account-page #ea-install-section .notice-box p { margin:0 0 10px; font-size:13px; line-height:1.7; }
+    .account-page #ea-install-section .notice-box p:last-child { margin-bottom:0; }
+    .account-page #ea-install-section > .section-help:last-child { margin-top:14px; font-size:13px; line-height:1.6; }
     .account-page > section:first-of-type { padding: clamp(20px, 2.4vw, 32px); }
     .account-page > section:first-of-type > h2 { margin-bottom: 8px; font-size: clamp(20px, 2vw, 24px); }
     .account-page > section:first-of-type > .section-help { max-width: 900px; margin-bottom: 22px; line-height: 1.65; }
@@ -708,6 +736,12 @@
     .account-page .account-price-stack .price-list__total span { color: var(--ink); font-weight: 750; }
     .account-page .account-price-stack .price-list__total strong { color: var(--action); font-size: 15px; }
     .account-page .account-actions-toolbar { display: flex; flex-wrap: wrap; gap: 10px; }
+    .account-primary-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; max-width:760px; margin-top:22px; }
+    .account-action-button { display:inline-flex; align-items:center; justify-content:center; min-height:48px; padding:10px 18px; border:1px solid transparent; border-radius:12px; color:var(--on-action); background:var(--action); font:700 13px/1.35 var(--font-body); text-align:center; text-decoration:none; cursor:pointer; transition:filter 160ms ease, transform 160ms ease; }
+    .account-action-button:hover { color:var(--on-action); filter:brightness(1.08); transform:translateY(-1px); }
+    .account-action-button--secondary { border-color:var(--line); color:var(--ink); background:var(--panel-raised); }
+    .account-action-button--secondary:hover { color:var(--ink); background:var(--panel-raised); }
+    .account-form-actions { display:flex; justify-content:flex-end; margin-top:12px; }
     .account-page .plan-picker > .field-help { margin: 10px 0 0; line-height: 1.5; }
     .account-page .account-fields { gap: 16px; margin: 2px 0 0; }
     .account-page .account-fields label { gap: 8px; }
@@ -741,6 +775,8 @@
       .account-page .account-fields { grid-template-columns: minmax(0, 1fr); }
       .account-page .form-actions button { width: 100%; }
       .account-page > section:first-of-type > .toolbar .workspace-tag { display: inline-flex; }
+      .account-primary-actions { grid-template-columns:minmax(0,1fr); gap:9px; }
+      .account-action-button { width:100%; }
     }
     @media (max-width: 1024px) {
       .dashboard-page .summary-card[aria-label="Ringkasan operasional"] { grid-template-columns: minmax(0, 1fr); grid-template-areas: "overview" "signals"; }
@@ -1083,17 +1119,31 @@
   .transaction-toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin:18px 0; }
   .transaction-toolbar label { display:flex; align-items:center; gap:9px; }
   .transaction-toolbar select { width:auto; min-width:210px; }
-  .transaction-card { align-self:start; }
-  .transaction-card__top { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:8px; }
-  .transaction-card__top h3 { margin-bottom:5px; }
-  .transaction-badge { display:inline-flex; align-items:center; min-height:25px; padding:3px 9px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:10px; font-weight:800; }
-  .transaction-badge--rejected, .transaction-badge--cancelled { color:#ff7b7b; }
-  .transaction-badge--approved { color:#4ade80; }
-  .transaction-badge--pending_payment, .transaction-badge--payment_submitted { color:#facc15; }
-  .transaction-details { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:8px 14px; margin:14px 0; }
-  .transaction-details div { min-width:0; padding:9px 11px; border:1px solid var(--line); border-radius:10px; background:var(--glass-raised); }
-  .transaction-details dt { color:var(--muted); font-size:10px; }
-  .transaction-details dd { margin:2px 0 0; overflow-wrap:anywhere; font-size:12px; font-weight:700; }
+  .transaction-card { align-self:start; width:min(100%,560px); margin-inline:auto; padding:22px 24px 20px; overflow:hidden; color:var(--ink); background:var(--panel); border:1px solid var(--glass-border); border-radius:var(--radius-panel); box-shadow:var(--shadow-soft); font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  .transaction-card__top { display:flex; flex-direction:column; align-items:center; gap:10px; padding:0 0 14px; border-bottom:2px dashed var(--line); }
+  .transaction-receipt__brand { display:grid; justify-items:center; line-height:1.25; }
+  .transaction-receipt__brand strong { font-size:17px; letter-spacing:.12em; }
+  .transaction-receipt__brand span { color:var(--muted); font-size:10px; }
+  .transaction-badge { display:inline-flex; align-items:center; min-height:25px; padding:2px 0; border:0; border-radius:0; color:var(--muted); background:transparent; font-size:10px; font-weight:800; text-transform:uppercase; }
+  .transaction-badge--rejected, .transaction-badge--cancelled { color:var(--danger); }
+  .transaction-badge--approved { color:#168347; }
+  .transaction-badge--pending_payment { color:#bd7900; }
+  .transaction-badge--payment_submitted { color:var(--link); }
+  .transaction-receipt__body { padding:8px 0 0; }
+  .transaction-receipt__rows { display:grid; gap:4px; margin:10px 0 14px; padding:0 0 14px; border-bottom:2px dashed var(--line); }
+  .transaction-receipt__rows div { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; font-size:12px; line-height:1.45; }
+  .transaction-receipt__rows dt { flex:0 0 auto; color:var(--muted); }
+  .transaction-receipt__rows dd { max-width:65%; margin:0; text-align:right; overflow-wrap:anywhere; }
+  .transaction-receipt__package { display:grid; gap:2px; padding:0 0 14px; border-bottom:2px dashed var(--line); font-size:13px; }
+  .transaction-receipt__package span { color:var(--muted); font-size:11px; }
+  .transaction-receipt__rows--service { margin-top:14px; }
+  .transaction-receipt__total { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 14px; padding:0 0 14px; border-bottom:2px dashed var(--line); }
+  .transaction-receipt__total strong { font-size:12px; }
+  .transaction-receipt__total b { font-size:21px; }
+  .transaction-card__actions { display:flex; flex-direction:column; gap:8px; margin:14px auto 0; width:min(100%,560px); }
+  .transaction-card__actions > button { width:100%; min-width:0; min-height:46px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  .qris-box .toolbar { display:grid; grid-template-columns:minmax(0,1fr); margin-top:10px; }
+  .qris-box .toolbar > button { width:100%; }
   .transaction-note { margin:12px 0; padding:12px; border-radius:8px; color:var(--ink); background:var(--glass-raised); font-size:11px; }
   .transaction-qr { display:block; width:min(100%,260px); margin:14px auto; border-radius:12px; }
   .qris-box { margin:12px 0; padding:14px; border:1px solid var(--glass-border); border-radius:var(--radius-control); background:var(--glass-raised); }
@@ -1115,7 +1165,15 @@
   .receipt-dialog::backdrop { background:#0009; backdrop-filter:blur(3px); }
   .receipt-dialog__head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 18px; border-bottom:1px solid var(--line); }
   .receipt-dialog__body { max-height:calc(90dvh - 76px); overflow:auto; padding:20px; }
+  .receipt-dialog .transaction-card { width:100%; padding:0; box-shadow:none; }
+  .receipt-dialog .transaction-receipt__brand { display:none; }
   .receipt-dialog__body h2 { margin-bottom:4px; }
+  .payment-success-dialog { width:min(420px,calc(100vw - 32px)); padding:28px; border:1px solid var(--glass-border); border-radius:var(--radius-dialog); color:var(--ink); background:var(--panel); text-align:center; box-shadow:0 22px 60px #0009; }
+  .payment-success-dialog::backdrop { background:#0009; backdrop-filter:blur(4px); }
+  .payment-success-dialog__icon { display:grid; width:58px; height:58px; margin:0 auto 14px; place-items:center; border-radius:50%; color:#fff; background:#168347; font:700 32px/1 var(--font-body); }
+  .payment-success-dialog h2 { margin-bottom:8px; }
+  .payment-success-dialog p { margin:0 0 20px; color:var(--muted); font-size:13px; }
+  .payment-success-dialog > button { width:100%; min-height:44px; }
   .receipt-proof { display:block; width:auto; max-width:100%; max-height:55dvh; margin:18px auto 0; object-fit:contain; border:1px solid var(--line); border-radius:10px; background:#fff; }
   .receipt-empty { color:var(--muted); font-size:12px; }
   @media (max-width:600px) {

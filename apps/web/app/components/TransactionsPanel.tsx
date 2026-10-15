@@ -68,36 +68,40 @@ const filterOptions: Array<[string, string]> = [
 const instructionFallback =
   "Hubungi admin melalui kanal resmi untuk mendapatkan rekening tujuan. Jangan transfer sebelum detail rekening dan nominal dikonfirmasi.";
 
-function OrderDetails({ order, plans }: { order: PaymentOrder; plans: Record<string, Plan> }) {
+function OrderDetails({ order, plans, selectedPaymentMethod }: { order: PaymentOrder; plans: Record<string, Plan>; selectedPaymentMethod?: "qris" | "manual" }) {
   const plan = plans[order.plan] || { name: order.plan, vcpu: "-", ram: "-", disk: "-" };
-  const items: Array<[string, string]> = [
-    ["Nomor transaksi", `#${order.id}`],
-    ["Paket", `${plan.name} - ${plan.vcpu} - RAM ${plan.ram} - Disk ${plan.disk}`],
-    ["Total pembayaran", money(order.total_idr)],
+  const rows: Array<[string, string]> = [
+    ["No. Pesanan", `#${order.id}`],
+    ["Tanggal", orderDate(order.created_at)],
     ["Nama akun", order.label],
-    [
-      "Mode layanan",
-      order.execution_mode === "MANAGED"
-        ? "Dikelola server (MT5 berjalan di worker)"
-        : "Pasang EA di MT5 sendiri",
-    ],
-    ["Login broker", `${order.login} - ${order.server}`],
-    [
-      "Metode pembayaran",
-      order.payment_method === "QRIS" ? "QRIS (otomatis)" : "Manual",
-    ],
-    ["Tanggal pesanan", orderDate(order.created_at)],
+  ];
+  const serviceRows: Array<[string, string]> = [
+    ["Mode layanan", order.execution_mode === "MANAGED" ? "Dikelola server" : "Pasang EA di MT5 sendiri"],
+    ["Login broker", `${order.login} · ${order.server}`],
+    ["Metode bayar", selectedPaymentMethod ? (selectedPaymentMethod === "qris" ? "QRIS (otomatis)" : "Transfer manual") : paymentMethodName(order.payment_method)],
   ];
   return (
-    <dl className="transaction-details">
-      {items.map(([label, value]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
-    </dl>
+    <div className="transaction-receipt__body">
+      <dl className="transaction-receipt__rows">
+        {rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      </dl>
+      <div className="transaction-receipt__package">
+        <strong>{plan.name}</strong>
+        <span>{plan.vcpu} core · RAM {plan.ram} · Disk {plan.disk}</span>
+      </div>
+      <dl className="transaction-receipt__rows transaction-receipt__rows--service">
+        {serviceRows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+      </dl>
+      <div className="transaction-receipt__total"><strong>TOTAL</strong><b>{money(order.total_idr)}</b></div>
+    </div>
   );
+}
+
+function paymentMethodName(value: string): string {
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "QRIS") return "QRIS (otomatis)";
+  if (normalized === "MANUAL") return "Transfer manual";
+  return value ? value.replaceAll("_", " ") : "Belum dipilih";
 }
 
 function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () => void }) {
@@ -227,15 +231,6 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
             >
               {syncing ? "Memeriksa…" : "Saya sudah bayar, cek status"}
             </button>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => void createCharge()}
-              disabled={creating}
-              aria-busy={creating}
-            >
-              Buat QR baru
-            </button>
           </div>
         </>
       )}
@@ -253,16 +248,27 @@ function TransactionsPanelInner() {
   const [proofFormOrderId, setProofFormOrderId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [receiptOrder, setReceiptOrder] = useState<PaymentOrder | null>(null);
+  const [successOrder, setSuccessOrder] = useState<PaymentOrder | null>(null);
   const [qrisAvailable, setQrisAvailable] = useState(false);
   const [payMethod, setPayMethod] = useState<Record<number, "qris" | "manual">>({});
   const fingerprintRef = useRef("");
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const successDialogRef = useRef<HTMLDialogElement>(null);
+  const orderStatusesRef = useRef<Map<number, string> | null>(null);
 
   async function loadOrders(force = false) {
     try {
       const data = await apiRequest<PaymentOrder[]>("payments/orders");
       const fingerprint = JSON.stringify(data);
       if (!force && fingerprint === fingerprintRef.current) return;
+      const previousStatuses = orderStatusesRef.current;
+      if (previousStatuses) {
+        const newlyPaid = data.find((order) =>
+          order.status === "APPROVED" && previousStatuses.get(order.id) !== "APPROVED"
+        );
+        if (newlyPaid) setSuccessOrder(newlyPaid);
+      }
+      orderStatusesRef.current = new Map(data.map((order) => [order.id, order.status]));
       fingerprintRef.current = fingerprint;
       setOrders(data);
     } catch (error) {
@@ -295,6 +301,12 @@ function TransactionsPanelInner() {
       dialogRef.current.showModal();
     }
   }, [receiptOrder]);
+
+  useEffect(() => {
+    if (successOrder && successDialogRef.current && !successDialogRef.current.open) {
+      successDialogRef.current.showModal();
+    }
+  }, [successOrder]);
 
   function closeReceipt() {
     dialogRef.current?.close();
@@ -401,18 +413,21 @@ function TransactionsPanelInner() {
                 ? "Tidak ada transaksi untuk filter ini."
                 : "Belum ada transaksi."
               : visible.map((order) => (
-                  <article className="card transaction-card" key={order.id} id={`order-${order.id}`}>
+                  <article className="transaction-card" key={order.id} id={`order-${order.id}`}>
                     <div className="transaction-card__top">
-                      <h3>
-                        {order.label} - Pesanan #{order.id}
-                      </h3>
+                      <div className="transaction-receipt__brand"><strong>ALGENTRA CAPITAL</strong><span>STRUK PESANAN</span></div>
                       <span
                         className={`transaction-badge transaction-badge--${order.status.toLowerCase()}`}
+                        data-status={order.status}
                       >
                         {statusNames[order.status] || order.status}
                       </span>
                     </div>
-                    <OrderDetails order={order} plans={plans} />
+                    <OrderDetails
+                      order={order}
+                      plans={plans}
+                      selectedPaymentMethod={expandedOrderId === order.id && qrisAvailable ? (payMethod[order.id] ?? "qris") : undefined}
+                    />
 
                     {order.status === "PAYMENT_SUBMITTED" && (
                       <p className="transaction-note">
@@ -434,7 +449,7 @@ function TransactionsPanelInner() {
                       </p>
                     )}
 
-                    <div className="toolbar">
+                    <div className="transaction-card__actions">
                       {order.has_proof && (
                         <button
                           type="button"
@@ -610,6 +625,26 @@ function TransactionsPanelInner() {
             </>
           )}
         </div>
+      </dialog>
+
+      <dialog
+        className="payment-success-dialog"
+        aria-labelledby="payment-success-title"
+        ref={successDialogRef}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) successDialogRef.current?.close();
+        }}
+        onClose={() => setSuccessOrder(null)}
+      >
+        <div className="payment-success-dialog__icon" aria-hidden="true">✓</div>
+        <h2 id="payment-success-title">Pembayaran berhasil</h2>
+        <p>
+          Pembayaran pesanan #{successOrder?.id} telah terverifikasi.
+          {successOrder?.execution_mode === "MANAGED"
+            ? " Lanjutkan pengaturan akun broker di portal akun."
+            : " Akun Copy Trading Anda sedang disiapkan."}
+        </p>
+        <button type="button" onClick={() => successDialogRef.current?.close()}>Tutup</button>
       </dialog>
     </>
   );

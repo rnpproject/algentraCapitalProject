@@ -13,6 +13,14 @@ function csrfHeaders(): Headers {
   return headers;
 }
 
+function rememberCsrf(data: unknown): void {
+  if (typeof window === "undefined" || typeof data !== "object" || data === null) return;
+  const token = (data as { csrf_token?: unknown }).csrf_token;
+  if (typeof token === "string" && token.length >= 32) {
+    try { sessionStorage.setItem("algentra-csrf", token); } catch { /* Storage may be disabled. */ }
+  }
+}
+
 function beginActionButtonLoading(): () => void {
   if (typeof document === "undefined") return () => {};
   const active = document.activeElement;
@@ -45,6 +53,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   try {
     const response = await fetch(`/api/core/${path}`, { ...init, method, headers, cache: "no-store" });
     const data: unknown = await response.json().catch(() => ({}));
+    rememberCsrf(data);
     if (!response.ok) throw new Error(readError(data));
     return data as T;
   } finally {
@@ -58,6 +67,7 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
   try {
     const response = await fetch(`/api/core/${path}`, { method: "POST", headers, body: form, cache: "no-store" });
     const data: unknown = await response.json().catch(() => ({}));
+    rememberCsrf(data);
     if (!response.ok) throw new Error(readError(data));
     return data as T;
   } finally {
