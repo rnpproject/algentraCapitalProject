@@ -159,7 +159,7 @@ Gunakan langkah ini pada server Windows ketika status login di portal terus bera
 3. Tutup terminal MT5 follower/MCP dan MetaEditor yang sedang memakai runtime follower, setelah memastikan terminal itu tidak mengelola posisi yang perlu dipantau. Periksa siapa yang memakai port IPC dari pesan error:
 
    ```powershell
-   Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 2346 -ErrorAction SilentlyContinue |
+   Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 22346 -ErrorAction SilentlyContinue |
      Select-Object LocalAddress, LocalPort, State, OwningProcess
    ```
 
@@ -169,7 +169,7 @@ Gunakan langkah ini pada server Windows ketika status login di portal terus bera
    Get-Process -Id <PID>
    ```
 
-   Jangan hentikan PID yang belum dikenali. Port `2346` pada pesan `bind error` adalah konflik socket lokal; itu sendiri tidak menunjukkan password salah atau key worker salah. Jika log tersebut hanya muncul pada MCP MetaTrader, catat proses pemilik port dan jangan menganggapnya otomatis berasal dari managed worker.
+   Jangan hentikan PID yang belum dikenali. Gunakan port yang persis tertulis pada pesan `bind error` (contoh `22346`); konflik socket lokal itu sendiri tidak menunjukkan password salah atau key worker salah. Jika log tersebut hanya muncul pada MCP MetaTrader, catat proses pemilik port dan jangan menganggapnya otomatis berasal dari managed worker.
 
 4. Pastikan `apps\copier-worker\config\managed-worker.json` menggunakan `api_base_url` Core API yang benar, `worker_api_key_env` bernilai nama variabel `COPIER_WORKER_API_KEY`, dan `terminal_template_dir` menunjuk folder follower bersih berisi `terminal64.exe`. Di `master.json`, pastikan `terminal_path` menunjuk terminal master dan `folder_sinyal` menunjuk folder sinyal yang benar. Jangan gunakan folder terminal master sebagai template follower.
 

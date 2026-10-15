@@ -353,8 +353,7 @@ function ManagedAccountCard({
     CHECKING: "Sedang memeriksa login broker dan kesiapan terminal MT5…",
     VALID: profile.login_message || "Login broker berhasil dan terminal siap.",
     ERROR:
-      profile.login_message ||
-      "Login belum berhasil. Periksa nomor akun, password trading, dan server broker.",
+      "Pemeriksaan login belum berhasil. Silakan periksa kembali data akun atau coba lagi nanti.",
   };
   const loginMessage =
     (profile.login_status && loginMessages[profile.login_status]) ||
