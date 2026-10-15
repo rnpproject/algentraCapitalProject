@@ -297,7 +297,7 @@ def test_client_portal_support_endpoints_for_vercel_web():
 
         instructions = client.get("/api/payments/manual-instructions")
         assert instructions.status_code == 200
-        assert "instructions" in instructions.json()
+        assert {"bank_name", "payment_number", "payment_name", "qris_available"} <= set(instructions.json())
 
         with SessionLocal() as db:
             user = db.query(ClientUser).filter_by(email=email).one_or_none()

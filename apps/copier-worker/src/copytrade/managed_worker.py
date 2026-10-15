@@ -338,7 +338,6 @@ class ManagedWorker:
             "dry_run": False,
             "max_posisi_terbuka": int(job["max_open_positions"]),
             "max_lot_total": float(job["max_lot_total"]),
-            "izinkan_netting": False,
             "heartbeat_folder": str(heartbeat_dir),
             "state_path": str(self.states_dir / f"{account_id}.json"),
             "report_path": str(self.reports_dir / f"{account_id}.json"),
@@ -386,6 +385,13 @@ class ManagedWorker:
             }
         )
         try:
+            # Use a per-probe private IPC directory on Windows. MetaTrader's
+            # Python API otherwise uses a fixed localhost port (2346), which
+            # can collide with another terminal or a simultaneous login probe.
+            ipc_dir = account_dir / "ipc" / f"login-probe-{time.time_ns()}"
+            ipc_dir.mkdir(parents=True, exist_ok=True)
+            probe_env["TEMP"] = str(ipc_dir)
+            probe_env["TMP"] = str(ipc_dir)
             completed = subprocess.run(
                 [sys.executable, "-m", "copytrade.login_probe"],
                 cwd=Path(__file__).resolve().parents[2],
@@ -393,18 +399,20 @@ class ManagedWorker:
                 input=probe_input,
                 capture_output=True,
                 text=True,
-                timeout=45,
+                timeout=150,
                 check=False,
             )
         except subprocess.TimeoutExpired:
-            logger.warning("Probe login MT5 akun %s melewati batas waktu 45 detik", account_id)
+            logger.warning("Probe login MT5 akun %s melewati batas waktu 150 detik", account_id)
             return (
                 False,
-                "Pemeriksaan MT5 melewati batas 45 detik (IPC timeout). Terminal tidak merespons; worker utama tetap berjalan.",
+                "Pemeriksaan MT5 melewati batas 150 detik (IPC timeout). Terminal tidak merespons; worker utama tetap berjalan.",
             )
         except OSError as exc:
             logger.warning("Probe login MT5 akun %s gagal dimulai (%s)", account_id, type(exc).__name__)
             return False, "Worker tidak dapat memulai pemeriksaan Python API MT5."
+        finally:
+            shutil.rmtree(ipc_dir, ignore_errors=True)
         if completed.returncode != 0:
             logger.warning("Probe login MT5 akun %s berhenti dengan kode %s", account_id, completed.returncode)
             return False, "Worker tidak dapat memvalidasi login pada terminal MT5."

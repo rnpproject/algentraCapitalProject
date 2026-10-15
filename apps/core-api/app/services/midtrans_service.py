@@ -128,7 +128,7 @@ def create_qris_charge(db: Session, *, order_id: int, owner_id: int) -> dict[str
                 "id": order.plan,
                 "price": order.total_idr,
                 "quantity": 1,
-                "name": f"Algentra Copy Trading ({order.plan})",
+                "name": "rnp-project",
             }
         ],
         "customer_details": {"email": order.email},

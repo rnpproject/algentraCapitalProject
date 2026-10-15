@@ -65,7 +65,13 @@ const filterOptions: Array<[string, string]> = [
   ["CANCELLED", "Dibatalkan"],
 ];
 
-const instructionFallback =
+type ManualPaymentDetails = {
+  bank_name: string;
+  payment_number: string;
+  payment_name: string;
+};
+
+const manualPaymentFallback =
   "Hubungi admin melalui kanal resmi untuk mendapatkan rekening tujuan. Jangan transfer sebelum detail rekening dan nominal dikonfirmasi.";
 
 function OrderDetails({ order, plans, selectedPaymentMethod }: { order: PaymentOrder; plans: Record<string, Plan>; selectedPaymentMethod?: "qris" | "manual" }) {
@@ -246,18 +252,21 @@ function TransactionsPanelInner() {
   const searchParams = useSearchParams();
   const [orders, setOrders] = useState<PaymentOrder[]>([]);
   const [plans, setPlans] = useState<Record<string, Plan>>({});
-  const [instructions, setInstructions] = useState<string | null>(null);
-  const [filter, setFilter] = useState("ALL");
+  const [manualPayment, setManualPayment] = useState<ManualPaymentDetails | null>(null);
+  const [filter, setFilter] = useState("PENDING_PAYMENT");
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
   const [proofFormOrderId, setProofFormOrderId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [receiptOrder, setReceiptOrder] = useState<PaymentOrder | null>(null);
   const [successOrder, setSuccessOrder] = useState<PaymentOrder | null>(null);
+  const [cancelOrder, setCancelOrder] = useState<PaymentOrder | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const [qrisAvailable, setQrisAvailable] = useState(false);
   const [payMethod, setPayMethod] = useState<Record<number, "qris" | "manual">>({});
   const fingerprintRef = useRef("");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const successDialogRef = useRef<HTMLDialogElement>(null);
+  const cancelDialogRef = useRef<HTMLDialogElement>(null);
   const orderStatusesRef = useRef<Map<number, string> | null>(null);
 
   async function loadOrders(force = false) {
@@ -285,9 +294,13 @@ function TransactionsPanelInner() {
     apiRequest<Record<string, Plan>>("mt5/plans")
       .then(setPlans)
       .catch(() => {});
-    apiRequest<{ instructions: string | null; qris_available?: boolean }>("payments/manual-instructions")
+    apiRequest<ManualPaymentDetails & { qris_available?: boolean }>("payments/manual-instructions")
       .then((result) => {
-        setInstructions(result.instructions);
+        setManualPayment({
+          bank_name: result.bank_name || "",
+          payment_number: result.payment_number || "",
+          payment_name: result.payment_name || "",
+        });
         setQrisAvailable(result.qris_available === true);
       })
       .catch(() => {});
@@ -312,6 +325,12 @@ function TransactionsPanelInner() {
     }
   }, [successOrder]);
 
+  useEffect(() => {
+    if (cancelOrder && cancelDialogRef.current && !cancelDialogRef.current.open) {
+      cancelDialogRef.current.showModal();
+    }
+  }, [cancelOrder]);
+
   function closeReceipt() {
     dialogRef.current?.close();
   }
@@ -333,16 +352,21 @@ function TransactionsPanelInner() {
     }
   }
 
-  async function cancel(id: number) {
-    if (!window.confirm("Batalkan pesanan ini?")) return;
+  async function cancel() {
+    if (!cancelOrder || cancelling) return;
+    const id = cancelOrder.id;
+    setCancelling(true);
     try {
       await apiRequest(`payments/orders/${id}/cancel`, { method: "POST" });
       setMessage("Pesanan dibatalkan.");
       setExpandedOrderId(null);
       setProofFormOrderId(null);
+      cancelDialogRef.current?.close();
       await loadOrders(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Permintaan gagal.");
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -381,7 +405,8 @@ function TransactionsPanelInner() {
               Lihat status pesanan, instruksi pembayaran manual, nota, dan bukti transaksi.
             </p>
           </div>
-          <Link className="workspace-tag" href="/account">
+          <Link className="transaction-back-link" href="/account">
+            <span aria-hidden="true">←</span>
             Kembali ke akun MT5
           </Link>
         </div>
@@ -494,7 +519,7 @@ function TransactionsPanelInner() {
                         <button
                           type="button"
                           className="secondary"
-                          onClick={() => void cancel(order.id)}
+                          onClick={() => setCancelOrder(order)}
                         >
                           Batalkan pesanan
                         </button>
@@ -541,7 +566,7 @@ function TransactionsPanelInner() {
                             })}
                           </div>
                         ) : null}
-                        {(payMethod[order.id] ?? "qris") === "qris" && qrisAvailable ? (
+                        {qrisAvailable && (payMethod[order.id] ?? "qris") === "qris" ? (
                           <QrisPayment
                             key={`qris-${order.id}`}
                             order={order}
@@ -549,7 +574,22 @@ function TransactionsPanelInner() {
                           />
                         ) : (
                           <>
-                            <p className="transaction-note">{instructions || instructionFallback}</p>
+                            {manualPayment && (manualPayment.bank_name || manualPayment.payment_number || manualPayment.payment_name) ? (
+                              <dl className="manual-payment-details" aria-label="Rekening tujuan pembayaran">
+                                {([
+                                  ["Bank", manualPayment.bank_name],
+                                  ["Nomor rekening", manualPayment.payment_number],
+                                  ["Nama penerima", manualPayment.payment_name],
+                                ] as const).filter(([, value]) => value).map(([label, value]) => (
+                                  <div className="manual-payment-details__row" key={label}>
+                                    <dt>{label}</dt>
+                                    <dd>{value}</dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            ) : (
+                              <p className="transaction-note">{manualPaymentFallback}</p>
+                            )}
                             {proofFormOrderId !== order.id ? (
                               <button type="button" onClick={() => setProofFormOrderId(order.id)}>
                                 Saya sudah bayar
@@ -580,6 +620,28 @@ function TransactionsPanelInner() {
           </div>
         </section>
       </main>
+
+      <dialog
+        className="cancel-order-dialog"
+        aria-labelledby="cancel-order-title"
+        ref={cancelDialogRef}
+        onClick={(event) => {
+          if (event.target === event.currentTarget && !cancelling) cancelDialogRef.current?.close();
+        }}
+        onClose={() => setCancelOrder(null)}
+      >
+        <div className="cancel-order-dialog__icon" aria-hidden="true">!</div>
+        <h2 id="cancel-order-title">Batalkan pesanan?</h2>
+        <p>Pesanan #{cancelOrder?.id} akan dibatalkan. Anda dapat membuat pesanan baru nanti.</p>
+        <div className="cancel-order-dialog__actions">
+          <button className="secondary" type="button" disabled={cancelling} onClick={() => cancelDialogRef.current?.close()}>
+            Kembali
+          </button>
+          <button className="danger" type="button" disabled={cancelling} aria-busy={cancelling} onClick={() => void cancel()}>
+            {cancelling ? "Membatalkan…" : "Ya, batalkan"}
+          </button>
+        </div>
+      </dialog>
 
       <dialog
         id="receipt-dialog"

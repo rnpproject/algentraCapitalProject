@@ -85,6 +85,17 @@ Invoke-WebRequest http://127.0.0.1:8000/ready
 
 `/health` menguji proses API dan `/ready` menguji koneksi database. Keduanya harus sukses sebelum trafik publik diarahkan ke origin.
 
+Untuk restart Core API setelah perubahan konfigurasi atau deployment, gunakan PowerShell administrator:
+
+```powershell
+Restart-Service AlgentraCoreApi
+Get-Service AlgentraCoreApi
+Invoke-WebRequest http://127.0.0.1:8000/health
+Invoke-WebRequest http://127.0.0.1:8000/ready
+```
+
+Periksa `/health` dan `/ready` sampai keduanya sukses sebelum mengarahkan trafik kembali ke origin.
+
 ### 3. Pasang dan jalankan managed copier (opsional)
 
 Managed copier bukan Windows Service. Installer membuat Scheduled Task interaktif karena MT5 perlu sesi desktop user. Jalankan installer pada akun Windows yang menjalankan MT5; siapkan terminal master yang sudah login, folder sinyal, dan folder template follower bersih yang berisi `terminal64.exe`. Ganti URL dan path contoh dengan nilai server:
@@ -113,7 +124,77 @@ Get-ScheduledTaskInfo -TaskName 'Algentra Managed Copy Worker' |
 
 Worker online setelah berhasil polling backend. Log aplikasi ada di `logs\managed_worker.log`, error startup awal ada di `logs\managed_worker-task-error.log`. Pastikan tidak ada job live yang tidak ditinjau sebelum menjalankan worker; job managed aktif dapat mengirim order live. Untuk menghentikan task tanpa menghapus instalasinya, gunakan `Stop-ScheduledTask -TaskName 'Algentra Managed Copy Worker'`.
 
-### 4. Aktifkan akses publik
+Untuk restart worker tanpa menghapus task, jalankan pada akun Windows worker yang sedang login:
+
+```powershell
+Stop-ScheduledTask -TaskName 'Algentra Managed Copy Worker'
+Start-ScheduledTask -TaskName 'Algentra Managed Copy Worker'
+Get-ScheduledTask -TaskName 'Algentra Managed Copy Worker' |
+  Select-Object TaskName, State
+Get-ScheduledTaskInfo -TaskName 'Algentra Managed Copy Worker' |
+  Select-Object LastRunTime, LastTaskResult
+```
+
+Worker membutuhkan sesi desktop interaktif untuk MT5. Pastikan akun Windows worker sudah login. Job managed yang aktif dapat mengirim order live setelah worker berjalan kembali.
+
+### 4. Urutan restart dan uji managed worker
+
+Gunakan langkah ini pada server Windows ketika status login di portal terus berada di **Sedang memeriksa**. Jalankan PowerShell administrator untuk Core API, dan gunakan akun Windows worker yang login untuk task MT5. Periksa dulu tidak ada job live yang belum ditinjau: worker aktif dapat mengirim order.
+
+1. Hentikan worker agar tidak ada probe atau terminal follower yang aktif:
+
+   ```powershell
+   Stop-ScheduledTask -TaskName 'Algentra Managed Copy Worker' -ErrorAction SilentlyContinue
+   Get-ScheduledTask -TaskName 'Algentra Managed Copy Worker' |
+     Select-Object TaskName, State
+   ```
+
+2. Hentikan Core API:
+
+   ```powershell
+   Stop-Service AlgentraCoreApi
+   Get-Service AlgentraCoreApi
+   ```
+
+3. Tutup terminal MT5 follower/MCP dan MetaEditor yang sedang memakai runtime follower, setelah memastikan terminal itu tidak mengelola posisi yang perlu dipantau. Periksa siapa yang memakai port IPC dari pesan error:
+
+   ```powershell
+   Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 22346 -ErrorAction SilentlyContinue |
+     Select-Object LocalAddress, LocalPort, State, OwningProcess
+   ```
+
+   Untuk melihat nama proses pemilik PID, gunakan:
+
+   ```powershell
+   Get-Process -Id <PID>
+   ```
+
+   Jangan hentikan PID yang belum dikenali. Gunakan port yang persis tertulis pada pesan `bind error` (contoh `22346`); konflik socket lokal itu sendiri tidak menunjukkan password salah atau key worker salah. Jika log tersebut hanya muncul pada MCP MetaTrader, catat proses pemilik port dan jangan menganggapnya otomatis berasal dari managed worker.
+
+4. Pastikan `apps\copier-worker\config\managed-worker.json` menggunakan `api_base_url` Core API yang benar, `worker_api_key_env` bernilai nama variabel `COPIER_WORKER_API_KEY`, dan `terminal_template_dir` menunjuk folder follower bersih berisi `terminal64.exe`. Di `master.json`, pastikan `terminal_path` menunjuk terminal master dan `folder_sinyal` menunjuk folder sinyal yang benar. Jangan gunakan folder terminal master sebagai template follower.
+
+5. Nyalakan Core API dan pastikan API serta database siap:
+
+   ```powershell
+   Start-Service AlgentraCoreApi
+   Get-Service AlgentraCoreApi
+   Invoke-WebRequest http://127.0.0.1:8000/health
+   Invoke-WebRequest http://127.0.0.1:8000/ready
+   ```
+
+6. Jalankan worker kembali dari akun Windows worker yang login:
+
+   ```powershell
+   Start-ScheduledTask -TaskName 'Algentra Managed Copy Worker'
+   Get-ScheduledTask -TaskName 'Algentra Managed Copy Worker' |
+     Select-Object TaskName, State
+   Get-ScheduledTaskInfo -TaskName 'Algentra Managed Copy Worker' |
+     Select-Object LastRunTime, LastTaskResult
+   ```
+
+7. Buka `/account` di portal, simpan kredensial broker untuk akun managed, lalu tunggu status keluar dari **Sedang memeriksa**. Probe pertama memberi waktu hingga 150 detik karena MT5 dapat memperbarui file dan mengompilasi ulang program saat pertama berjalan. Copier mendukung akun Hedging dan Netting/Exchange; pada Netting, exposure posisi master digabung per simbol dan SL/TP posisi virtual dipantau oleh worker. Jika status tetap memeriksa, periksa `logs\managed_worker.log` dan `logs\managed_worker-task-error.log`; pastikan `LastTaskResult` bernilai `0` dan worker melaporkan polling backend. Uji validasi login tidak mengirim order. Sebelum live, perbarui/restart worker ke versi ini dan pastikan alur Netting berjalan di akun demo.
+
+### 5. Aktifkan akses publik
 
 Pasang named Cloudflare Tunnel ke origin `http://127.0.0.1:8000`, lalu konfigurasi Cloudflare Access dan environment Vercel sesuai [panduan service production](docs/SERVICE.md#cloudflare-tunnel-dan-vercel). Jangan membuka port 8000 langsung ke internet.
 

@@ -27,7 +27,9 @@ def main() -> None:
             "password": str(request["password"]),
             "server": str(request["server"]),
             "portable": True,
-            "timeout": 30000,
+            # A first launch may update terminal files and recompile MQL5
+            # programs before the broker connection is ready.
+            "timeout": 120000,
         }
         if not mt5.initialize(**options):
             error = mt5.last_error()

@@ -66,7 +66,7 @@ Persiapan:
 
 1. Pasang Algentra dan worker pada Windows Server yang dikelola sendiri. Atur `COPIER_WORKER_API_KEY` ke random secret minimal 32 karakter di environment Windows Service backend dan environment akun Windows yang menjalankan worker. Untuk development, nilai dapat disimpan di `.env.local`. Jangan gunakan kunci contoh.
 2. Siapkan terminal MT5 master untuk `master.json` seperti pada konfigurasi standalone, termasuk password lewat environment variable sendiri dan `folder_sinyal` yang bisa diakses worker.
-3. Siapkan folder terminal follower bersih yang berisi `terminal64.exe`. Jangan gunakan folder master, folder terminal client yang sudah login, atau folder yang berisi sesi akun lain. Worker menggandakan folder ini ke `runtime/terminals/<account_id>`, mengaktifkan izin Auto Trading terminal pada konfigurasi portable, dan menjalankan satu proses per client. Saat client menyimpan kredensial di portal, worker memvalidasi login terlebih dahulu tanpa mengirim order; aktivasi copy live diblokir sampai validasi berhasil.
+3. Siapkan folder terminal follower bersih yang berisi `terminal64.exe`. Jangan gunakan folder master, folder terminal client yang sudah login, atau folder yang berisi sesi akun lain. Worker menggandakan folder ini ke `runtime/terminals/<account_id>`, mengaktifkan izin Auto Trading terminal pada konfigurasi portable, dan menjalankan satu proses per client. Saat client menyimpan kredensial di portal, worker memvalidasi login terlebih dahulu tanpa mengirim order; aktivasi copy live diblokir sampai validasi berhasil. Probe login memakai folder TEMP/TMP privat per proses agar Python API MT5 tidak berbenturan pada port IPC lokal tetap saat terminal lain aktif.
 4. Dari root folder proyek, jalankan helper sekali. Helper membuat `config/managed-worker.json` dan `config/master.json` dari file contoh, lalu berhenti agar path terminal, folder sinyal, dan endpoint dapat diperiksa sebelum worker dijalankan:
 
    ```powershell
@@ -107,14 +107,16 @@ Salin folder MT5 dalam mode `/portable`, salin `config/follower.example.json` ke
 - Terminal MT5 follower berjalan, login ke akun yang benar, dan path-nya cocok dengan config.
 - Algo Trading aktif dan **Allow algorithmic trading** dicentang.
 - Environment variable password tersedia untuk proses yang berjalan.
-- `account_info()` menunjukkan mode hedging; mode netting memerlukan `izinkan_netting: true` dan pemetaan posisi dapat kurang akurat.
+- Copier mendukung akun Hedging serta Netting/Exchange. Pada follower Netting, volume semua posisi virtual master pada simbol yang sama digabung sebagai exposure bertanda: Buy mengurangi Sell, dan order MT5 hanya menyesuaikan selisih menuju exposure target. Batas `max_lot_total` menghitung volume bruto semua posisi virtual, termasuk yang saling mengimbangi.
+- Gunakan akun follower khusus copier dan jangan membuka/menutup transaksi manual di simbol yang disalin. Perubahan posisi di luar copier akan terdeteksi saat rekonsiliasi dan simbol terkait dijeda sampai state diperiksa.
+- SL/TP tiap posisi master di akun follower Netting dipantau secara virtual oleh worker karena akun hanya memiliki satu posisi per simbol. Worker harus terus hidup dan terhubung; jika berhenti, SL/TP virtual tidak dieksekusi broker untuk tiap posisi master. Gunakan akun demo untuk memastikan perilaku dan toleransi eksekusi broker sebelum live.
 - Simbol hasil mapping tersedia di Market Watch dan spesifikasi lot sesuai batas broker.
 - `dry_run` dan batas `max_posisi_terbuka`, `max_lot_total`, serta `max_lot_per_order` sudah ditinjau.
 - Heartbeat `heartbeat_<nama>.txt` diperbarui dan log follower tidak menunjukkan error koneksi atau order.
 
 ## File sinyal, state, dan batasan
 
-Publisher menambahkan satu baris JSON per sinyal ke `sinyal_YYYYMMDD.jsonl`. Follower menyimpan offset byte, tanggal file, mapping posisi, dan ID sinyal yang telah diproses secara atomik di `state/<nama>.json`. Entry buka yang lebih tua dari `max_umur_sinyal_buka_detik` dilewati; ubah, partial close, dan tutup tetap diproses tanpa batas umur. Sinyal yang sudah dikonsumsi ditandai selesai meskipun order broker gagal agar retry proses tidak membuat entry duplikat. Restart tepat setelah broker menerima order namun sebelum state sempat ditulis tetap memiliki jendela kecil yang tidak dapat dibuat exactly-once oleh file JSONL saja; pantau log dan terminal saat gangguan proses.
+Publisher menambahkan satu baris JSON per sinyal ke `sinyal_YYYYMMDD.jsonl`. Follower menyimpan offset byte, tanggal file, mapping posisi, dan ID sinyal yang telah diproses secara atomik di `state/<nama>.json`. Entry buka yang lebih tua dari `max_umur_sinyal_buka_detik` dilewati; ubah, partial close, dan tutup tetap diproses tanpa batas umur. Pada Netting, kegagalan eksekusi menahan offset agar sinyal dicoba lagi; mismatch dengan posisi aktual menjeda simbol untuk mencegah order yang menggandakan exposure. Restart tepat setelah broker menerima order namun sebelum state sempat ditulis tetap memiliki jendela kecil yang tidak dapat dibuat exactly-once oleh file JSONL saja; pantau log dan terminal saat gangguan proses.
 
 Latency polling, jaringan, dan slippage membuat transaksi follower mirip, bukan identik, dengan master. Spread, nama simbol, ukuran lot minimum, mode akun, dan aturan eksekusi berbeda antarbroker. Periksa aturan broker atau prop firm mengenai copy trading serta penggunaan banyak akun dari satu alamat IP.
 

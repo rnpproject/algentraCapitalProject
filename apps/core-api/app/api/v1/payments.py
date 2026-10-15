@@ -49,7 +49,9 @@ def manual_payment_instructions(
 ) -> dict[str, object]:
     """Instruksi pembayaran manual untuk ditampilkan di halaman transaksi web."""
     return {
-        "instructions": get_settings().payment_manual_instructions,
+        "bank_name": get_settings().payment_bank_name,
+        "payment_number": get_settings().payment_number,
+        "payment_name": get_settings().payment_name,
         "qris_available": midtrans_service.midtrans_configured(),
     }
 
