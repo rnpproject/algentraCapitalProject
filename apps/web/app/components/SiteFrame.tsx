@@ -245,6 +245,7 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
             type="button"
             data-workspace-logout
             disabled={loggingOut}
+            aria-busy={loggingOut}
             onClick={handleLogout}
           >
             Logout
@@ -278,6 +279,7 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
             type="button"
             data-workspace-logout
             disabled={loggingOut}
+            aria-busy={loggingOut}
             onClick={handleLogout}
           >
             Keluar
@@ -401,6 +403,7 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
               data-workspace-logout
               type="button"
               disabled={loggingOut}
+              aria-busy={loggingOut}
               onClick={handleLogout}
             >
               Logout
@@ -408,13 +411,13 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
           )}
           {isClient && (
             <>
-              <span className="workspace-tag">Portal klien</span>
               <button
                 className="secondary desktop-client-logout"
                 id="logout"
                 data-workspace-logout
                 type="button"
                 disabled={loggingOut}
+                aria-busy={loggingOut}
                 onClick={handleLogout}
               >
                 Keluar

@@ -589,6 +589,7 @@ export function DashboardPanel() {
               id="registration-open"
               type="button"
               disabled={registrationOpen === true || registrationBusy}
+              aria-busy={registrationBusy}
               onClick={() => void setRegistrationOpen(true)}
             >
               Buka pendaftaran
@@ -598,6 +599,7 @@ export function DashboardPanel() {
               className="secondary"
               type="button"
               disabled={registrationOpen === false || registrationBusy}
+              aria-busy={registrationBusy}
               onClick={() => void setRegistrationOpen(false)}
             >
               Tutup pendaftaran
@@ -642,17 +644,6 @@ export function DashboardPanel() {
               <div className="sc-profit">
                 <div className="sc-profit-label">
                   <span>TOTAL PROFIT</span>
-                  <span id="wins-losses" className="sc-win-loss">
-                    {wins !== null && losses !== null ? (
-                      <>
-                        <span>{formatInteger(wins)}W</span>
-                        {" / "}
-                        <span>{formatInteger(losses)}L</span>
-                      </>
-                    ) : (
-                      <>—W / —L</>
-                    )}
-                  </span>
                 </div>
                 <b id="total-profit" className={toneClass(totalProfit !== null ? numberTone(totalProfit) : "")}>
                   {totalProfit !== null ? formatNumber(totalProfit, 2, 2) : EMPTY}

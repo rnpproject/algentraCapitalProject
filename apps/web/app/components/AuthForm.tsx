@@ -35,28 +35,46 @@ async function post(
   body: Record<string, unknown>,
   fallback = "Permintaan gagal. Coba lagi."
 ): Promise<Record<string, unknown>> {
+  const active = typeof document !== "undefined" ? document.activeElement : null;
+  const actionButton = active instanceof HTMLButtonElement
+    ? active
+    : active instanceof HTMLElement
+      ? active.closest("form")?.querySelector<HTMLButtonElement>('button[type="submit"]') ?? null
+      : null;
+  const ownsLoading = Boolean(actionButton && !actionButton.hasAttribute("aria-busy"));
+  if (ownsLoading && actionButton) {
+    actionButton.dataset.autoLoading = "true";
+    actionButton.setAttribute("aria-busy", "true");
+  }
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const token = readCsrfToken();
   if (token) headers["X-CSRF-Token"] = token;
-  const response = await fetch(`/api/core/${path}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-    cache: "no-store"
-  });
-  const result = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) {
-    const detail = result.detail;
-    const error = new Error(
-      typeof detail === "string" && detail.trim() ? detail.trim() : fallback
-    ) as PostError;
-    error.retryAfter =
-      Number(response.headers.get("Retry-After")) ||
-      Number(result.retry_after_seconds) ||
-      0;
-    throw error;
+  try {
+    const response = await fetch(`/api/core/${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      cache: "no-store"
+    });
+    const result = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const detail = result.detail;
+      const error = new Error(
+        typeof detail === "string" && detail.trim() ? detail.trim() : fallback
+      ) as PostError;
+      error.retryAfter =
+        Number(response.headers.get("Retry-After")) ||
+        Number(result.retry_after_seconds) ||
+        0;
+      throw error;
+    }
+    return result;
+  } finally {
+    if (ownsLoading && actionButton) {
+      delete actionButton.dataset.autoLoading;
+      actionButton.removeAttribute("aria-busy");
+    }
   }
-  return result;
 }
 
 // Replika startResendCountdown dari base.html (verbatim perilaku):
@@ -139,7 +157,7 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
     setPendingPassword(password);
     setRegisterMessage("");
     setRegisterMessageState("");
-    if (submitButton) submitButton.disabled = true;
+    if (submitButton) { submitButton.disabled = true; submitButton.setAttribute("aria-busy", "true"); }
     try {
       const result = await post("auth/register", { email: nextEmail, password });
       setRegisterStep("verify");
@@ -161,7 +179,10 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
         );
       }
     } finally {
-      if (submitButton && !submitButton._resendTimer) submitButton.disabled = false;
+      if (submitButton) {
+        submitButton.removeAttribute("aria-busy");
+        if (!submitButton._resendTimer) submitButton.disabled = false;
+      }
     }
   }
 
@@ -185,6 +206,7 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
     const resendButton = resendRef.current;
     if (!resendButton || resendButton.disabled) return;
     resendButton.disabled = true;
+    resendButton.setAttribute("aria-busy", "true");
     try {
       const result = await post("auth/resend-code", {
         email: pendingEmail,
@@ -201,6 +223,8 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
       setRegisterMessage(`Failled: ${err.message}`);
       if (err.retryAfter) startResendCountdown(resendButton, err.retryAfter, "Kirim ulang kode");
       else resendButton.disabled = false;
+    } finally {
+      resendButton.removeAttribute("aria-busy");
     }
   }
 
@@ -237,9 +261,12 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
     const nextEmail = email.trim();
     setForgotEmail(nextEmail);
     setResetMessage("");
-    if (submitButton) submitButton.disabled = true;
+    if (submitButton) { submitButton.disabled = true; submitButton.setAttribute("aria-busy", "true"); }
     await requestResetCode(nextEmail);
-    if (submitButton && !submitButton._resendTimer) submitButton.disabled = false;
+    if (submitButton) {
+      submitButton.removeAttribute("aria-busy");
+      if (!submitButton._resendTimer) submitButton.disabled = false;
+    }
   }
 
   async function handleResetConfirmSubmit(event: FormEvent<HTMLFormElement>) {
@@ -249,7 +276,7 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
       return;
     }
     const button = (event.currentTarget.querySelector('button[type="submit"]') as HTMLButtonElement) ?? null;
-    if (button) button.disabled = true;
+    if (button) { button.disabled = true; button.setAttribute("aria-busy", "true"); }
     try {
       await post("auth/password-reset/confirm", {
         email: forgotEmail,
@@ -263,7 +290,7 @@ export function AuthForm({ mode }: { mode: AuthFormMode }) {
       setResetMessage(err.message);
       if (err.retryAfter) startResendCountdown(resetResendRef.current, err.retryAfter, "Kirim ulang kode");
     } finally {
-      if (button) button.disabled = false;
+      if (button) { button.disabled = false; button.removeAttribute("aria-busy"); }
     }
   }
 

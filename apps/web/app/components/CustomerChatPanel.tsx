@@ -38,6 +38,6 @@ export function CustomerChatPanel() {
       {!messages.length && <p className="muted">Tanyakan informasi umum seputar layanan Algentra Capital.</p>}
     </div>
     {error && <p className="error" role="alert">{error}</p>}
-    <form onSubmit={(event) => void send(event)}><label className="field">Pesan<textarea rows={3} maxLength={2000} required value={draft} onChange={(event) => setDraft(event.target.value)} /></label><button className="button primary" disabled={busy}>{busy ? "Mengirim…" : "Kirim pesan"}</button></form>
+    <form onSubmit={(event) => void send(event)}><label className="field">Pesan<textarea rows={3} maxLength={2000} required value={draft} onChange={(event) => setDraft(event.target.value)} /></label><button className="button primary" disabled={busy} aria-busy={busy}>{busy ? "Mengirim…" : "Kirim pesan"}</button></form>
   </section>;
 }

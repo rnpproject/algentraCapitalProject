@@ -185,7 +185,7 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
       <p className="qris-title">Pembayaran otomatis via QRIS</p>
       {!charge ? (
         <>
-          <button type="button" onClick={() => void createCharge()} disabled={creating}>
+          <button type="button" onClick={() => void createCharge()} disabled={creating} aria-busy={creating}>
             {creating ? "Membuat kode QR…" : "Buat kode QR"}
           </button>
           {error ? (
@@ -223,6 +223,7 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
               type="button"
               onClick={() => void syncStatus()}
               disabled={syncing}
+              aria-busy={syncing}
             >
               {syncing ? "Memeriksa…" : "Saya sudah bayar, cek status"}
             </button>
@@ -231,6 +232,7 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
               className="secondary"
               onClick={() => void createCharge()}
               disabled={creating}
+              aria-busy={creating}
             >
               Buat QR baru
             </button>
