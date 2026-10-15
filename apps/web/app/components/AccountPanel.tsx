@@ -628,6 +628,8 @@ export function AccountPanel() {
   const [accountMessage, setAccountMessage] = useState("");
   const [hasPaymentHistory, setHasPaymentHistory] = useState(false);
   const [connectingAccount, setConnectingAccount] = useState(false);
+  const [showAccountForm, setShowAccountForm] = useState(false);
+  const [rootUrl, setRootUrl] = useState("");
 
   const selectedVpsPrice =
     pricing?.vps_options.find((v) => v.code === selectedVps)?.price_idr ?? 0;
@@ -673,6 +675,7 @@ export function AccountPanel() {
   }, []);
 
   useEffect(() => {
+    setRootUrl(window.location.origin);
     apiRequest<Record<string, Plan>>("mt5/plans")
       .then(setPlans)
       .catch(() => {});
@@ -771,6 +774,7 @@ export function AccountPanel() {
   const hasEaAccount = accounts.some(
     (account) => account.execution_mode !== "MANAGED"
   );
+  const hasExistingPackage = accounts.length > 0;
 
   return (
     <main className="page-shell dashboard-page account-page" id="main-content" tabIndex={-1}>
@@ -789,6 +793,16 @@ export function AccountPanel() {
 
       <section>
         <h2>Hubungkan akun Copy Trading</h2>
+        {hasExistingPackage && !showAccountForm ? (
+          <>
+            <p className="section-help">Paket Copy Trading Anda sudah terdaftar. Gunakan aksi di bawah untuk melihat transaksi atau mendaftarkan akun tambahan.</p>
+            <div className="account-primary-actions">
+              <a className="account-action-button account-action-button--secondary" href="/transactions">Riwayat transaksi dan nota</a>
+              <button className="account-action-button" type="button" onClick={() => setShowAccountForm(true)}>Hubungkan akun lain</button>
+            </div>
+          </>
+        ) : (
+        <>
         <p className="section-help">
           Pilih cara menjalankan akun, layanan, dan detail akun broker. Akun dibuat
           setelah pembayaran disetujui. Untuk layanan dikelola server, password
@@ -1033,7 +1047,12 @@ export function AccountPanel() {
             </>
           )}
         </div>
-        {(hasPaymentHistory || accounts.length > 0) && (
+        {hasExistingPackage && showAccountForm && (
+          <div className="account-form-actions">
+            <button type="button" className="account-action-button account-action-button--secondary" onClick={() => setShowAccountForm(false)}>Tutup formulir</button>
+          </div>
+        )}
+        {!hasExistingPackage && hasPaymentHistory && (
           <div className="toolbar account-actions-toolbar">
             {hasPaymentHistory && (
               <a className="workspace-tag" href="/transactions">
@@ -1046,6 +1065,8 @@ export function AccountPanel() {
               </a>
             )}
           </div>
+        )}
+        </>
         )}
       </section>
 
@@ -1186,7 +1207,7 @@ export function AccountPanel() {
         </p>
         <div className="toolbar">
           <a
-            className="workspace-tag"
+            className="workspace-tag ea-download-button"
             href="/api/core/downloads/MT5FollowerCopyEA.mq5"
           >
             Unduh source EA Copy Trading
@@ -1198,22 +1219,17 @@ export function AccountPanel() {
             hanya terlihat saat dibuat atau dirotasi.
           </li>
           <li>
-            Di MT5, pilih <strong>File → Open Data Folder</strong>, buka folder{" "}
+            Di MT5, pilih File → Open Data Folder, buka folder{" "}
             <code>MQL5/Experts</code>, lalu salin file <code>.mq5</code> yang
-            diunduh ke sana. Buka file itu di MetaEditor dan tekan{" "}
-            <strong>F7</strong>; hasil compile <code>.ex5</code> siap digunakan
+            diunduh ke sana. Buka file itu di MetaEditor dan tekan F7; hasil compile <code>.ex5</code> siap digunakan
             di folder tersebut.
           </li>
           <li>
-            Di MT5, pilih <strong>Tools → Options → Expert Advisors</strong>,
-            aktifkan <em>Allow WebRequest for listed URL</em>, lalu tambahkan{" "}
-            <code>https://algentracapital.my.id</code>.
+            Di MT5, pilih Tools → Options → Expert Advisors, aktifkan Allow WebRequest for listed URL, lalu tambahkan{" "}
+            <code>{rootUrl || "root URL situs ini"}</code>.
           </li>
           <li>
-            Dari <strong>Navigator → Expert Advisors</strong>, pasang EA Copy
-            Trading di chart. Isi <code>AccountToken</code> dengan token akun
-            tersebut, pastikan <code>ServerURL</code> benar, lalu aktifkan{" "}
-            <strong>Algo Trading</strong>.
+            Dari Navigator → Expert Advisors, pasang EA Copy Trading di chart. Isi <code>AccountToken</code> dengan token akun tersebut, pastikan <code>ServerURL</code> benar, lalu aktifkan Algo Trading.
           </li>
           <li>
             Pastikan EA utama Algentra aktif. EA Copy Trading akan menyalin posisi

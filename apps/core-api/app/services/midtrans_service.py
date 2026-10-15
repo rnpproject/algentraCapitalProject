@@ -19,7 +19,7 @@ import base64
 import hashlib
 import hmac
 import logging
-import time
+import uuid
 from decimal import Decimal, InvalidOperation
 
 import httpx
@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from ..core.config import get_settings
 from ..models import PaymentOrder
 from ..repositories.payments import PaymentRepository
+from ..repositories.transactions import begin_serialized_write
 from .payment_review_service import approve_paid_order
 
 
@@ -92,15 +93,30 @@ def create_qris_charge(db: Session, *, order_id: int, owner_id: int) -> dict[str
     """Buat transaksi QRIS Midtrans untuk order milik user. Mengembalikan URL kode QR."""
     if not midtrans_configured():
         raise MidtransNotConfigured("Pembayaran QRIS belum tersedia.")
+    # Serialize charge creation per local order. UI effects may run twice (for
+    # example during remount/retry); the second request must reuse the active
+    # Midtrans charge instead of creating another transaction.
+    begin_serialized_write(db, f"midtrans-charge:{order_id}")
     repository = PaymentRepository(db)
     order = repository.get_for_owner(order_id, owner_id)
     if order is None:
+        db.rollback()
         raise MidtransOrderNotFound("Pesanan tidak ditemukan")
     if order.status != "PENDING_PAYMENT":
+        db.rollback()
         raise MidtransOrderConflict("Pesanan ini tidak sedang menunggu pembayaran.")
+    if order.payment_method == "QRIS" and order.midtrans_order_id:
+        result = {
+            "order_id": order.id,
+            "midtrans_order_id": order.midtrans_order_id,
+            "qr_code_url": _qr_code_url(order.midtrans_transaction_id),
+            "gross_amount": order.total_idr,
+        }
+        db.commit()
+        return result
 
     settings = get_settings()
-    midtrans_order_id = f"ALG-{order.id}-{int(time.time())}"
+    midtrans_order_id = f"ALG-{order.id}-{uuid.uuid4().hex[:20]}"
     payload: dict[str, object] = {
         "payment_type": "qris",
         "transaction_details": {
