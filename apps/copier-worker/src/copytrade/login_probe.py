@@ -55,13 +55,6 @@ def main() -> None:
         if str(getattr(account, "login", "")) != str(request["login"]):
             _result(False, "Terminal terhubung ke nomor akun yang berbeda dari yang dimasukkan.")
             return
-        hedging_mode = getattr(mt5, "ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", 2)
-        if getattr(account, "margin_mode", None) != hedging_mode:
-            _result(
-                False,
-                "Login broker berhasil, tetapi akun bertipe Netting. Managed copier saat ini mensyaratkan akun Hedging.",
-            )
-            return
         if not getattr(account, "trade_allowed", False):
             _result(False, "Login berhasil, tetapi broker menolak izin trading akun ini.")
             return

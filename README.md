@@ -192,7 +192,7 @@ Gunakan langkah ini pada server Windows ketika status login di portal terus bera
      Select-Object LastRunTime, LastTaskResult
    ```
 
-7. Buka `/account` di portal, simpan kredensial broker untuk akun managed, lalu tunggu status keluar dari **Sedang memeriksa**. Probe pertama memberi waktu hingga 150 detik karena MT5 dapat memperbarui file dan mengompilasi ulang program saat pertama berjalan. Pesan **Login broker berhasil, tetapi akun bertipe Netting** berarti kredensial berhasil, tetapi mode akun belum didukung copier; gunakan akun Hedging untuk managed copy. Jika status tetap memeriksa, periksa `logs\managed_worker.log` dan `logs\managed_worker-task-error.log`; pastikan `LastTaskResult` bernilai `0` dan worker melaporkan polling backend. Uji validasi login tidak mengirim order. Jangan aktifkan copy live sebagai bagian dari tes ini.
+7. Buka `/account` di portal, simpan kredensial broker untuk akun managed, lalu tunggu status keluar dari **Sedang memeriksa**. Probe pertama memberi waktu hingga 150 detik karena MT5 dapat memperbarui file dan mengompilasi ulang program saat pertama berjalan. Copier mendukung akun Hedging dan Netting/Exchange; pada Netting, exposure posisi master digabung per simbol dan SL/TP posisi virtual dipantau oleh worker. Jika status tetap memeriksa, periksa `logs\managed_worker.log` dan `logs\managed_worker-task-error.log`; pastikan `LastTaskResult` bernilai `0` dan worker melaporkan polling backend. Uji validasi login tidak mengirim order. Sebelum live, perbarui/restart worker ke versi ini dan pastikan alur Netting berjalan di akun demo.
 
 ### 5. Aktifkan akses publik
 

@@ -65,6 +65,10 @@ class FollowerEngine:
         self.last_heartbeat = 0.0
         self.last_account_report = 0.0
         self.report_scan_msc = 0
+        self.netting_mode = False
+        self.netting_halted: set[str] = set()
+        if not isinstance(self.state.get("netting_residuals"), dict):
+            self.state["netting_residuals"] = {}
         self.heartbeat_path = Path(self.config.get("heartbeat_folder", ".")) / f"heartbeat_{self.config['nama']}.txt"
 
     @property
@@ -90,11 +94,9 @@ class FollowerEngine:
         if account is None:
             raise ConnectionError(f"account_info gagal: {self.mt5.last_error()}")
         hedging = getattr(self.mt5, "ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", 2)
-        if _get(account, "margin_mode") != hedging:
-            self.logger.error("PERINGATAN KERAS: akun netting; pemetaan satu posisi ke satu ticket tidak akurat")
-            if not self.config.get("izinkan_netting", False):
-                self.mt5.shutdown()
-                raise RuntimeError("Akun netting ditolak; set izinkan_netting=true hanya jika menerima keterbatasannya")
+        self.netting_mode = _get(account, "margin_mode") != hedging
+        if self.netting_mode:
+            self.logger.info("Akun follower memakai mode Netting; eksposur master digabung per simbol")
         terminal = self.mt5.terminal_info()
         if terminal is None or not _get(terminal, "connected", False):
             self.mt5.shutdown()
@@ -215,6 +217,8 @@ class FollowerEngine:
             return "batas max_posisi_terbuka dan max_lot_total wajib dikonfigurasi"
         if max_positions <= 0 or not math.isfinite(max_lots) or max_lots <= 0:
             return "batas max_posisi_terbuka dan max_lot_total harus lebih besar dari 0"
+        if max_positions <= 0 or not math.isfinite(max_lots) or max_lots <= 0:
+            return "batas max_posisi_terbuka dan max_lot_total harus lebih besar dari 0"
         open_count = len(raw_positions)
         total_lots = sum(float(_get(pos, "volume", 0.0) or 0.0) for pos in raw_positions)
         if self.config.get("dry_run", True):
@@ -225,6 +229,165 @@ class FollowerEngine:
         if total_lots + volume > max_lots + 1e-10:
             return f"batas max_lot_total={max_lots:g} akan terlampaui"
         return None
+
+    @staticmethod
+    def _signed_exposure(positions: Mapping[str, Mapping[str, Any]], symbol: str) -> float:
+        total = 0.0
+        for mapping in positions.values():
+            if str(mapping.get("symbol", "")) != symbol:
+                continue
+            side = str(mapping.get("side", "buy"))
+            sign = 1.0 if side == "buy" else -1.0
+            total += sign * float(mapping.get("volume_current", mapping.get("volume_initial", 0.0)))
+        return total
+
+    def _actual_net_position(self, symbol: str) -> tuple[float, Any | None] | None:
+        try:
+            rows = self.mt5.positions_get(symbol=symbol)
+        except TypeError:
+            rows = self.mt5.positions_get()
+        if rows is None:
+            self.logger.error("Tidak dapat membaca posisi Netting %s: %s", symbol, self.mt5.last_error())
+            return None
+        rows = [row for row in rows if str(_get(row, "symbol", "")) == symbol]
+        if len(rows) > 1:
+            self.logger.error("Akun melaporkan lebih dari satu posisi Netting untuk %s", symbol)
+            return None
+        if not rows:
+            return 0.0, None
+        position = rows[0]
+        buy = getattr(self.mt5, "POSITION_TYPE_BUY", 0)
+        sign = 1.0 if _get(position, "type") == buy else -1.0
+        return sign * float(_get(position, "volume", 0.0) or 0.0), position
+
+    def _netting_risk_check(self, proposed: Mapping[str, Mapping[str, Any]]) -> str | None:
+        symbols = {str(row.get("symbol", "")) for row in proposed.values() if row.get("symbol")}
+        exposed = {
+            symbol
+            for symbol in symbols
+            if any(
+                str(row.get("symbol", "")) == symbol
+                and float(row.get("volume_current", row.get("volume_initial", 0.0))) > 1e-10
+                for row in proposed.values()
+            )
+        }
+        try:
+            max_positions = int(self.config["max_posisi_terbuka"])
+            max_lots = float(self.config["max_lot_total"])
+        except (KeyError, TypeError, ValueError):
+            return "batas max_posisi_terbuka dan max_lot_total wajib dikonfigurasi"
+        if len(exposed) > max_positions:
+            return f"batas max_posisi_terbuka={max_positions} akan terlampaui"
+        gross_lots = sum(
+            float(row.get("volume_current", row.get("volume_initial", 0.0))) for row in proposed.values()
+        )
+        if gross_lots > max_lots + 1e-10:
+            return f"batas max_lot_total={max_lots:g} akan terlampaui"
+        return None
+
+    def _commit_netting(self, symbol: str, proposed: dict[str, dict[str, Any]]) -> bool | str:
+        if symbol in self.netting_halted:
+            self.logger.error("Aksi Netting %s dihentikan sampai posisi direkonsiliasi manual", symbol)
+            return False
+        risk = self._netting_risk_check(proposed)
+        if risk:
+            self.logger.warning("Eksposur Netting dilewati: %s", risk)
+            return "lewati_batas_pengaman"
+        current = self._signed_exposure(self.positions, symbol)
+        target = self._signed_exposure(proposed, symbol)
+        info = self.mt5.symbol_info(symbol)
+        minimum = float(_get(info, "volume_min", 0.01))
+        step = float(_get(info, "volume_step", 0.01))
+        if self.config.get("dry_run", True):
+            self.logger.info("DRY RUN Netting %s eksposur %.8g -> %.8g", symbol, current, target)
+            self.state["positions"] = proposed
+            self.state["netting_residuals"][symbol] = 0.0
+            self._persist()
+            return True
+
+        actual_row = self._actual_net_position(symbol)
+        if actual_row is None:
+            self.netting_halted.add(symbol)
+            return False
+        actual, position = actual_row
+        tolerance = max(step * 0.25, 1e-8)
+        residuals = self.state["netting_residuals"]
+        expected_actual = current - float(residuals.get(symbol, 0.0) or 0.0)
+        if abs(actual - expected_actual) > tolerance:
+            self.logger.error(
+                "Eksposur Netting %s berbeda dari state copier (MT5=%.8g, state=%.8g); simbol dijeda",
+                symbol,
+                actual,
+                expected_actual,
+            )
+            self.netting_halted.add(symbol)
+            return False
+
+        delta = target - actual
+        after = actual
+        after_position = position
+        if abs(delta) >= minimum - tolerance:
+            volume = math_floor_step(abs(delta), step)
+            if volume < minimum:
+                self.logger.error("Perubahan Netting %s %.8g di bawah minimum lot %.8g", symbol, delta, minimum)
+                return False
+            side = "buy" if delta > 0 else "sell"
+            price = self._market_price(symbol, side)
+            if price is None or price <= 0:
+                self.logger.error("Tidak mendapat harga untuk menyesuaikan eksposur Netting %s", symbol)
+                return False
+            request = {
+                "action": getattr(self.mt5, "TRADE_ACTION_DEAL", 1),
+                "symbol": symbol,
+                "volume": volume,
+                "type": getattr(self.mt5, "ORDER_TYPE_BUY", 0)
+                if side == "buy"
+                else getattr(self.mt5, "ORDER_TYPE_SELL", 1),
+                "price": price,
+                "deviation": int(self.config.get("deviation_poin", 20)),
+                "magic": int(self.config.get("magic", 880001)),
+                "comment": str(self.config.get("komentar", "copy"))[:31],
+                "type_time": getattr(self.mt5, "ORDER_TIME_GTC", 0),
+                "sl": 0.0,
+                "tp": 0.0,
+            }
+            if position is not None:
+                request["position"] = int(_get(position, "ticket", 0) or 0)
+            result = self._send(request, info)
+            after_row = self._actual_net_position(symbol)
+            if after_row is None:
+                self.netting_halted.add(symbol)
+                return False
+            after, after_position = after_row
+            if abs(after - target) > tolerance:
+                if abs(after - actual) > tolerance and abs(target - after) >= minimum - tolerance:
+                    self.logger.error(
+                        "Eksekusi Netting %s menyimpang dari target (aktual=%.8g target=%.8g); simbol dijeda",
+                        symbol,
+                        after,
+                        target,
+                    )
+                    self.netting_halted.add(symbol)
+                elif result is None or not self._is_success(_get(result, "retcode")):
+                    self.logger.error("Order Netting %s gagal; sinyal akan dicoba ulang", symbol)
+                    return False
+                elif abs(target - after) >= minimum - tolerance:
+                    return False
+            if result is None or not self._is_success(_get(result, "retcode")):
+                if abs(after - actual) > tolerance:
+                    self.logger.warning("Order Netting %s terkonfirmasi melalui posisi aktual", symbol)
+            position = after_position
+
+        ticket = int(_get(position, "ticket", 0) or 0) if position is not None else None
+        for key, mapping in proposed.items():
+            if str(mapping.get("symbol", "")) == symbol:
+                mapping["ticket"] = ticket
+        self.state["positions"] = proposed
+        residuals[symbol] = target - after
+        if abs(float(residuals[symbol])) <= tolerance:
+            residuals.pop(symbol, None)
+        self._persist()
+        return True
 
     def process_signal(self, raw_signal: Signal | Mapping[str, Any] | str, *, now: float | None = None) -> str:
         signal = parse_signal(raw_signal)
@@ -242,8 +405,9 @@ class FollowerEngine:
         except Exception:
             self.logger.exception("Sinyal %s aksi=%s gagal", signal.id, signal.aksi)
             result = "gagal"
-        self.processed.add(signal.id)
-        self._persist()
+        if not (self.netting_mode and result.startswith("gagal")):
+            self.processed.add(signal.id)
+            self._persist()
         self.logger.info("Sinyal %s aksi=%s hasil=%s", signal.id, signal.aksi, result)
         return result
 
@@ -270,13 +434,29 @@ class FollowerEngine:
             self.logger.warning("Order follower dilewati: %s", lot.reason)
             return "lewati_lot"
         volume = float(lot.volume)
+        side = str(signal.arah)
+        if self.config.get("arah_terbalik", False):
+            side = "sell" if side == "buy" else "buy"
+        if self.netting_mode:
+            proposed = {item: dict(value) for item, value in self.positions.items()}
+            proposed[key] = {
+                "ticket": None,
+                "volume_initial": volume,
+                "volume_current": volume,
+                "master_initial": float(signal.lot),
+                "side": side,
+                "symbol": symbol,
+                "sl": float(signal.sl or 0.0),
+                "tp": float(signal.tp or 0.0),
+            }
+            committed = self._commit_netting(symbol, proposed)
+            if committed is not True:
+                return committed if isinstance(committed, str) else "gagal_netting_buka"
+            return "sukses_dry_run" if self.config.get("dry_run", True) else "sukses"
         safety_reason = self._safety_check(volume)
         if safety_reason:
             self.logger.warning("Order follower dilewati: %s", safety_reason)
             return "lewati_batas_pengaman"
-        side = str(signal.arah)
-        if self.config.get("arah_terbalik", False):
-            side = "sell" if side == "buy" else "buy"
         price = self._market_price(symbol, side)
         if price is None or price <= 0:
             self.logger.error("Tidak mendapat harga pasar untuk %s", symbol)
@@ -347,6 +527,13 @@ class FollowerEngine:
         if mapped is None:
             return "lewati_tidak_terpetakan"
         key, mapping = mapped
+        if self.netting_mode:
+            proposed = {item: dict(value) for item, value in self.positions.items()}
+            proposed[key]["sl"] = float(signal.sl or 0.0)
+            proposed[key]["tp"] = float(signal.tp or 0.0)
+            self.state["positions"] = proposed
+            self._persist()
+            return "sukses_dry_run" if self.config.get("dry_run", True) else "sukses_virtual_stop"
         if self.config.get("dry_run", True):
             self.logger.info("DRY RUN ubah SL/TP ticket=%s", mapping["ticket"])
             return "sukses_dry_run"
@@ -445,6 +632,17 @@ class FollowerEngine:
                 return "lewati_di_bawah_minimum"
             if Decimal(str(current)) - Decimal(str(close_volume)) < Decimal(str(minimum)):
                 close_volume = current
+        if self.netting_mode:
+            remaining = max(0.0, current - close_volume)
+            proposed = {item: dict(value) for item, value in self.positions.items()}
+            if remaining < minimum - 1e-10:
+                proposed.pop(key, None)
+            else:
+                proposed[key]["volume_current"] = remaining
+            committed = self._commit_netting(str(mapping["symbol"]), proposed)
+            if committed is not True:
+                return committed if isinstance(committed, str) else "gagal_netting_partial_close"
+            return "sukses_dry_run" if self.config.get("dry_run", True) else "sukses"
         if not self._close_volume(key, mapping, close_volume):
             return "gagal_partial_close"
         return "sukses_dry_run" if self.config.get("dry_run", True) else "sukses"
@@ -454,10 +652,48 @@ class FollowerEngine:
         if mapped is None:
             return "lewati_tidak_terpetakan"
         key, mapping = mapped
+        if self.netting_mode:
+            proposed = {item: dict(value) for item, value in self.positions.items()}
+            proposed.pop(key, None)
+            committed = self._commit_netting(str(mapping["symbol"]), proposed)
+            if committed is not True:
+                return committed if isinstance(committed, str) else "gagal_netting_tutup"
+            return "sukses_dry_run" if self.config.get("dry_run", True) else "sukses"
         volume = float(mapping.get("volume_current", mapping["volume_initial"]))
         if not self._close_volume(key, mapping, volume):
             return "gagal_tutup"
         return "sukses_dry_run" if self.config.get("dry_run", True) else "sukses"
+
+    def _check_virtual_stops(self) -> None:
+        if self.config.get("dry_run", True):
+            return
+        for key, mapping in list(self.positions.items()):
+            symbol = str(mapping.get("symbol", ""))
+            if not symbol or symbol in self.netting_halted:
+                continue
+            sl = float(mapping.get("sl", 0.0) or 0.0)
+            tp = float(mapping.get("tp", 0.0) or 0.0)
+            if sl <= 0 and tp <= 0:
+                continue
+            tick = self.mt5.symbol_info_tick(symbol)
+            if tick is None:
+                continue
+            side = str(mapping.get("side", "buy"))
+            market_price = float(_get(tick, "bid" if side == "buy" else "ask", 0.0) or 0.0)
+            stopped = (side == "buy" and ((sl > 0 and market_price <= sl) or (tp > 0 and market_price >= tp))) or (
+                side == "sell" and ((sl > 0 and market_price >= sl) or (tp > 0 and market_price <= tp))
+            )
+            if not stopped:
+                continue
+            proposed = {item: dict(value) for item, value in self.positions.items()}
+            proposed.pop(key, None)
+            if self._commit_netting(symbol, proposed):
+                self.logger.warning(
+                    "Virtual SL/TP menutup eksposur master %s pada %s di harga %.8g",
+                    key,
+                    symbol,
+                    market_price,
+                )
 
     def reconcile(self, *, force: bool = False) -> None:
         now = time.monotonic()
@@ -469,6 +705,34 @@ class FollowerEngine:
         rows = self.mt5.positions_get()
         if rows is None:
             self.logger.error("Rekonsiliasi gagal; positions_get: %s", self.mt5.last_error())
+            return
+        if self.netting_mode:
+            symbols = {str(row.get("symbol", "")) for row in self.positions.values() if row.get("symbol")}
+            symbols.update(str(_get(position, "symbol", "")) for position in rows)
+            for symbol in symbols:
+                actual_row = self._actual_net_position(symbol)
+                if actual_row is None:
+                    self.netting_halted.add(symbol)
+                    continue
+                actual, position = actual_row
+                expected = self._signed_exposure(self.positions, symbol) - float(
+                    self.state["netting_residuals"].get(symbol, 0.0) or 0.0
+                )
+                step = float(_get(self.mt5.symbol_info(symbol), "volume_step", 0.01))
+                tolerance = max(step * 0.25, 1e-8)
+                if abs(actual - expected) > tolerance:
+                    self.logger.error(
+                        "Rekonsiliasi Netting %s menemukan deviasi (MT5=%.8g, state=%.8g); simbol dijeda",
+                        symbol,
+                        actual,
+                        expected,
+                    )
+                    self.netting_halted.add(symbol)
+                    continue
+                ticket = int(_get(position, "ticket", 0) or 0) if position is not None else None
+                for mapping in self.positions.values():
+                    if str(mapping.get("symbol", "")) == symbol:
+                        mapping["ticket"] = ticket
             return
         tickets = {int(_get(pos, "ticket", 0)) for pos in rows}
         mapped_tickets = {int(mapping["ticket"]) for mapping in self.positions.values()}
@@ -515,7 +779,9 @@ class FollowerEngine:
         result = read_new(path, int(self.state.get("offset", 0)))
         count = 0
         for record in result.records:
-            self.process_signal(record.signal)
+            outcome = self.process_signal(record.signal)
+            if self.netting_mode and outcome.startswith("gagal"):
+                break
             self.state["offset"] = record.end_offset
             self._persist()
             count += 1
@@ -656,6 +922,8 @@ class FollowerEngine:
 
     def loop_once(self, *, today: date | None = None) -> int:
         self.reconcile()
+        if self.netting_mode:
+            self._check_virtual_stops()
         count = self.consume_once(today=today)
         now = time.monotonic()
         if now - self.last_heartbeat >= 5:

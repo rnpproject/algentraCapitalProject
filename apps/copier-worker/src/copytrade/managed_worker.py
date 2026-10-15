@@ -338,7 +338,6 @@ class ManagedWorker:
             "dry_run": False,
             "max_posisi_terbuka": int(job["max_open_positions"]),
             "max_lot_total": float(job["max_lot_total"]),
-            "izinkan_netting": False,
             "heartbeat_folder": str(heartbeat_dir),
             "state_path": str(self.states_dir / f"{account_id}.json"),
             "report_path": str(self.reports_dir / f"{account_id}.json"),
