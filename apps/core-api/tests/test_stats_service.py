@@ -70,6 +70,24 @@ def test_dashboard_signal_categories_cover_expired_and_report_unknown_statuses(m
     assert result["signal_status_unknown_values"] == ["MYSTERY"]
 
 
+def test_dashboard_counts_final_trade_results_as_executed_signals(monkeypatch):
+    from app.services import stats_service
+
+    class FakeStatisticsRepository:
+        def __init__(self, _db):
+            pass
+
+        def dashboard_data(self):
+            return ["EXECUTED", "WIN", "LOSS", "BE"], [], 0, []
+
+    monkeypatch.setattr(stats_service, "StatisticsRepository", FakeStatisticsRepository)
+    result = get_dashboard_stats(object())
+
+    assert result["signals_total"] == 4
+    assert result["signals_executed"] == 4
+    assert result["signal_status_unknown"] is False
+
+
 def test_daily_loss_counts_only_closed_negative_trades_on_or_after_day_start():
     day_start = datetime(2026, 10, 13, 17, 0)  # 00.00 WIB, stored UTC naive
     trades = [

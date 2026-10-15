@@ -77,6 +77,9 @@ const TRADE_PAGE_SIZE = 10;
 const displayTime = (value?: string | null) =>
   value ? new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : EMPTY;
 
+const truncateSignalText = (value: string, limit = 140) =>
+  value.length > limit ? `${value.slice(0, limit).trimEnd()}......` : value;
+
 const formatPercent = (value: number | string | null | undefined) => {
   const text = formatNumber(value, 0, 2);
   return text === EMPTY ? text : `${text}%`;
@@ -146,6 +149,7 @@ export function DashboardPanel() {
   const profitChartRef = useRef<{ destroy: () => void } | null>(null);
   const groupCanvasRef = useRef<HTMLCanvasElement>(null);
   const profitCanvasRef = useRef<HTMLCanvasElement>(null);
+  const latestSignalIdRef = useRef<number | null | undefined>(undefined);
 
   async function loadStatsAndSignals() {
     const [freshStats, freshSignals] = await Promise.all([
@@ -238,9 +242,7 @@ export function DashboardPanel() {
     async function boot() {
       try {
         await refresh();
-        // Vercel serverless tidak mendukung WebSocket /ws, jadi realtime
-        // diganti polling 5 detik (setara fallback template asli).
-        if (!cancelled) setConnection("Realtime tidak tersedia; ringkasan diperbarui tiap 5 detik.");
+        if (!cancelled) setConnection("Realtime tersambung melalui SSE.");
       } catch (reason) {
         if (await isUnauthorized()) {
           router.replace("/admin/login");
@@ -255,13 +257,31 @@ export function DashboardPanel() {
       if (!cancelled)
         setSettingsMessage(reason instanceof Error ? reason.message : "Gagal memuat settings.");
     });
-    // Pengganti WebSocket (tidak bisa lewat Vercel serverless): polling tiap 5 detik.
-    const pollTimer = setInterval(() => {
+    const stream = new EventSource("/api/core/dashboard/realtime/stream");
+    stream.addEventListener("dashboard", (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent<string>).data) as {
+          stats?: Stats;
+          latest_signal_id?: number | null;
+        };
+        if (payload.stats) setStats(payload.stats);
+        setConnection("Realtime tersambung melalui SSE.");
+        if (payload.latest_signal_id !== undefined) {
+          const previousId = latestSignalIdRef.current;
+          latestSignalIdRef.current = payload.latest_signal_id;
+          if (previousId !== undefined && previousId !== payload.latest_signal_id) void loadStatsAndSignals();
+        }
+      } catch {
+        if (!cancelled) setConnection("Data realtime tidak dapat dibaca.");
+      }
+    });
+    stream.onopen = () => { if (!cancelled) setConnection("Realtime tersambung melalui SSE."); };
+    stream.onerror = () => { if (!cancelled) setConnection("Menyambungkan ulang realtime…"); };
+    // Refresh data tabel secara berkala; statistik dan sinyal menerima event SSE.
+    const detailTimer = setInterval(() => {
       if (document.hidden || cancelled) return;
-      void loadStatsAndSignals().catch(() => {
-        if (!cancelled) setConnection("Realtime tidak tersedia; ringkasan diperbarui tiap 5 detik.");
-      });
-    }, 5000);
+      void Promise.all([loadMt5Live(), loadGroups(), loadLogs(), loadTrades(tradePageRef.current), loadProfitChart()]).catch(() => {});
+    }, 15000);
     // MT5 live: polling tiap 2 detik.
     const mt5Timer = setInterval(() => {
       if (document.hidden || cancelled) return;
@@ -271,7 +291,8 @@ export function DashboardPanel() {
     }, 2000);
     return () => {
       cancelled = true;
-      clearInterval(pollTimer);
+      stream.close();
+      clearInterval(detailTimer);
       clearInterval(mt5Timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -568,6 +589,7 @@ export function DashboardPanel() {
               id="registration-open"
               type="button"
               disabled={registrationOpen === true || registrationBusy}
+              aria-busy={registrationBusy}
               onClick={() => void setRegistrationOpen(true)}
             >
               Buka pendaftaran
@@ -577,6 +599,7 @@ export function DashboardPanel() {
               className="secondary"
               type="button"
               disabled={registrationOpen === false || registrationBusy}
+              aria-busy={registrationBusy}
               onClick={() => void setRegistrationOpen(false)}
             >
               Tutup pendaftaran
@@ -621,17 +644,6 @@ export function DashboardPanel() {
               <div className="sc-profit">
                 <div className="sc-profit-label">
                   <span>TOTAL PROFIT</span>
-                  <span id="wins-losses" className="sc-win-loss">
-                    {wins !== null && losses !== null ? (
-                      <>
-                        <span>{formatInteger(wins)}W</span>
-                        {" / "}
-                        <span>{formatInteger(losses)}L</span>
-                      </>
-                    ) : (
-                      <>—W / —L</>
-                    )}
-                  </span>
                 </div>
                 <b id="total-profit" className={toneClass(totalProfit !== null ? numberTone(totalProfit) : "")}>
                   {totalProfit !== null ? formatNumber(totalProfit, 2, 2) : EMPTY}
@@ -828,7 +840,7 @@ export function DashboardPanel() {
             Lima pesan terbaru beserta hasil parsing, confidence, status pemrosesan, dan ticket order.
           </p>
           <div className="table-wrap">
-            <table>
+            <table className="signal-table">
               <thead>
                 <tr>
                   <th>Waktu</th>
@@ -853,8 +865,12 @@ export function DashboardPanel() {
                     <tr key={`${signal.created_at}-${index}`}>
                       <td>{displayTime(signal.created_at)}</td>
                       <td>{signal.group_name || signal.group_id || EMPTY}</td>
-                      <td>{signal.raw_text}</td>
-                      <td>{signal.normalized_text || EMPTY}</td>
+                      <td className="signal-text-cell" title={signal.raw_text}>
+                        <span>{truncateSignalText(signal.raw_text)}</span>
+                      </td>
+                      <td className="signal-text-cell" title={signal.normalized_text || EMPTY}>
+                        <span>{truncateSignalText(signal.normalized_text || EMPTY)}</span>
+                      </td>
                       <td className={`num ${toneClass(confidenceTone)}`}>
                         {signal.confidence === null || signal.confidence === undefined
                           ? EMPTY

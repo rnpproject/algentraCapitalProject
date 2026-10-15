@@ -1,15 +1,14 @@
 from contextlib import asynccontextmanager
 import asyncio
+import json
 import secrets
 import os
-from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from urllib.parse import urlsplit
 
@@ -17,8 +16,7 @@ from .auth import seed_admin
 from .core.config import PROJECT_ROOT, get_settings
 from .core.bff_security import BFFSignatureMiddleware
 from .services.cs_service import cleanup_expired_conversations_periodically, purge_expired_conversations
-from .domain.client_plans import CLIENT_PLANS
-from .database import Base, SessionLocal, engine, ensure_schema_ready, get_db, migrate_schema
+from .database import Base, SessionLocal, engine, ensure_schema_ready, migrate_schema
 from .models import Signal, utc_now
 from .repositories.settings import SettingsRepository
 from .realtime.public_realtime import public_performance_hub
@@ -49,7 +47,6 @@ from .services.risk_controls import risk_state
 from .core.time_utils import wib_iso
 from .services.payment_bot import payment_review_bot
 from .state import ea_heartbeat_state, master_snapshot_state
-from .state import MasterAccountSnapshot, MasterPosition
 
 
 @asynccontextmanager
@@ -159,7 +156,7 @@ class SecurityHeadersMiddleware:
                     [
                         (
                             b"content-security-policy",
-                            f"default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; font-src 'self' data:; media-src {self.media_sources}; connect-src 'self' ws: wss:; script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; style-src 'self' 'nonce-{nonce}'; form-action 'self'".encode(
+                            f"default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; font-src 'self' data:; media-src {self.media_sources}; connect-src 'self'; script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net; style-src 'self' 'nonce-{nonce}'; form-action 'self'".encode(
                                 "ascii"
                             ),
                         ),
@@ -272,7 +269,7 @@ def readiness() -> JSONResponse:
 
 
 # NOTE: halaman web (login, dashboard, dsb.) disajikan oleh Next.js di Vercel.
-# Core API di Windows hanya melayani API JSON, health, unduhan, dan websocket.
+# Core API di Windows hanya melayani API JSON/SSE, health, unduhan, dan kompatibilitas WebSocket.
 
 
 @app.get("/downloads/MT5FollowerCopyEA.mq5", response_class=FileResponse, include_in_schema=False)
@@ -366,6 +363,10 @@ async def dashboard_websocket(websocket: WebSocket) -> None:
             await asyncio.sleep(2)
     except (WebSocketDisconnect, RuntimeError):
         return
+
+
+def _sse_message(payload: dict[str, object], event: str = "update") -> bytes:
+    return f"event: {event}\ndata: {json.dumps(payload, separators=(',', ':'), default=str)}\n\n".encode()
 
 
 @app.websocket("/ws/public/performance")

@@ -605,7 +605,7 @@ BFF: `fetch("/api/core/<p>")` → `CORE_API_ORIGIN/v1/<p>` (kecuali `downloads/*
   porting: 8 StatCard grid. → Samakan layout.
 - Grafik: asli Chart.js (`#group-chart` bar, `#profit-chart` line); porting: **tidak ada**.
 - MT5 live: struktur mirip, tapi class/posisi beda (asli `.sc-mt5` + chips).
-- Realtime: asli WebSocket `/ws` + fallback polling; porting: polling 5 dtk saja (wajar untuk Vercel).
+- Realtime: UI React memakai SSE lewat BFF; dashboard menerima snapshot tiap 2 dtk dan performa publik menerima update tiap 2 dtk. Fungsi BFF dibatasi `maxDuration` 300 dtk dan browser reconnect otomatis.
 - Log/trade/settings: fitur lengkap di porting, tapi class & copy beda; export CSV asli
   berupa `<a href>` yang diupdate JS (bukan fetch).
 - Registration controls: ada di keduanya; porting pakai `disabled` bukan render ulang state.

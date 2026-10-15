@@ -114,8 +114,8 @@ def _record_code_send(record: EmailVerification | PasswordResetCode, now: dateti
     record.attempts = 0
     if isinstance(record, PasswordResetCode):
         record.last_activity_at = now
-    if record.send_count >= SEND_LIMIT:
-        record.locked_until = now + SEND_WINDOW
+    # Send limits are enforced by _send_wait_seconds. Do not use locked_until
+    # here: verification must remain available for the latest valid code.
     return _send_wait_seconds(record, now)
 
 
@@ -154,8 +154,6 @@ def register(payload: RegisterRequest, db: Session) -> dict[str, str | int]:
             status_code=403, detail="Pendaftaran client sedang ditutup. Silakan tunggu pengumuman launching."
         )
     email = _normalized_email(payload.email)
-    if len(payload.password.encode("utf-8")) > 72:
-        raise HTTPException(status_code=422, detail="Kata sandi maksimal 72 byte")
     settings = get_settings()
     if not settings.email_configured:
         raise HTTPException(status_code=503, detail="Pendaftaran belum tersedia karena email SMTP belum dikonfigurasi")
@@ -211,8 +209,6 @@ def _utc(value):
 
 def resend_code(payload: ResendCodeRequest, db: Session) -> dict[str, str | int]:
     email = _normalized_email(payload.email)
-    if len(payload.password.encode("utf-8")) > 72:
-        raise HTTPException(status_code=422, detail="Kata sandi maksimal 72 byte")
     settings = get_settings()
     if not settings.email_configured:
         raise HTTPException(status_code=503, detail="Pendaftaran belum tersedia karena email SMTP belum dikonfigurasi")
@@ -258,13 +254,17 @@ def verify_email(payload: VerifyEmailRequest, request: Request, db: Session) -> 
         db.rollback()
         raise HTTPException(status_code=400, detail="Kode tidak valid atau kedaluwarsa")
     locked_for = _seconds_until(pending.locked_until, now)
-    if locked_for:
-        db.rollback()
-        raise HTTPException(
-            status_code=429,
-            detail="Kesempatan memasukkan kode habis. Coba lagi dalam 1 jam.",
-            headers={"Retry-After": str(locked_for)},
-        )
+    if pending.attempts >= CODE_ATTEMPT_LIMIT:
+        if locked_for:
+            db.rollback()
+            raise HTTPException(
+                status_code=429,
+                detail="Kesempatan memasukkan kode habis. Coba lagi dalam 1 jam.",
+                headers={"Retry-After": str(locked_for)},
+            )
+        # Clear a completed lock after its hour has elapsed.
+        pending.attempts = 0
+        pending.locked_until = None
     if _utc(pending.expires_at) <= now:
         db.rollback()
         raise HTTPException(status_code=400, detail="Kode tidak valid atau kedaluwarsa")
@@ -342,9 +342,6 @@ def request_password_reset(
 
 def confirm_password_reset(payload: PasswordResetConfirmRequest, db: Session) -> dict[str, str]:
     email = _normalized_email(payload.email)
-    if len(payload.password.encode("utf-8")) > 72:
-        raise HTTPException(status_code=422, detail="Kata sandi maksimal 72 byte")
-
     email_hash = _password_reset_email_key(email)
     begin_serialized_write(db, f"password-reset:{email_hash}")
     challenge = db.get(PasswordResetCode, email_hash)

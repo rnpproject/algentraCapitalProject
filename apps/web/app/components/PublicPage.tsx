@@ -599,30 +599,23 @@ export default function PublicPage() {
       showEquityChart(curve);
     };
 
-    /* ---------- Koneksi live ---------- */
-    let historyRefreshAt = 0;
-    let performancePollInFlight = false;
-    const pollPublicPerformance = async () => {
-      if (performancePollInFlight) return;
-      performancePollInFlight = true;
+    /* ---------- Koneksi SSE live ---------- */
+    const performanceStream = new EventSource("/api/core/public/performance/stream");
+    performanceStream.addEventListener("performance", (event) => {
       try {
-        const refreshHistory = Date.now() >= historyRefreshAt;
-        const endpoint = refreshHistory ? "public/performance" : "public/performance?include_equity_curve=false";
-        const data = await apiRequest<PerformanceData>(endpoint);
-        renderPerformance(data);
-        if (refreshHistory && Array.isArray(data.equity_curve)) historyRefreshAt = Date.now() + 60000;
+        renderPerformance(JSON.parse((event as MessageEvent<string>).data) as PerformanceData);
       } catch (error) {
         const status = marketStatusRef.current;
         if (status) {
           setStatus(status, "RECONNECT", "warn");
-          status.title = `Data performa gagal dimuat: ${error instanceof Error ? error.message : error}`;
+          status.title = `Data performa gagal dibaca: ${error instanceof Error ? error.message : error}`;
         }
-      } finally {
-        performancePollInFlight = false;
       }
+    });
+    performanceStream.onerror = () => {
+      const status = marketStatusRef.current;
+      if (status) setStatus(status, "RECONNECT", "warn");
     };
-    pollPublicPerformance();
-    const pollTimer = window.setInterval(pollPublicPerformance, 1000);
 
     let resizeFrame = 0;
     const onResize = () => {
@@ -634,7 +627,7 @@ export default function PublicPage() {
     window.addEventListener("resize", onResize);
 
     return () => {
-      window.clearInterval(pollTimer);
+      performanceStream.close();
       window.clearInterval(freshnessTimer);
       window.removeEventListener("resize", onResize);
       cancelAnimationFrame(resizeFrame);

@@ -626,6 +626,8 @@ export function AccountPanel() {
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [selectedVps, setSelectedVps] = useState<string | null>(null);
   const [accountMessage, setAccountMessage] = useState("");
+  const [hasPaymentHistory, setHasPaymentHistory] = useState(false);
+  const [connectingAccount, setConnectingAccount] = useState(false);
 
   const selectedVpsPrice =
     pricing?.vps_options.find((v) => v.code === selectedVps)?.price_idr ?? 0;
@@ -671,6 +673,9 @@ export function AccountPanel() {
     apiRequest<Pricing>("mt5/pricing")
       .then(setPricing)
       .catch(() => {});
+    apiRequest<Array<{ id: number }>>("payments/orders")
+      .then((orders) => setHasPaymentHistory(orders.length > 0))
+      .catch(() => setHasPaymentHistory(false));
     loadAccounts();
     const timer = setInterval(() => {
       if (!document.hidden && !managedFormDirty.current) loadAccounts();
@@ -683,6 +688,7 @@ export function AccountPanel() {
   ) => {
     event.preventDefault();
     const form = event.currentTarget;
+    setConnectingAccount(true);
     setAccountMessage("");
     const formData = new FormData(form);
     const mode = String(formData.get("execution_mode") || "EA");
@@ -709,6 +715,8 @@ export function AccountPanel() {
       setAccountMessage(
         error instanceof Error ? error.message : "Permintaan tidak berhasil."
       );
+    } finally {
+      setConnectingAccount(false);
     }
   };
 
@@ -759,7 +767,7 @@ export function AccountPanel() {
   );
 
   return (
-    <main className="page-shell dashboard-page" id="main-content" tabIndex={-1}>
+    <main className="page-shell dashboard-page account-page" id="main-content" tabIndex={-1}>
       <div className="page-heading">
         <div>
           <span className="eyebrow">PORTAL KLIEN / COPY TRADING</span>
@@ -868,8 +876,7 @@ export function AccountPanel() {
                         Biaya pengelolaan akun
                       </span>
                       <span className="price-row__desc">
-                        MT5 berjalan di server layanan. Termasuk pemantauan
-                        worker managed copy.
+                        MT5 berjalan di server layanan.
                       </span>
                     </span>
                     <span className="price-row__price">
@@ -878,7 +885,7 @@ export function AccountPanel() {
                   </div>
                 </div>
               ) : (
-                <>
+                <div className="account-price-stack">
                   <div className="price-list">
                     <div className="price-row">
                       <span className="price-row__body">
@@ -950,7 +957,7 @@ export function AccountPanel() {
                       <strong>Rp {formatInteger(totalIdr)}</strong>
                     </div>
                   </div>
-                </>
+                </div>
               )
             ) : (
               <p className="status">Memuat harga layanan…</p>
@@ -999,7 +1006,7 @@ export function AccountPanel() {
             </label>
           </div>
           <div className="form-actions">
-            <button type="submit">Lanjutkan ke pembayaran</button>
+            <button type="submit" disabled={connectingAccount} aria-busy={connectingAccount}>{connectingAccount ? "Menyiapkan pembayaran…" : "Lanjutkan ke pembayaran"}</button>
           </div>
         </form>
         <p id="account-message" className="status" role="status">
@@ -1020,11 +1027,20 @@ export function AccountPanel() {
             </>
           )}
         </div>
-        <div className="toolbar">
-          <a className="workspace-tag" href="/transactions">
-            Buka riwayat transaksi dan nota
-          </a>
-        </div>
+        {(hasPaymentHistory || accounts.length > 0) && (
+          <div className="toolbar account-actions-toolbar">
+            {hasPaymentHistory && (
+              <a className="workspace-tag" href="/transactions">
+                Buka riwayat transaksi dan nota
+              </a>
+            )}
+            {(hasPaymentHistory || accounts.length > 0) && (
+              <a className="workspace-tag" href="#account-form">
+                Hubungkan akun lain
+              </a>
+            )}
+          </div>
+        )}
       </section>
 
       <section>

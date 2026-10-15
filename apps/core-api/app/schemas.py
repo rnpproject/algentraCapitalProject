@@ -11,18 +11,18 @@ class LoginRequest(BaseModel):
 
 class ClientLoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
-    password: str = Field(min_length=1, max_length=72)
+    password: str = Field(min_length=1)
     remember_me: bool = False
 
 
 class RegisterRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
-    password: str = Field(min_length=12, max_length=72)
+    password: str = Field(min_length=8)
 
 
 class ResendCodeRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
-    password: str = Field(min_length=12, max_length=72)
+    password: str = Field(min_length=8)
 
 
 class VerifyEmailRequest(BaseModel):
@@ -37,7 +37,7 @@ class PasswordResetRequest(BaseModel):
 class PasswordResetConfirmRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     code: str = Field(pattern=r"^\d{6}$")
-    password: str = Field(min_length=12, max_length=72)
+    password: str = Field(min_length=8)
 
 
 class MT5AccountCreate(BaseModel):

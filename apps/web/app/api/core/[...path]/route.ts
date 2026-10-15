@@ -3,6 +3,8 @@ import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Vercel function duration cap for proxied SSE connections; EventSource reconnects automatically.
+export const maxDuration = 300;
 
 const ALLOWED_PREFIXES = new Set([
   "auth", "public", "payments", "mt5", "dashboard", "settings", "parser", "cs", "telegram", "downloads"
@@ -132,7 +134,9 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
       headers,
       body: fetchBody,
       cache: "no-store",
-      redirect: "manual"
+      redirect: "manual",
+      // Keep SSE as a live stream through the Vercel BFF instead of buffering it.
+      signal: request.signal,
     });
   } catch {
     return Response.json({ detail: "Core API tidak dapat dijangkau" }, { status: 502 });
@@ -146,6 +150,17 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
   });
   for (const cookie of upstream.headers.getSetCookie()) responseHeaders.append("set-cookie", cookie);
   responseHeaders.set("cache-control", "private, no-store");
+  const isEventStream = upstream.headers.get("content-type")?.toLowerCase().includes("text/event-stream");
+  if (isEventStream) {
+    responseHeaders.set("content-type", "text/event-stream; charset=utf-8");
+    responseHeaders.set("cache-control", "private, no-store, no-transform");
+    responseHeaders.set("x-accel-buffering", "no");
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: responseHeaders,
+    });
+  }
   return new Response(await upstream.arrayBuffer(), {
     status: upstream.status,
     statusText: upstream.statusText,

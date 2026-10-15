@@ -7,9 +7,11 @@ export function ParserPanel() {
   const [message, setMessage] = useState("");
   const [context, setContext] = useState("");
   const [result, setResult] = useState("Masukkan pesan untuk menguji parser.");
+  const [busy, setBusy] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setBusy(true);
     setResult("Memproses…");
     try {
       const payload = await apiRequest<unknown>("parser/test", {
@@ -19,6 +21,8 @@ export function ParserPanel() {
       setResult(JSON.stringify(payload, null, 2));
     } catch (reason) {
       setResult(reason instanceof Error ? reason.message : "Permintaan tidak berhasil.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -67,7 +71,7 @@ export function ParserPanel() {
             />
           </div>
           <div className="parser-actions">
-            <button type="submit">Parse pesan</button>
+            <button type="submit" disabled={busy} aria-busy={busy}>{busy ? "Memproses…" : "Parse pesan"}</button>
           </div>
         </form>
       </section>

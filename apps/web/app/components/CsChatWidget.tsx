@@ -250,7 +250,7 @@ export function CsChatWidget({ mode, className }: { mode: "client" | "public"; c
           disabled={sending}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <button className="cs-chat-send" id="cs-chat-send" type="submit" disabled={sending}>
+        <button className="cs-chat-send" id="cs-chat-send" type="submit" disabled={sending} aria-busy={sending}>
           Kirim
         </button>
       </form>
