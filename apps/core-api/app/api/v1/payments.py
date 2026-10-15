@@ -99,6 +99,8 @@ def cancel_payment_order(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PaymentOrderConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except midtrans_service.MidtransError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/orders/{order_id}/proof")

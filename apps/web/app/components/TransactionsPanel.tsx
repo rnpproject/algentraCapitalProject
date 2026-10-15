@@ -110,6 +110,7 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [syncMessage, setSyncMessage] = useState("");
+  const syncInFlightRef = useRef(false);
   const refreshRef = useRef(onRefresh);
   refreshRef.current = onRefresh;
 
@@ -121,6 +122,7 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
         method: "POST",
       });
       setCharge(result);
+      refreshRef.current();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal membuat QRIS.");
     } finally {
@@ -137,50 +139,52 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
     }
   }
 
-  async function syncStatus() {
+  async function syncStatus(automatic = false) {
+    if (syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
     setSyncing(true);
-    setError("");
-    setSyncMessage("");
+    if (!automatic) {
+      setError("");
+      setSyncMessage("");
+    }
     try {
       const result = await apiRequest<{ order_status: string; result: string }>(
         `payments/orders/${order.id}/qris/sync`,
         { method: "POST" }
       );
-      onRefresh();
+      refreshRef.current();
       if (result.order_status === "APPROVED") {
-        setSyncMessage("Pembayaran terverifikasi! Akun Copy Trading Anda sedang dibuat.");
+        setCharge(null);
+        if (!automatic) setSyncMessage("Pembayaran terverifikasi! Akun Copy Trading Anda sedang dibuat.");
       } else if (result.result === "PAYMENT_FAILED") {
-        setSyncMessage("Kode QR sudah kedaluwarsa. Buat QR baru untuk mencoba lagi.");
-      } else {
+        setCharge(null);
+        setSyncMessage("QRIS dibatalkan atau kedaluwarsa. Buat kode QR baru untuk mencoba lagi.");
+      } else if (!automatic) {
         setSyncMessage(
           "Pembayaran belum terdeteksi di Midtrans. Jika Anda sudah membayar, tunggu sebentar lalu coba lagi."
         );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal memeriksa status.");
+      if (!automatic) setError(err instanceof Error ? err.message : "Gagal memeriksa status.");
     } finally {
+      syncInFlightRef.current = false;
       setSyncing(false);
     }
   }
 
-  // Saat kartu dibuka: tampilkan QR yang masih aktif, atau buat baru otomatis.
+  // Pulihkan QR yang sudah pernah dibuat. Charge baru hanya dibuat lewat tombol.
   useEffect(() => {
     if (order.payment_method === "QRIS") void loadExisting();
-    else void createCharge();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order.id]);
 
-  // Selama QR ditampilkan, refresh status order tiap 4 detik.
+  // Cek langsung ke Midtrans selama QR tampil agar pembatalan/kedaluwarsa
+  // di provider segera melepas QR lokal, termasuk saat webhook tidak terkirim.
   useEffect(() => {
     if (!charge) return;
-    const timer = setInterval(() => refreshRef.current(), 4000);
+    const timer = setInterval(() => void syncStatus(true), 5000);
     return () => clearInterval(timer);
-  }, [charge]);
-
-  // QR hangus/dibatalkan di sisi server: kembali ke tombol buat QR.
-  useEffect(() => {
-    if (charge && order.payment_method !== "QRIS") setCharge(null);
-  }, [charge, order.payment_method]);
+  }, [charge, order.id]);
 
   if (order.status !== "PENDING_PAYMENT") return null;
 

@@ -35,8 +35,10 @@ def _sse_message(payload: dict[str, object]) -> bytes:
 @router.get("/realtime/stream")
 async def realtime_stream(request: Request) -> StreamingResponse:
     """Stream dashboard snapshots to browsers through the Vercel BFF."""
+
     async def events():
         while not await request.is_disconnected():
+
             def load_snapshot():
                 with SessionLocal() as db:
                     payload = get_dashboard_stats(db)
@@ -49,22 +51,27 @@ async def realtime_stream(request: Request) -> StreamingResponse:
             payload, latest = await asyncio.to_thread(load_snapshot)
             telegram = await telegram_manager.status()
             settings = get_settings()
-            payload.update({
-                "telegram_connected": bool(telegram["connected"]),
-                "telegram_status": telegram["state"],
-                "telegram_account": telegram["account_name"],
-                "gemini_configured": bool(settings.gemini_api_key and settings.gemini_api_key.get_secret_value()),
-                "gemini_model": settings.gemini_model,
-            })
-            yield _sse_message({
-                "stats": payload,
-                "latest_signal_id": latest,
-                "server_time": wib_iso(utc_now()),
-            })
+            payload.update(
+                {
+                    "telegram_connected": bool(telegram["connected"]),
+                    "telegram_status": telegram["state"],
+                    "telegram_account": telegram["account_name"],
+                    "gemini_configured": bool(settings.gemini_api_key and settings.gemini_api_key.get_secret_value()),
+                    "gemini_model": settings.gemini_model,
+                }
+            )
+            yield _sse_message(
+                {
+                    "stats": payload,
+                    "latest_signal_id": latest,
+                    "server_time": wib_iso(utc_now()),
+                }
+            )
             await asyncio.sleep(2)
 
     return StreamingResponse(
-        events(), media_type="text/event-stream",
+        events(),
+        media_type="text/event-stream",
         headers={"Cache-Control": "private, no-store, no-transform", "X-Accel-Buffering": "no"},
     )
 

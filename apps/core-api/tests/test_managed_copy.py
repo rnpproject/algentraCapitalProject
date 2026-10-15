@@ -288,7 +288,7 @@ def test_client_portal_support_endpoints_for_vercel_web():
 
         plans = client.get("/api/mt5/plans")
         assert plans.status_code == 200
-        assert set(plans.json()) == {"ZERO", "PRO", "EXPERT"}
+        assert {"ZERO", "PRO", "EXPERT", "MANAGED", "EA"} <= set(plans.json())
         assert plans.json()["PRO"]["price_idr"] == 200_000
 
         versioned_plans = client.get("/v1/mt5/plans")

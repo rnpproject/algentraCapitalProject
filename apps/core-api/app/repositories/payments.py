@@ -33,11 +33,9 @@ class PaymentRepository:
     def get_by_midtrans_order_id(self, midtrans_order_id: str) -> PaymentOrder | None:
         if not midtrans_order_id:
             return None
-        return (
-            self._session.execute(
-                select(PaymentOrder).where(PaymentOrder.midtrans_order_id == midtrans_order_id)
-            ).scalar_one_or_none()
-        )
+        return self._session.execute(
+            select(PaymentOrder).where(PaymentOrder.midtrans_order_id == midtrans_order_id)
+        ).scalar_one_or_none()
 
     def create_for_owner(
         self,

@@ -11,6 +11,7 @@ from ..domain.client_plans import resolve_plan
 from ..models import PaymentOrder
 from ..repositories.payments import PaymentRepository
 from .payment_bot import MAX_PROOF_BYTES, payment_proof_path, payment_review_bot
+from . import midtrans_service
 
 
 logger = logging.getLogger("copytrade.payments")
@@ -152,6 +153,20 @@ def get_order_proof(db: Session, order_id: int, owner_id: int) -> tuple[Path, st
 
 
 def cancel_order(db: Session, order_id: int, owner_id: int) -> dict[str, object]:
+    order = PaymentRepository(db).get_for_owner(order_id, owner_id)
+    if order is None:
+        raise PaymentOrderNotFound("Pesanan tidak ditemukan")
+    if order.status not in ("PENDING_PAYMENT", "PAYMENT_SUBMITTED"):
+        raise PaymentOrderConflict("Pesanan ini tidak bisa dibatalkan")
+    if order.status == "PENDING_PAYMENT" and order.payment_method == "QRIS" and order.midtrans_order_id:
+        try:
+            midtrans_service.cancel_qris_charge(db, order)
+        except midtrans_service.MidtransNotConfigured as exc:
+            raise PaymentOrderConflict(str(exc)) from exc
+        except midtrans_service.MidtransOrderConflict as exc:
+            raise PaymentOrderConflict(str(exc)) from exc
+        except midtrans_service.MidtransError as exc:
+            raise PaymentOrderConflict(str(exc)) from exc
     order, old_proof_filename, cancelled = PaymentRepository(db).cancel_for_owner(order_id, owner_id)
     if order is None:
         raise PaymentOrderNotFound("Pesanan tidak ditemukan")

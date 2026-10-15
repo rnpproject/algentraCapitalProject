@@ -57,14 +57,20 @@ def get_service_pricing() -> dict[str, object]:
 def get_service_plans() -> dict[str, dict[str, str | int]]:
     """Kode plan model baru untuk order dan tampilan."""
     pricing = get_service_pricing()
-    copy_fee = int(pricing["copy_trading_fee_idr"])
+    copy_fee_value = pricing["copy_trading_fee_idr"]
+    management_fee_value = pricing["management_fee_idr"]
+    vps_options_value = pricing["vps_options"]
+    assert isinstance(copy_fee_value, int)
+    assert isinstance(management_fee_value, int)
+    assert isinstance(vps_options_value, list)
+    copy_fee = copy_fee_value
     plans: dict[str, dict[str, str | int]] = {
         "MANAGED": {
             "name": "Dikelola server",
             "vcpu": "—",
             "ram": "—",
             "disk": "—",
-            "price_idr": int(pricing["management_fee_idr"]),
+            "price_idr": management_fee_value,
         },
         "EA": {
             "name": "EA sendiri",
@@ -74,16 +80,21 @@ def get_service_plans() -> dict[str, dict[str, str | int]]:
             "price_idr": copy_fee,
         },
     }
-    vps_options = pricing["vps_options"]
-    assert isinstance(vps_options, list)
-    for vps in vps_options:
-        code = f"EA_{vps['code']}"
+    for vps in vps_options_value:
+        assert isinstance(vps, dict)
+        vps_code = vps["code"]
+        vps_name = vps["name"]
+        vps_price = vps["price_idr"]
+        assert isinstance(vps_code, str)
+        assert isinstance(vps_name, str)
+        assert isinstance(vps_price, int)
+        code = f"EA_{vps_code}"
         plans[code] = {
-            "name": f"EA sendiri + {vps['name']}",
+            "name": f"EA sendiri + {vps_name}",
             "vcpu": str(vps["vcpu"]),
             "ram": str(vps["ram"]),
             "disk": str(vps["disk"]),
-            "price_idr": copy_fee + int(vps["price_idr"]),
+            "price_idr": copy_fee + vps_price,
         }
     return plans
 

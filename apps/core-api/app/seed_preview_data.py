@@ -17,17 +17,26 @@ def main() -> None:
 
     now = utc_now()
     signal_specs = [
-        *(('EXECUTED', f'XAUUSD BUY 2325 SL 2318 TP 2335 #{i}', f'BUY XAUUSD entry 2325 #{i}') for i in range(1, 5)),
-        *(('REJECTED', f'XAUUSD SELL 2340 SL 2348 TP 2328 #{i}', f'SELL XAUUSD rejected #{i}') for i in range(1, 30)),
-        *(('PROCESSING', f'XAUUSD BUY 2325 SL 2318 TP 2335 #{i}', f'XAUUSD order processing #{i}') for i in range(1, 14)),
+        *(("EXECUTED", f"XAUUSD BUY 2325 SL 2318 TP 2335 #{i}", f"BUY XAUUSD entry 2325 #{i}") for i in range(1, 5)),
+        *(("REJECTED", f"XAUUSD SELL 2340 SL 2348 TP 2328 #{i}", f"SELL XAUUSD rejected #{i}") for i in range(1, 30)),
+        *(
+            ("PROCESSING", f"XAUUSD BUY 2325 SL 2318 TP 2335 #{i}", f"XAUUSD order processing #{i}")
+            for i in range(1, 14)
+        ),
     ]
     trade_specs = [
-        ("WIN", 1520.00, "731001", "BUY"), ("WIN", 1385.50, "731002", "SELL"),
-        ("WIN", 1273.35, "731003", "BUY"), ("WIN", 1100.00, "731004", "BUY"),
-        ("WIN", -500.00, "731005", "SELL"), ("WIN", 700.00, "731006", "BUY"),
-        ("WIN", 600.00, "731007", "SELL"), ("LOSS", -250.00, "731008", "SELL"),
-        ("LOSS", -150.00, "731009", "BUY"), ("LOSS", -100.00, "731010", "SELL"),
-        ("LOSS", -100.00, "731011", "BUY"), ("LOSS", -100.00, "731012", "SELL"),
+        ("WIN", 1520.00, "731001", "BUY"),
+        ("WIN", 1385.50, "731002", "SELL"),
+        ("WIN", 1273.35, "731003", "BUY"),
+        ("WIN", 1100.00, "731004", "BUY"),
+        ("WIN", -500.00, "731005", "SELL"),
+        ("WIN", 700.00, "731006", "BUY"),
+        ("WIN", 600.00, "731007", "SELL"),
+        ("LOSS", -250.00, "731008", "SELL"),
+        ("LOSS", -150.00, "731009", "BUY"),
+        ("LOSS", -100.00, "731010", "SELL"),
+        ("LOSS", -100.00, "731011", "BUY"),
+        ("LOSS", -100.00, "731012", "SELL"),
         ("LOSS", -100.00, "731013", "BUY"),
     ]
 
@@ -45,31 +54,64 @@ def main() -> None:
             signals: list[Signal] = []
             for index, (status, raw, normalized) in enumerate(signal_specs, start=1):
                 signal = Signal(
-                    group_id="preview-group", group_name="Demo Signals", message_id=f"preview-{index}",
-                    sender_name="Preview Feed", raw_text=raw, normalized_text=normalized,
+                    group_id="preview-group",
+                    group_name="Demo Signals",
+                    message_id=f"preview-{index}",
+                    sender_name="Preview Feed",
+                    raw_text=raw,
+                    normalized_text=normalized,
                     confidence=0.91 if status != "IGNORED" else 0.12,
-                    content_hash=f"preview-content-hash-{index}", status=status,
+                    content_hash=f"preview-content-hash-{index}",
+                    status=status,
                     created_at=now - timedelta(minutes=8 * index),
                 )
                 db.add(signal)
                 signals.append(signal)
             db.flush()
             for index, (result, profit, ticket, action) in enumerate(trade_specs):
-                db.add(Trade(
-                    signal_id=signals[index % 4].id, ticket=ticket, symbol="XAUUSD", action=action,
-                    lots=0.10, entry=2320 + index, exec_price=2320 + index, profit=profit, result=result,
-                    opened_at=now - timedelta(days=index + 1), closed_at=now - timedelta(days=index + 1, hours=-1),
-                ))
+                db.add(
+                    Trade(
+                        signal_id=signals[index % 4].id,
+                        ticket=ticket,
+                        symbol="XAUUSD",
+                        action=action,
+                        lots=0.10,
+                        entry=2320 + index,
+                        exec_price=2320 + index,
+                        profit=profit,
+                        result=result,
+                        opened_at=now - timedelta(days=index + 1),
+                        closed_at=now - timedelta(days=index + 1, hours=-1),
+                    )
+                )
             for index in range(4):
-                db.add(ClientUser(
-                    email=f"preview-client-{index + 1}@example.test", password_hash="preview-only",
-                    verified_at=now, created_at=now,
-                ))
-            db.add_all([
-                SystemLog(level="INFO", source="Preview", message="Demo terminal heartbeat received", created_at=now),
-                SystemLog(level="WARN", source="Preview", message="Dummy signal has PROCESSING status", created_at=now - timedelta(minutes=10)),
-                SystemLog(level="ERROR", source="Preview", message="Sample dashboard error log", created_at=now - timedelta(minutes=25)),
-            ])
+                db.add(
+                    ClientUser(
+                        email=f"preview-client-{index + 1}@example.test",
+                        password_hash="preview-only",
+                        verified_at=now,
+                        created_at=now,
+                    )
+                )
+            db.add_all(
+                [
+                    SystemLog(
+                        level="INFO", source="Preview", message="Demo terminal heartbeat received", created_at=now
+                    ),
+                    SystemLog(
+                        level="WARN",
+                        source="Preview",
+                        message="Dummy signal has PROCESSING status",
+                        created_at=now - timedelta(minutes=10),
+                    ),
+                    SystemLog(
+                        level="ERROR",
+                        source="Preview",
+                        message="Sample dashboard error log",
+                        created_at=now - timedelta(minutes=25),
+                    ),
+                ]
+            )
             db.commit()
 
     publish_preview_runtime()
