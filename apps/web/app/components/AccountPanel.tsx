@@ -660,6 +660,12 @@ export function AccountPanel() {
         setExecutionMode(copierStatus.available === true ? "MANAGED" : "EA");
       }
     } catch (error) {
+      if (error instanceof Error && /401|login diperlukan|unauthorized/i.test(error.message)) {
+        setAccounts([]);
+        setPerformance(null);
+        setCopier(null);
+        setTokenBox(null);
+      }
       setAccountMessage(
         error instanceof Error ? error.message : "Permintaan tidak berhasil."
       );

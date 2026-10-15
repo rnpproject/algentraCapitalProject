@@ -10,7 +10,9 @@ def test_auth_session_without_login_reports_logged_out():
         response = client.get("/v1/auth/session")
 
     assert response.status_code == 200
-    assert response.json() == {"admin": False, "client": False}
+    assert response.json()["admin"] is False
+    assert response.json()["client"] is False
+    assert len(response.json()["csrf_token"]) >= 32
 
 
 def test_auth_session_available_on_legacy_api_prefix():
@@ -18,7 +20,9 @@ def test_auth_session_available_on_legacy_api_prefix():
         response = client.get("/api/auth/session")
 
     assert response.status_code == 200
-    assert response.json() == {"admin": False, "client": False}
+    assert response.json()["admin"] is False
+    assert response.json()["client"] is False
+    assert len(response.json()["csrf_token"]) >= 32
 
 
 def test_public_contact_returns_expected_shape():

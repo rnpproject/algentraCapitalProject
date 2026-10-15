@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } 
 import { usePathname } from "next/navigation";
 import { apiRequest } from "../lib/api";
 
-type SessionInfo = { admin: boolean; client: boolean };
+type SessionInfo = { admin: boolean; client: boolean; csrf_token?: string };
 
 const BRAND_SVG = (
   <svg
@@ -200,6 +200,7 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
     } catch {
       /* tetap arahkan keluar walau POST gagal */
     } finally {
+      try { sessionStorage.removeItem("algentra-csrf"); } catch { /* Storage may be disabled. */ }
       window.location.href = "/";
     }
   }, []);

@@ -14,6 +14,7 @@ from ...schemas import (
     VerifyEmailRequest,
 )
 from ...services import auth_service
+from ...core.security import csrf_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -63,8 +64,9 @@ def logout(request: Request) -> dict[str, str]:
 
 
 @router.get("/session")
-def session_status(request: Request) -> dict[str, bool]:
+def session_status(request: Request) -> dict[str, bool | str]:
     return {
         "admin": request.session.get("admin_username") is not None,
         "client": request.session.get("client_user_id") is not None,
+        "csrf_token": csrf_token(request),
     }
