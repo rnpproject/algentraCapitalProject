@@ -99,30 +99,42 @@ func run(out *result) error {
 	go func() { wait <- cmd.Wait() }()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
+	readReport := func() (bool, error) {
+		data, err := os.ReadFile(reportPath)
+		if err != nil {
+			return false, err
+		}
+		var report status
+		if err := json.Unmarshal(data, &report); err != nil || !report.Ready {
+			return false, err
+		}
+		out.Valid, out.Message = report.Valid, report.Message
+		if report.Login != req.Login || !strings.EqualFold(report.Server, req.Server) {
+			out.Valid = false
+			out.Message = "Terminal terhubung ke akun atau server yang berbeda dari data yang dimasukkan."
+		}
+		return true, nil
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			out.Message = "Pemeriksaan MT5 melewati batas 150 detik. Terminal tidak merespons; worker utama tetap berjalan."
 			return ctx.Err()
-		case err := <-wait:
-			if err != nil {
-				out.Message = "Terminal MT5 berhenti sebelum laporan login tersedia. Periksa server broker dan koneksi jaringan VPS."
-				return err
+		case waitErr := <-wait:
+			// A terminal can exit just after the EA flushes its report. Read once
+			// more before treating an early process exit as a failed login check.
+			if ready, _ := readReport(); ready {
+				return nil
+			}
+			out.Message = "Terminal MT5 berhenti sebelum laporan login tersedia. Periksa koneksi broker dan log terminal."
+			if waitErr != nil {
+				return waitErr
 			}
 			return errors.New("terminal MT5 berhenti sebelum hasil login tersedia")
 		case <-ticker.C:
-			data, err := os.ReadFile(reportPath)
-			if err != nil {
+			ready, _ := readReport()
+			if !ready {
 				continue
-			}
-			var report status
-			if json.Unmarshal(data, &report) != nil || !report.Ready {
-				continue
-			}
-			out.Valid, out.Message = report.Valid, report.Message
-			if report.Login != req.Login || !strings.EqualFold(report.Server, req.Server) {
-				out.Valid = false
-				out.Message = "Terminal terhubung ke akun atau server yang berbeda dari data yang dimasukkan."
 			}
 			_ = cmd.Process.Kill()
 			<-wait

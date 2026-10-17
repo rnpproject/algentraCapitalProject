@@ -75,7 +75,7 @@ type ManualPaymentDetails = {
 const manualPaymentFallback =
   "Hubungi admin melalui kanal resmi untuk mendapatkan rekening tujuan. Jangan transfer sebelum detail rekening dan nominal dikonfirmasi.";
 
-function OrderDetails({ order, plans, selectedPaymentMethod }: { order: PaymentOrder; plans: Record<string, Plan>; selectedPaymentMethod?: "qris" | "manual" }) {
+function OrderDetails({ order, plans }: { order: PaymentOrder; plans: Record<string, Plan> }) {
   const plan = plans[order.plan] || { name: order.plan, vcpu: "-", ram: "-", disk: "-" };
   const rows: Array<[string, string]> = [
     ["Kode invoice", order.invoice_code || `INV-AC${String(order.id).padStart(4, "0")}`],
@@ -85,7 +85,7 @@ function OrderDetails({ order, plans, selectedPaymentMethod }: { order: PaymentO
   const serviceRows: Array<[string, string]> = [
     ["Mode layanan", order.execution_mode === "MANAGED" ? "Dikelola server" : "Pasang EA di MT5 sendiri"],
     ["Login broker", `${order.login} · ${order.server}`],
-    ["Metode bayar", selectedPaymentMethod ? (selectedPaymentMethod === "qris" ? "QRIS (otomatis)" : "Transfer manual") : paymentMethodName(order.payment_method)],
+    ["Metode bayar", paymentMethodName(order.payment_method)],
   ];
   return (
     <div className="transaction-receipt__body">
@@ -463,7 +463,6 @@ function TransactionsPanelInner() {
                     <OrderDetails
                       order={order}
                       plans={plans}
-                      selectedPaymentMethod={expandedOrderId === order.id && qrisAvailable ? "qris" : undefined}
                     />
 
                     {order.status === "PAYMENT_SUBMITTED" && (
@@ -536,53 +535,56 @@ function TransactionsPanelInner() {
 
                     {order.status === "PENDING_PAYMENT" && expandedOrderId === order.id && (
                       <>
-                        {qrisAvailable ? (
+                        {qrisAvailable && (
                           <QrisPayment
                             key={`qris-${order.id}`}
                             order={order}
                             onRefresh={() => void loadOrders(true)}
                           />
-                        ) : (
-                          <>
-                            {manualPayment && (manualPayment.bank_name || manualPayment.payment_number || manualPayment.payment_name) ? (
-                              <dl className="manual-payment-details" aria-label="Rekening tujuan pembayaran">
-                                {([
-                                  ["Bank", manualPayment.bank_name],
-                                  ["Nomor rekening", manualPayment.payment_number],
-                                  ["Nama penerima", manualPayment.payment_name],
-                                ] as const).filter(([, value]) => value).map(([label, value]) => (
-                                  <div className="manual-payment-details__row" key={label}>
-                                    <dt>{label}</dt>
-                                    <dd>{value}</dd>
-                                  </div>
-                                ))}
-                              </dl>
-                            ) : (
-                              <p className="transaction-note">{manualPaymentFallback}</p>
-                            )}
-                            {proofFormOrderId !== order.id ? (
-                              <button type="button" onClick={() => setProofFormOrderId(order.id)}>
-                                Saya sudah bayar
-                              </button>
-                            ) : (
-                              <form
-                                className="transaction-proof-form"
-                                onSubmit={(event) => void uploadProof(event, order)}
-                              >
-                                <label>
-                                  Unggah bukti transaksi (JPG, PNG, atau WebP, maksimal 5 MB)
-                                  <input
-                                    type="file"
-                                    name="file"
-                                    accept=".jpg,.jpeg,.png,.webp"
-                                    required
-                                  />
-                                </label>
-                                <button type="submit">Kirim bukti transaksi</button>
-                              </form>
-                            )}
-                          </>
                         )}
+                        <div className="manual-payment-option">
+                          <p className="qris-title">Transfer manual</p>
+                          {qrisAvailable && (
+                            <p className="transaction-note">Pilih satu metode pembayaran saja. Jangan membayar melalui QRIS dan transfer sekaligus.</p>
+                          )}
+                          {manualPayment && (manualPayment.bank_name || manualPayment.payment_number || manualPayment.payment_name) ? (
+                            <dl className="manual-payment-details" aria-label="Rekening tujuan pembayaran">
+                              {([
+                                ["Bank", manualPayment.bank_name],
+                                ["Nomor rekening", manualPayment.payment_number],
+                                ["Nama penerima", manualPayment.payment_name],
+                              ] as const).filter(([, value]) => value).map(([label, value]) => (
+                                <div className="manual-payment-details__row" key={label}>
+                                  <dt>{label}</dt>
+                                  <dd>{value}</dd>
+                                </div>
+                              ))}
+                            </dl>
+                          ) : (
+                            <p className="transaction-note">{manualPaymentFallback}</p>
+                          )}
+                          {proofFormOrderId !== order.id ? (
+                            <button type="button" onClick={() => setProofFormOrderId(order.id)}>
+                              Saya sudah bayar via transfer
+                            </button>
+                          ) : (
+                            <form
+                              className="transaction-proof-form"
+                              onSubmit={(event) => void uploadProof(event, order)}
+                            >
+                              <label>
+                                Unggah bukti transaksi (JPG, PNG, atau WebP, maksimal 5 MB)
+                                <input
+                                  type="file"
+                                  name="file"
+                                  accept=".jpg,.jpeg,.png,.webp"
+                                  required
+                                />
+                              </label>
+                              <button type="submit">Kirim bukti transaksi</button>
+                            </form>
+                          )}
+                        </div>
                       </>
                     )}
                   </article>

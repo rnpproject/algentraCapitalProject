@@ -138,7 +138,17 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
       // Keep SSE as a live stream through the Vercel BFF instead of buffering it.
       signal: request.signal,
     });
-  } catch {
+  } catch (error) {
+    const cause = error instanceof Error && error.cause instanceof Error
+      ? { name: error.cause.name, message: error.cause.message }
+      : undefined;
+    console.error("Core API proxy fetch failed", {
+      method: request.method,
+      endpoint: `/${path.join("/")}`,
+      origin: apiOrigin.origin,
+      error: error instanceof Error ? error.message : String(error),
+      cause,
+    });
     return Response.json({ detail: "Core API tidak dapat dijangkau" }, { status: 502 });
   }
 

@@ -1191,6 +1191,7 @@
   .transaction-note { margin:12px 0; padding:12px; border-radius:8px; color:var(--ink); background:var(--glass-raised); font-size:11px; }
   .transaction-qr { display:block; width:min(100%,260px); margin:14px auto; border-radius:12px; }
   .qris-box { margin:12px 0; padding:14px; border:1px solid var(--glass-border); border-radius:var(--radius-control); background:var(--glass-raised); }
+  .manual-payment-option { margin:12px 0; padding:14px; border:1px solid var(--line); border-radius:var(--radius-control); background:var(--panel); }
   .qris-title { margin:0 0 10px; color:var(--muted); font-size:10.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
   .qris-box .transaction-note { margin:10px 0 0; }
   .qris-code { display:block; width:220px; height:220px; margin:12px auto; border-radius:12px; background:#fff; }

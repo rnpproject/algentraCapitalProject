@@ -556,6 +556,7 @@ func (w *worker) syncOnce() error {
 		}
 		w.stopChild(check.AccountID, false)
 		valid, message := w.validateLogin(check)
+		log.Printf("probe login akun %d selesai: valid=%t pesan=%q", check.AccountID, valid, message)
 		var ignored any
 		if err := w.request(fmt.Sprintf("/api/mt5/copier/jobs/%d/login-check", check.AccountID), map[string]any{"valid": valid, "message": message}, &ignored); err != nil {
 			log.Printf("hasil pemeriksaan login akun %d tidak terkirim: %v", check.AccountID, err)
