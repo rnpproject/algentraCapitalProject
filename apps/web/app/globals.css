@@ -784,6 +784,8 @@
     .account-page .account-fields { gap: 16px; margin: 2px 0 0; }
     .account-page .account-fields label { gap: 8px; }
     .account-page .account-fields input { min-height: 50px; border-radius: 12px; }
+    .account-page .broker-server-field { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+    .account-page .broker-server-field .server-manual-toggle { width: auto; min-height: 0; justify-self: start; padding: 0; border: 0; color: var(--link); background: transparent; font-size: 12px; font-weight: 650; text-align: left; cursor: pointer; }
     .account-page .account-fields .field-help { line-height: 1.45; }
     .account-page .form-actions { margin-top: -2px; }
     .account-page .form-actions button { min-height: 50px; padding-inline: 24px; border-radius: 12px; font-size: 14px; }

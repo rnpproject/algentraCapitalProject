@@ -80,8 +80,8 @@ func (w *worker) copyAfter(accountID int64) (int64, error) {
 	return value, nil
 }
 
-func writeManagedStartup(path string, j job, name string) error {
-	server, password := j.Server, j.BrokerPassword
+func writeManagedStartup(path string, j job, name, startupServer string) error {
+	server, password := startupServer, j.BrokerPassword
 	for _, value := range []string{server, password} {
 		if strings.ContainsAny(value, "\r\n") {
 			return fmt.Errorf("kredensial terminal akun %d mengandung karakter baris baru", j.AccountID)

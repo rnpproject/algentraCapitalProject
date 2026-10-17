@@ -42,11 +42,11 @@ type config struct {
 	PollSeconds            int    `json:"poll_seconds"`
 	HeartbeatTimeoutSecond int    `json:"heartbeat_timeout_seconds"`
 
-	configDir, apiBase, masterConfig, templateDir, runtimeDir string
-	projectRoot, apiKey, masterToken                          string
-	signalDir                                                 string
-	masterHealthURL                                           string
-	masterSnapshotURL                                         string
+	configDir, apiBase, masterConfig, masterTerminalPath, templateDir, runtimeDir string
+	projectRoot, apiKey, masterToken                                              string
+	signalDir                                                                     string
+	masterHealthURL                                                               string
+	masterSnapshotURL                                                             string
 }
 
 type job struct {
@@ -198,6 +198,9 @@ func loadConfig(path string) (config, error) {
 	masterData, err := os.ReadFile(cfg.masterConfig)
 	if err != nil || json.Unmarshal(masterData, &master) != nil || master.SignalDir == "" {
 		return cfg, errors.New("master_config wajib memiliki folder_sinyal")
+	}
+	if strings.TrimSpace(master.TerminalPath) != "" {
+		cfg.masterTerminalPath = resolve(cfg.projectRoot, master.TerminalPath)
 	}
 	if cfg.MasterSource == "" {
 		cfg.MasterSource = "publisher_ea"
@@ -455,12 +458,20 @@ func (w *worker) makeJobConfig(j job) (string, string, string, error) {
 		w.feed.Unregister(j.AccountID)
 		return "", "", "", fmt.Errorf("auto trading terminal gagal disiapkan: %w", err)
 	}
+	startupServer, lookupErr := findBrokerAccessPoint(j.Server)
+	if lookupErr != nil {
+		if err := seedBrokerServers(accountDir, w.cfg.templateDir, w.cfg.masterTerminalPath); err != nil {
+			w.feed.Unregister(j.AccountID)
+			return "", "", "", errors.New("server broker MT5 tidak ditemukan dan direktori server lokal tidak tersedia")
+		}
+		startupServer = j.Server
+	}
 	if err := w.prepareManagedEA(j, token, accountDir, name); err != nil {
 		w.feed.Unregister(j.AccountID)
 		return "", "", "", err
 	}
 	startupConfig := filepath.Join(accountDir, "managed-startup.ini")
-	if err := writeManagedStartup(startupConfig, j, name); err != nil {
+	if err := writeManagedStartup(startupConfig, j, name, startupServer); err != nil {
 		w.feed.Unregister(j.AccountID)
 		return "", "", "", err
 	}

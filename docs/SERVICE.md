@@ -77,6 +77,8 @@ Core API tetap berkomunikasi langsung dengan Postgres; browser tidak menerima se
 
 Worker dijalankan sebagai Scheduled Task interaktif, bukan Windows Service. MT5 memerlukan sesi desktop pengguna; service Session 0 tidak dipakai untuk worker. Siapkan MT5 master yang sudah login, folder signal, terminal template follower bersih berisi `terminal64.exe`, dan binary Go worker beserta EA yang sudah dikompilasi.
 
+Form akun mencari nama broker/server melalui direktori pihak ketiga `mt5.mtapi.io`. Worker mencari ulang server terpilih dan menggunakan alamat akses yang dipublikasikan direktori, dengan `Config/servers.dat` lokal sebagai fallback bila resolver tidak tersedia. Pencarian mengirim nama server publik saja; login dan password tidak dikirim ke layanan pencarian. Nomor login tidak menunjukkan server akun, jadi pelanggan harus memilih server yang cocok dengan detail akun dari brokernya. Untuk memakai resolver lain, set `MT5_BROKER_DIRECTORY_URL` ke endpoint HTTPS yang kompatibel di lingkungan web dan worker.
+
 1. Pastikan `COPIER_WORKER_API_KEY` sama pada environment backend dan akun Windows worker. Nilai key hanya disimpan di secure environment/User/Machine; `worker_api_key_env` pada `config\managed-worker.json` harus berisi nama variabel `COPIER_WORKER_API_KEY`, bukan nilai key. Jangan memuat seluruh file environment Core API ke worker.
 2. Dari PowerShell pada root release jalankan installer dan masukkan key hanya pada prompt tersembunyi:
 

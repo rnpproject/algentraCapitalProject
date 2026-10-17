@@ -64,7 +64,7 @@ Pelanggan dapat mendaftarkan hingga **10 akun follower MT5**, memberi nama, meli
 
 Portal dapat menampilkan saldo, equity, floating profit, jenis akun yang dilaporkan MT5, serta hasil transaksi tertutup, jumlah transaksi menang/kalah, dan win rate. Data ini berasal dari laporan EA MT5. Mata uang yang berbeda ditampilkan terpisah, tidak dikonversi menjadi satu mata uang.
 
-Portal membutuhkan nama server broker dan nomor login MT5 untuk mendaftarkan akun. **Portal tidak meminta kata sandi broker.** EA mengirim laporan saldo dan histori transaksi MT5 agar data akun dapat ditampilkan.
+Portal membutuhkan server broker yang tepat dan nomor login MT5 untuk mendaftarkan akun. Kolom server menyediakan pencarian broker/server dan pilihan hasil; cocokkan pilihan dengan detail akun dari broker. **Portal tidak meminta kata sandi broker untuk mode Pasang EA sendiri.** EA mengirim laporan saldo dan histori transaksi MT5 agar data akun dapat ditampilkan.
 
 Token EA hanya ditampilkan saat dibuat atau dirotasi. Rotasi membuat token lama tidak berlaku; pelanggan harus segera memasukkan token baru ke EA follower. Penghapusan atau penonaktifan koneksi portal tidak menutup posisi terbuka di MT5. Posisi tersebut harus dikelola terpisah di terminal broker.
 
@@ -91,7 +91,7 @@ Jika tombol daftar tidak tersedia dan beranda menampilkan hitung mundur, pendaft
 
 1. Masuk, lalu buka **Akun Copy Trading MT5** (`/account`).
 2. Saat menambahkan akun, pilih level untuk akun MT5 tersebut: **ZERO** (1 vCPU, RAM 1 GB, disk 20 GB) seharga **Rp 150.000**; **PRO** (2 vCPU, RAM 4 GB, disk 40 GB) seharga **Rp 200.000**; atau **EXPERT** (4 vCPU, RAM 8 GB, disk 80 GB) seharga **Rp 300.000**. Periode penagihan tidak ditentukan pada informasi yang tersedia.
-3. Isi nama akun (label), nama server broker persis seperti yang terlihat di terminal MT5, dan nomor login MT5. Pembelian paket dan pembayaran saat ini belum tersedia; jangan melakukan transfer.
+3. Isi nama akun (label), cari broker atau nama server lalu pilih server yang cocok dengan detail akun MT5, dan masukkan nomor login. Pembelian paket dan pembayaran saat ini belum tersedia; jangan melakukan transfer.
 4. Riwayat transaksi hanya menampilkan pesanan lama, nota, dan bukti pembayaran yang telah tersimpan. Pesanan lama yang belum dibayar dapat dibatalkan. Jika sudah terlanjur transfer, hubungi admin; jangan mengunggah bukti melalui portal karena fitur pembayaran sedang dinonaktifkan.
 5. Maksimal 10 akun/pesanan aktif per akun portal.
 

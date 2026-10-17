@@ -8,7 +8,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,6 +53,7 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 	}
 	accountDir := filepath.Join(w.cfg.runtimeDir, "terminals", fmt.Sprint(check.AccountID))
 	terminal := filepath.Join(accountDir, "terminal64.exe")
+	accessPoint, lookupErr := findBrokerAccessPoint(server)
 
 	// Terminal sisa dari pemeriksaan sebelumnya (timeout) masih mengunci file,
 	// folder data, dan port MCP 22346. Tutup dulu sebelum memulai yang baru.
@@ -63,6 +69,12 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 	}
 	if _, err := os.Stat(terminal); err != nil {
 		return false, "Terminal follower tidak tersedia pada server."
+	}
+	if lookupErr != nil {
+		if err := seedBrokerServers(accountDir, w.cfg.templateDir, w.cfg.masterTerminalPath); err != nil {
+			return false, "Pencarian server broker gagal dan direktori server lokal MT5 belum tersedia. Pastikan nama server benar dan koneksi internet worker aktif, lalu coba lagi."
+		}
+		accessPoint = server
 	}
 	source := filepath.Join(w.cfg.projectRoot, "mt5", "experts", "Algentra", "MT5LoginProbe.ex5")
 	target := filepath.Join(accountDir, "MQL5", "Experts", "Algentra", "MT5LoginProbe.ex5")
@@ -99,7 +111,7 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 		"[Common]",
 		"Login=" + strconv.FormatInt(login, 10),
 		"Password=" + check.BrokerPassword,
-		"Server=" + server,
+		"Server=" + accessPoint,
 		"KeepPrivate=1",
 		"NewsEnable=0",
 		"ProxyEnable=0",
@@ -200,6 +212,153 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 			}
 		}
 	}
+}
+
+type brokerDirectoryCompany struct {
+	CompanyName string                 `json:"companyName"`
+	Results     []brokerDirectoryEntry `json:"results"`
+}
+
+type brokerDirectoryEntry struct {
+	Name   string   `json:"name"`
+	Access []string `json:"access"`
+}
+
+// findBrokerAccessPoint refreshes the exact logical MT5 server through the
+// broker directory. Only the public server name is sent; account credentials
+// are never sent to the directory provider. MT5 accepts a host:port in the
+// startup Server field and reports the logical broker server after login.
+func findBrokerAccessPoint(server string) (string, error) {
+	endpoint := strings.TrimSpace(os.Getenv("MT5_BROKER_DIRECTORY_URL"))
+	if endpoint == "" {
+		endpoint = "https://mt5.mtapi.io/Search"
+	}
+	parsedEndpoint, err := url.Parse(endpoint)
+	if err != nil || parsedEndpoint.Scheme != "https" || parsedEndpoint.Host == "" || parsedEndpoint.User != nil || parsedEndpoint.RawQuery != "" || parsedEndpoint.Fragment != "" {
+		return "", errors.New("MT5_BROKER_DIRECTORY_URL must be an HTTPS search endpoint")
+	}
+	query := url.Values{}
+	query.Set("company", server)
+	request, err := http.NewRequest(http.MethodGet, endpoint+"?"+query.Encode(), nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Accept", "application/json")
+	client := &http.Client{Timeout: 8 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", fmt.Errorf("broker directory returned %s", response.Status)
+	}
+	var companies []brokerDirectoryCompany
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&companies); err != nil {
+		return "", err
+	}
+	for _, company := range companies {
+		for _, candidate := range company.Results {
+			if !strings.EqualFold(strings.TrimSpace(candidate.Name), strings.TrimSpace(server)) {
+				continue
+			}
+			for _, access := range candidate.Access {
+				if validBrokerAccessPoint(access) {
+					return strings.TrimSpace(access), nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("server %q tidak ditemukan di direktori broker", server)
+}
+
+func validBrokerAccessPoint(value string) bool {
+	host, portText, err := net.SplitHostPort(strings.TrimSpace(value))
+	if err != nil || host == "" || strings.ContainsAny(host, " \t/\\") {
+		return false
+	}
+	port, err := strconv.Atoi(portText)
+	return err == nil && port > 0 && port <= 65535
+}
+
+// seedBrokerServers copies MT5's broker directory into the portable follower.
+// A clean MetaQuotes terminal can have no broker-specific server entries yet,
+// even when the requested server name is correct. Broker discovery from the
+// master terminal or another profile on this Windows account seeds that list.
+func seedBrokerServers(accountDir, templateDir, masterTerminalPath string) error {
+	target := filepath.Join(accountDir, "Config", "servers.dat")
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return err
+	}
+
+	var candidates []string
+	if strings.TrimSpace(masterTerminalPath) != "" {
+		masterDir := filepath.Dir(masterTerminalPath)
+		candidates = append(candidates,
+			filepath.Join(masterDir, "Config", "servers.dat"),
+			filepath.Join(masterDir, "config", "servers.dat"),
+		)
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			terminalDataRoot := filepath.Join(appData, "MetaQuotes", "Terminal")
+			entries, _ := os.ReadDir(terminalDataRoot)
+			want := normalizedWindowsPath(masterTerminalPath)
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+				dataDir := filepath.Join(terminalDataRoot, entry.Name())
+				origin, _ := os.ReadFile(filepath.Join(dataDir, "origin.txt"))
+				if strings.Contains(normalizedWindowsPath(string(origin)), want) {
+					candidates = append(candidates, filepath.Join(dataDir, "config", "servers.dat"))
+				}
+			}
+		}
+	}
+
+	// Scheduled workers commonly use TelegramSignalEA and therefore have no
+	// master terminal path in master.json. Reuse the newest terminal profile in
+	// the worker's own Windows account; this is where the broker was discovered.
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		terminalDataRoot := filepath.Join(appData, "MetaQuotes", "Terminal")
+		entries, _ := os.ReadDir(terminalDataRoot)
+		var newest string
+		var newestAt time.Time
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			candidate := filepath.Join(terminalDataRoot, entry.Name(), "config", "servers.dat")
+			info, err := os.Stat(candidate)
+			if err == nil && info.ModTime().After(newestAt) {
+				newest, newestAt = candidate, info.ModTime()
+			}
+		}
+		if newest != "" {
+			candidates = append(candidates, newest)
+		}
+	}
+	candidates = append(candidates,
+		filepath.Join(templateDir, "Config", "servers.dat"),
+		filepath.Join(templateDir, "config", "servers.dat"),
+	)
+
+	for _, source := range candidates {
+		info, err := os.Stat(source)
+		if err != nil || info.IsDir() || info.Size() == 0 {
+			continue
+		}
+		if filepath.Clean(source) == filepath.Clean(target) {
+			return nil
+		}
+		return copyFile(source, target)
+	}
+	return os.ErrNotExist
+}
+
+func normalizedWindowsPath(value string) string {
+	value = strings.TrimSpace(strings.Trim(string(value), "\x00"))
+	value = strings.ReplaceAll(value, "/", "\\")
+	return strings.ToLower(filepath.Clean(value))
 }
 
 func validateProbeResult(status probeStatus, login int64, expectedServer string) (bool, string) {

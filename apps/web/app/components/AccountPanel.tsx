@@ -105,6 +105,7 @@ type CopierStatus = {
 };
 
 type TokenBox = { title: string; token: string; accountId: number } | null;
+type BrokerServerOption = { name: string; company: string };
 
 type MetricItem = [string, number | null | undefined, (string | null | undefined)?, Tone?];
 
@@ -626,6 +627,13 @@ export function AccountPanel() {
   const [selectedVps, setSelectedVps] = useState<string | null>(null);
   const [accountMessage, setAccountMessage] = useState("");
   const [connectingAccount, setConnectingAccount] = useState(false);
+  const [serverSearch, setServerSearch] = useState("");
+  const [serverOptions, setServerOptions] = useState<BrokerServerOption[]>([]);
+  const [selectedBrokerServer, setSelectedBrokerServer] = useState("");
+  const [manualServerEntry, setManualServerEntry] = useState(false);
+  const [manualServer, setManualServer] = useState("");
+  const [serverSearchBusy, setServerSearchBusy] = useState(false);
+  const [serverSearchMessage, setServerSearchMessage] = useState("");
   const [showAccountForm, setShowAccountForm] = useState(false);
   const [rootUrl, setRootUrl] = useState("");
 
@@ -687,11 +695,55 @@ export function AccountPanel() {
     return () => clearInterval(timer);
   }, [loadAccounts]);
 
+  useEffect(() => {
+    const query = serverSearch.trim();
+    if (query.length < 3) return;
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setServerSearchBusy(true);
+      setServerSearchMessage("");
+      try {
+        const response = await fetch(
+          `/api/mt5/servers?q=${encodeURIComponent(query)}`,
+          { signal: controller.signal }
+        );
+        const payload = (await response.json()) as {
+          servers?: BrokerServerOption[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(payload.error || "Pencarian server gagal.");
+        const options = Array.isArray(payload.servers) ? payload.servers : [];
+        setServerOptions(options);
+        setServerSearchMessage(
+          options.length ? `${options.length} server ditemukan.` : "Server tidak ditemukan. Coba nama broker atau server yang lebih singkat."
+        );
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setServerOptions([]);
+        setServerSearchMessage(
+          error instanceof Error ? error.message : "Pencarian server gagal."
+        );
+      } finally {
+        if (!controller.signal.aborted) setServerSearchBusy(false);
+      }
+    }, 350);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [serverSearch]);
+
   const handleConnectSubmit = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
     const form = event.currentTarget;
+    if (!(manualServerEntry ? manualServer.trim() : selectedBrokerServer)) {
+      setAccountMessage("Pilih server akun dari hasil pencarian atau masukkan nama server yang diberikan broker.");
+      return;
+    }
     setConnectingAccount(true);
     setAccountMessage("");
     const formData = new FormData(form);
@@ -709,6 +761,11 @@ export function AccountPanel() {
         { method: "POST", body: JSON.stringify(payload) }
       );
       form.reset();
+      setServerSearch("");
+      setServerOptions([]);
+      setSelectedBrokerServer("");
+      setManualServer("");
+      setManualServerEntry(false);
       setExecutionMode("EA");
       setSelectedVps(null);
       modeTouched.current = false;
@@ -993,15 +1050,80 @@ export function AccountPanel() {
                 required
               />
             </label>
-            <label>
-              Server broker
+            <div className="broker-server-field">
+              <label htmlFor="broker-server-query">Cari broker atau server MT5</label>
               <input
-                name="server"
-                maxLength={128}
-                placeholder="BrokerName-Live"
-                required
+                id="broker-server-query"
+                type="search"
+                value={serverSearch}
+                maxLength={96}
+                autoComplete="off"
+                placeholder="Contoh: HFM atau HFMarketsGlobal-Live11"
+                aria-describedby="broker-server-help"
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setServerSearch(value);
+                  setServerOptions([]);
+                  setSelectedBrokerServer("");
+                  setServerSearchBusy(value.trim().length >= 3);
+                  setServerSearchMessage(
+                    value.trim().length >= 3
+                      ? "Menyiapkan pencarian…"
+                      : "Ketik minimal 3 karakter untuk mencari server MT5."
+                  );
+                }}
               />
-            </label>
+              {manualServerEntry ? (
+                <>
+                  <label htmlFor="manual-broker-server">Nama server akun</label>
+                  <input
+                    id="manual-broker-server"
+                  name="server"
+                  value={manualServer}
+                  maxLength={128}
+                  required
+                  placeholder="Nama server persis dari broker"
+                  onChange={(event) => setManualServer(event.currentTarget.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <label htmlFor="broker-server-selection">Server akun</label>
+                  <select
+                    id="broker-server-selection"
+                    name="server"
+                    value={selectedBrokerServer}
+                    required
+                    onChange={(event) => setSelectedBrokerServer(event.currentTarget.value)}
+                    aria-describedby="broker-server-help"
+                  >
+                    <option value="">Pilih server akun dari hasil pencarian</option>
+                    {serverOptions.map((option) => (
+                      <option key={`${option.company}:${option.name}`} value={option.name}>
+                        {option.name} — {option.company}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              <span id="broker-server-help" className="field-help" role="status">
+                {serverSearchBusy ? "Mencari direktori server MT5…" : serverSearchMessage || "Pilih server yang tercantum pada detail akun broker Anda."}
+              </span>
+              <span className="field-help">
+                Pencarian hanya mengirim teks broker/server; nomor akun dan password tidak dikirim.
+              </span>
+              <button
+                type="button"
+                className="server-manual-toggle"
+                onClick={() => {
+                  setManualServerEntry((value) => !value);
+                  setManualServer("");
+                  setSelectedBrokerServer("");
+                }}
+              >
+                {manualServerEntry ? "Pilih dari hasil pencarian" : "Nama server tidak ada? Masukkan manual"}
+              </button>
+            </div>
             <label>
               Nomor akun broker
               <input
