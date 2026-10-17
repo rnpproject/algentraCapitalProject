@@ -330,7 +330,7 @@ void EnsureDefaultGoldChart()
         }
       return;
      }
-   if(_Symbol == gold_symbol)
+   if(ChartSymbol(0) == gold_symbol && ChartPeriod(0) == PERIOD_M1)
      {
       g_gold_chart_ready = true;
       Print("[MT5FollowerCopyEA] default gold chart: ", gold_symbol, ", M1");
@@ -339,8 +339,10 @@ void EnsureDefaultGoldChart()
    ResetLastError();
    if(ChartSetSymbolPeriod(0, gold_symbol, PERIOD_M1))
      {
-      g_gold_chart_ready = true;
-      Print("[MT5FollowerCopyEA] switching default chart to ", gold_symbol, ", M1");
+      // ChartSetSymbolPeriod queues an asynchronous chart change. Do not mark
+      // this complete until the next initialization sees the requested chart.
+      Print("[MT5FollowerCopyEA] requested chart switch to ", gold_symbol,
+            ", M1; waiting for MT5 to apply it");
      }
    else if(TimeCurrent() - g_gold_chart_last_log >= 15)
      {
