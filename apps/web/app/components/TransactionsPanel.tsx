@@ -15,6 +15,7 @@ type Plan = {
 
 type PaymentOrder = {
   id: number;
+  invoice_code: string;
   label: string;
   server: string;
   login: string;
@@ -77,7 +78,7 @@ const manualPaymentFallback =
 function OrderDetails({ order, plans, selectedPaymentMethod }: { order: PaymentOrder; plans: Record<string, Plan>; selectedPaymentMethod?: "qris" | "manual" }) {
   const plan = plans[order.plan] || { name: order.plan, vcpu: "-", ram: "-", disk: "-" };
   const rows: Array<[string, string]> = [
-    ["No. Pesanan", `#${order.id}`],
+    ["Kode invoice", order.invoice_code || `INV-AC${String(order.id).padStart(4, "0")}`],
     ["Tanggal", orderDate(order.created_at)],
     ["Nama akun", order.label],
   ];

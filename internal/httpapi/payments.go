@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -256,7 +257,7 @@ func (api paymentAPI) resolvePlan(code string) (int64, bool) {
 }
 
 func paymentOrderPayload(id int64, email, label, server, login, plan, mode string, amount int64, status, method string, midtrans, proof sql.NullString, account sql.NullInt64, notified sql.NullTime, created, updated time.Time) map[string]any {
-	return map[string]any{"id": id, "email": email, "label": label, "server": server, "login": login, "plan": plan, "execution_mode": mode, "total_idr": amount, "status": status, "payment_method": method, "midtrans_status": nullableString(midtrans), "has_proof": proof.Valid, "account_id": nullableInt(account), "notification_sent": notified.Valid, "created_at": wibTime(created), "updated_at": wibTime(updated)}
+	return map[string]any{"id": id, "invoice_code": fmt.Sprintf("INV-AC%04d", id), "email": email, "label": label, "server": server, "login": login, "plan": plan, "execution_mode": mode, "total_idr": amount, "status": status, "payment_method": method, "midtrans_status": nullableString(midtrans), "has_proof": proof.Valid, "account_id": nullableInt(account), "notification_sent": notified.Valid, "created_at": wibTime(created), "updated_at": wibTime(updated)}
 }
 
 func nullableInt(v sql.NullInt64) any {

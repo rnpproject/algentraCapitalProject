@@ -625,7 +625,6 @@ export function AccountPanel() {
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [selectedVps, setSelectedVps] = useState<string | null>(null);
   const [accountMessage, setAccountMessage] = useState("");
-  const [hasPaymentHistory, setHasPaymentHistory] = useState(false);
   const [connectingAccount, setConnectingAccount] = useState(false);
   const [showAccountForm, setShowAccountForm] = useState(false);
   const [rootUrl, setRootUrl] = useState("");
@@ -681,9 +680,6 @@ export function AccountPanel() {
     apiRequest<Pricing>("mt5/pricing")
       .then(setPricing)
       .catch(() => {});
-    apiRequest<Array<{ id: number }>>("payments/orders")
-      .then((orders) => setHasPaymentHistory(orders.length > 0))
-      .catch(() => setHasPaymentHistory(false));
     loadAccounts();
     const timer = setInterval(() => {
       if (!document.hidden && !managedFormDirty.current) loadAccounts();
@@ -1049,20 +1045,6 @@ export function AccountPanel() {
         {hasExistingPackage && showAccountForm && (
           <div className="account-form-actions">
             <button type="button" className="account-action-button account-action-button--secondary" onClick={() => setShowAccountForm(false)}>Tutup formulir</button>
-          </div>
-        )}
-        {!hasExistingPackage && hasPaymentHistory && (
-          <div className="toolbar account-actions-toolbar">
-            {hasPaymentHistory && (
-              <a className="workspace-tag" href="/transactions">
-                Buka riwayat transaksi dan nota
-              </a>
-            )}
-            {(hasPaymentHistory || accounts.length > 0) && (
-              <a className="workspace-tag" href="#account-form">
-                Hubungkan akun lain
-              </a>
-            )}
           </div>
         )}
         </>

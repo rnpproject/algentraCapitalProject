@@ -774,7 +774,6 @@
     .account-page .account-price-stack .price-list__total { background: transparent; }
     .account-page .account-price-stack .price-list__total span { color: var(--ink); font-weight: 750; }
     .account-page .account-price-stack .price-list__total strong { color: var(--action); font-size: 15px; }
-    .account-page .account-actions-toolbar { display: flex; flex-wrap: wrap; gap: 10px; }
     .account-primary-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; max-width:760px; margin-top:22px; }
     .account-action-button { display:inline-flex; align-items:center; justify-content:center; min-height:48px; padding:10px 18px; border:1px solid transparent; border-radius:12px; color:var(--on-action); background:var(--action); font:700 13px/1.35 var(--font-body); text-align:center; text-decoration:none; cursor:pointer; transition:filter 160ms ease, transform 160ms ease; }
     .account-action-button:hover { color:var(--on-action); filter:brightness(1.08); transform:translateY(-1px); }
@@ -789,8 +788,6 @@
     .account-page .form-actions { margin-top: -2px; }
     .account-page .form-actions button { min-height: 50px; padding-inline: 24px; border-radius: 12px; font-size: 14px; }
     .account-page #account-message:not(:empty) { margin: 16px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-raised); }
-    .account-page > section:first-of-type > .toolbar { margin-top: 20px; }
-    .account-page > section:first-of-type > .toolbar .workspace-tag { min-height: 44px; align-items: center; padding: 0 15px; border-radius: 11px; font-size: 12px; }
     @media (min-width: 960px) {
       .account-page #account-form { grid-template-columns: minmax(0, 1.1fr) minmax(340px, .9fr); column-gap: 20px; row-gap: 12px; align-items: start; }
       .account-page #account-form > .plan-picker:first-child,
@@ -813,7 +810,6 @@
       .account-page .price-row__desc { font-size: 11px; }
       .account-page .account-fields { grid-template-columns: minmax(0, 1fr); }
       .account-page .form-actions button { width: 100%; }
-      .account-page > section:first-of-type > .toolbar .workspace-tag { display: inline-flex; }
       .account-primary-actions { grid-template-columns:minmax(0,1fr); gap:9px; }
       .account-action-button { width:100%; }
     }

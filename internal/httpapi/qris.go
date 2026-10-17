@@ -178,12 +178,7 @@ func (api paymentAPI) createQRIS(w http.ResponseWriter, r *http.Request) {
 		returnQRIS(w, 200, id, orderID.String, transactionID, amount, api.midtransBase())
 		return
 	}
-	random := make([]byte, 10)
-	if _, err := rand.Read(random); err != nil {
-		writeError(w, 500, "QRIS tidak dapat dibuat")
-		return
-	}
-	midtransID := fmt.Sprintf("ALG-%d-%s", id, hex.EncodeToString(random))
+	midtransID := fmt.Sprintf("INV-AC%04d", id)
 	payload := map[string]any{"payment_type": "qris", "transaction_details": map[string]any{"order_id": midtransID, "gross_amount": amount}, "item_details": []any{map[string]any{"id": plan, "price": amount, "quantity": 1, "name": "rnp-project"}}, "customer_details": map[string]any{"email": email}, "custom_field1": fmt.Sprint(id)}
 	response, code, err := api.midtransRequest(ctx, http.MethodPost, "/v2/charge", payload)
 	if err != nil {
