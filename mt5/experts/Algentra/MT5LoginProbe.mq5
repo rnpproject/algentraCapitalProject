@@ -1,11 +1,13 @@
 #property strict
-#property version   "1.000"
+#property version   "1.001"
 #property description "Reports isolated MT5 terminal login and trade readiness to the Go managed worker."
 
 input string ProbeStatusFileName = "algentra-login-probe.json";
 bool g_status_write_error_logged = false;
+string g_last_status_log = "";
 bool g_gold_chart_ready = false;
 datetime g_gold_chart_last_log = 0;
+datetime g_gold_chart_last_check = 0;
 
 string EscapeJSON(string value)
   {
@@ -51,6 +53,20 @@ void WriteStatusToFile(const string file_name,
 
 void WriteStatus(const bool ready, const bool valid, const string message)
   {
+   string safe_message = EscapeJSON(message);
+   string server = EscapeJSON(AccountInfoString(ACCOUNT_SERVER));
+   string payload = StringFormat("{\"ready\":%s,\"valid\":%s,\"message\":\"%s\",\"login\":%I64d,\"server\":\"%s\"}",
+                                  ready ? "true" : "false",
+                                  valid ? "true" : "false",
+                                  safe_message,
+                                  AccountInfoInteger(ACCOUNT_LOGIN),
+                                  server);
+   // Give the worker a log-based fallback if terminal file access is blocked.
+   if(payload != g_last_status_log)
+     {
+      Print("[MT5LoginProbe] STATUS ", payload);
+      g_last_status_log = payload;
+     }
    // The worker runs this terminal in portable mode, so its local MQL5/Files
    // directory is deterministic. Also write to FILE_COMMON for diagnostics and
    // compatibility with non-portable terminal layouts.
@@ -61,14 +77,9 @@ void WriteStatus(const bool ready, const bool valid, const string message)
 bool ResolveGoldSymbol(string &resolved)
   {
    resolved = "";
-   if(SymbolSelect("XAUUSD", true))
-     {
-      resolved = "XAUUSD";
-      return true;
-     }
-
    string best = "";
    string best_upper = "";
+   long best_quote_time = 0;
    int best_suffix_length = 2147483647;
    int symbols_total = SymbolsTotal(false);
    for(int i = 0; i < symbols_total; i++)
@@ -76,16 +87,25 @@ bool ResolveGoldSymbol(string &resolved)
       string candidate = SymbolName(i, false);
       string upper = candidate;
       StringToUpper(upper);
-      if(StringLen(candidate) <= 6 || StringSubstr(upper, 0, 6) != "XAUUSD")
+      if(StringLen(candidate) < 6 || StringSubstr(upper, 0, 6) != "XAUUSD")
          continue;
       if(SymbolInfoInteger(candidate, SYMBOL_TRADE_MODE) == SYMBOL_TRADE_MODE_DISABLED)
          continue;
+      // Select matching gold variants so MT5 can load quotes for the account's
+      // actual instrument before choosing between XAUUSD, XAUUSDc, XAUUSDm, etc.
+      SymbolSelect(candidate, true);
+      MqlTick tick;
+      long quote_time = 0;
+      if(SymbolInfoTick(candidate, tick) && tick.bid > 0.0 && tick.ask > 0.0)
+         quote_time = tick.time_msc > 0 ? tick.time_msc : (long)tick.time * 1000;
       int suffix_length = StringLen(candidate) - 6;
-      if(suffix_length < best_suffix_length ||
-         (suffix_length == best_suffix_length && (best == "" || upper < best_upper)))
+      if(best == "" || quote_time > best_quote_time ||
+         (quote_time == best_quote_time && suffix_length < best_suffix_length) ||
+         (quote_time == best_quote_time && suffix_length == best_suffix_length && upper < best_upper))
         {
          best = candidate;
          best_upper = upper;
+         best_quote_time = quote_time;
          best_suffix_length = suffix_length;
         }
      }
@@ -97,8 +117,9 @@ bool ResolveGoldSymbol(string &resolved)
 
 void EnsureDefaultGoldChart()
   {
-   if(g_gold_chart_ready)
+   if(g_gold_chart_ready && TimeCurrent() - g_gold_chart_last_check < 10)
       return;
+   g_gold_chart_last_check = TimeCurrent();
    string gold_symbol;
    if(!ResolveGoldSymbol(gold_symbol))
      {

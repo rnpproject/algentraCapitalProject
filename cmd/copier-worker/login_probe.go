@@ -194,7 +194,11 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 			return false, "Pemeriksaan dibatalkan karena worker dihentikan."
 		case waitErr := <-done:
 			exited = true
-			if status, ok := readAnyProbeStatus(portableStatusPath, statusPath, legacyStatusPath); ok && status.Ready {
+			status, ok := readAnyProbeStatus(portableStatusPath, statusPath, legacyStatusPath)
+			if !ok {
+				status, ok = readProbeStatusFromLogs(accountDir, offsets)
+			}
+			if ok && status.Ready {
 				return validateProbeResult(status, login, server)
 			}
 			authorized, reason := scanAuthLog(accountDir, offsets, login)
@@ -224,7 +228,11 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 			}
 		case <-tick.C:
 		}
-		if status, ok := readAnyProbeStatus(portableStatusPath, statusPath, legacyStatusPath); ok {
+		status, ok := readAnyProbeStatus(portableStatusPath, statusPath, legacyStatusPath)
+		if !ok {
+			status, ok = readProbeStatusFromLogs(accountDir, offsets)
+		}
+		if ok {
 			last, seen = status, true
 			if status.Ready {
 				return validateProbeResult(status, login, server)
@@ -418,12 +426,59 @@ func readAnyProbeStatus(paths ...string) (probeStatus, bool) {
 	return probeStatus{}, false
 }
 
+// readProbeStatusFromLogs is a fallback for terminal environments where MQL5
+// cannot write into either the portable Files folder or FILE_COMMON. The EA
+// emits a single STATUS JSON log line whenever its report changes.
+func readProbeStatusFromLogs(dir string, offsets map[string]int64) (probeStatus, bool) {
+	patterns := []string{
+		filepath.Join(dir, "logs", "*.log"),
+		filepath.Join(dir, "MQL5", "Logs", "*.log"),
+	}
+	var latest probeStatus
+	found := false
+	const marker = "[MT5LoginProbe] STATUS "
+	for _, pattern := range patterns {
+		files, _ := filepath.Glob(pattern)
+		for _, path := range files {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			start := offsets[path]
+			if start < 0 || start > int64(len(data)) {
+				start = 0
+			}
+			data = data[start&^1:]
+			units := make([]uint16, 0, len(data)/2)
+			for i := 0; i+1 < len(data); i += 2 {
+				units = append(units, uint16(data[i])|uint16(data[i+1])<<8)
+			}
+			for _, line := range strings.Split(string(utf16.Decode(units)), "\n") {
+				index := strings.Index(line, marker)
+				if index < 0 {
+					continue
+				}
+				var status probeStatus
+				if json.Unmarshal([]byte(strings.TrimSpace(line[index+len(marker):])), &status) == nil {
+					latest, found = status, true
+				}
+			}
+		}
+	}
+	return latest, found
+}
+
 func logOffsets(dir string) map[string]int64 {
 	offsets := map[string]int64{}
-	files, _ := filepath.Glob(filepath.Join(dir, "logs", "*.log"))
-	for _, f := range files {
-		if info, err := os.Stat(f); err == nil {
-			offsets[f] = info.Size()
+	for _, pattern := range []string{
+		filepath.Join(dir, "logs", "*.log"),
+		filepath.Join(dir, "MQL5", "Logs", "*.log"),
+	} {
+		files, _ := filepath.Glob(pattern)
+		for _, f := range files {
+			if info, err := os.Stat(f); err == nil {
+				offsets[f] = info.Size()
+			}
 		}
 	}
 	return offsets
@@ -455,6 +510,8 @@ func scanAuthLog(dir string, offsets map[string]int64, login int64) (authorized 
 			lower := strings.ToLower(line)
 			if strings.Contains(lower, "authorized on") {
 				authorized, failure = true, ""
+			} else if strings.Contains(lower, "trading has been disabled") && strings.Contains(lower, "disabled on server") {
+				failure = "trading disabled on server"
 			} else if i := strings.LastIndex(lower, "authorization on"); i >= 0 {
 				if j := strings.LastIndex(lower, "failed ("); j > i {
 					authorized = false
@@ -473,6 +530,8 @@ func authFailureMessage(reason string) (string, bool) {
 		return "Login ditolak broker (Invalid account). Periksa nomor login, password, dan nama server.", true
 	case strings.Contains(r, "account disabled"):
 		return "Akun dinonaktifkan oleh broker.", true
+	case strings.Contains(r, "trading disabled on server"):
+		return "Login broker berhasil, tetapi server broker menonaktifkan trading untuk akun ini. Minta broker mengaktifkan izin trading akun sebelum copy trading dapat berjalan.", true
 	case strings.Contains(r, "no connection"):
 		return "Terminal tidak dapat terhubung ke server broker (No connection). Periksa nama server dan akses internet keluar dari server Windows.", false
 	default:

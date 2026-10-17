@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.101"
+#property version   "1.102"
 #property description "Copies all published Algentra positions and reports MT5 account history"
 
 #include <Trade/Trade.mqh>
@@ -38,6 +38,7 @@ string g_dry_symbols[];
 double g_dry_volumes[];
 bool g_gold_chart_ready = false;
 datetime g_gold_chart_last_log = 0;
+datetime g_gold_chart_last_check = 0;
 
 string TrimTrailingSlash(string value)
   {
@@ -194,10 +195,29 @@ string AccountTradeModeText()
 
 bool TrySelectBrokerSymbol(const string candidate, string &resolved)
   {
-   if(StringLen(candidate) == 0 || !SymbolSelect(candidate, true))
+   if(StringLen(candidate) == 0)
       return false;
+   bool was_selected = (bool)SymbolInfoInteger(candidate, SYMBOL_SELECT);
+   if(!SymbolSelect(candidate, true))
+      return false;
+   if(SymbolInfoInteger(candidate, SYMBOL_TRADE_MODE) == SYMBOL_TRADE_MODE_DISABLED)
+     {
+      if(!was_selected)
+         SymbolSelect(candidate, false);
+      return false;
+     }
    resolved = candidate;
    return true;
+  }
+
+long BrokerSymbolQuoteTime(const string symbol)
+  {
+   MqlTick tick;
+   if(!SymbolInfoTick(symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+      return 0;
+   if(tick.time_msc > 0)
+      return tick.time_msc;
+   return (long)tick.time * 1000;
   }
 
 bool ResolveBrokerSymbol(const string requested, const string suffix, const string mapping_csv,
@@ -242,16 +262,13 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
         }
      }
 
-   if(mapped != "")
+   // An explicit non-default mapping is intentional and takes priority.
+   if(mapped != "" && mapped != source)
      {
       if(TrySelectBrokerSymbol(mapped, resolved))
          return true;
-      if(suffix != "" && TrySelectBrokerSymbol(mapped + suffix, resolved))
-         return true;
      }
    if(suffix != "" && TrySelectBrokerSymbol(source + suffix, resolved))
-      return true;
-   if(TrySelectBrokerSymbol(source, resolved))
       return true;
 
    string search_for = mapped != "" ? mapped : source;
@@ -259,6 +276,7 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
    StringToUpper(search_upper);
    string match = "";
    string match_upper = "";
+   long best_quote_time = 0;
    int best_suffix_length = 2147483647;
    int symbols_total = SymbolsTotal(false);
    for(int i = 0; i < symbols_total; i++)
@@ -266,21 +284,25 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
       string candidate = SymbolName(i, false);
       string candidate_upper = candidate;
       StringToUpper(candidate_upper);
-      // Exact symbols were tried above. For broker suffixes (XAUUSDc,
-      // XAUUSDm, XAUUSD.a, etc.), prefer the shortest suffix and use the
-      // symbol name as a stable tie-breaker. Do not select every match:
-      // that would clutter Market Watch and leave the chosen instrument
-      // dependent on the broker's symbol enumeration order.
-      if(candidate_upper == search_upper || StringFind(candidate_upper, search_upper) != 0)
+      // Compare the exact name and broker suffix variants together. The exact
+      // name can exist in the directory without being the instrument that
+      // receives this account's quotes, so prefer the freshest usable quote.
+      if(StringFind(candidate_upper, search_upper) != 0)
          continue;
       long trade_mode = SymbolInfoInteger(candidate, SYMBOL_TRADE_MODE);
       if(trade_mode == SYMBOL_TRADE_MODE_DISABLED)
          continue;
+      // Load matching broker variants into Market Watch so MT5 can expose
+      // account-specific quotes used to choose XAUUSDc/XAUUSDm correctly.
+      SymbolSelect(candidate, true);
+      long quote_time = BrokerSymbolQuoteTime(candidate);
       int suffix_length = StringLen(candidate) - StringLen(search_for);
-      if(suffix_length < best_suffix_length ||
-         (suffix_length == best_suffix_length && (match == "" || candidate_upper < match_upper)))
+      if(match == "" || quote_time > best_quote_time ||
+         (quote_time == best_quote_time && suffix_length < best_suffix_length) ||
+         (quote_time == best_quote_time && suffix_length == best_suffix_length && candidate_upper < match_upper))
         {
          best_suffix_length = suffix_length;
+         best_quote_time = quote_time;
          match = candidate;
          match_upper = candidate_upper;
         }
@@ -295,7 +317,7 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
         }
       resolved = match;
       Print("[MT5FollowerCopyEA] auto-selected broker symbol ", resolved,
-            " for ", search_for, " (shortest available suffix)");
+            " for ", search_for, " (freshest available quote)");
       return true;
      }
    reason = StringFormat("no follower symbol matches master symbol %s; configure SymbolSuffix or SymbolMapCsv", source);
@@ -304,8 +326,9 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
 
 void EnsureDefaultGoldChart()
   {
-   if(g_gold_chart_ready)
+   if(g_gold_chart_ready && TimeCurrent() - g_gold_chart_last_check < 10)
       return;
+   g_gold_chart_last_check = TimeCurrent();
    string gold_symbol, reason;
    if(!ResolveBrokerSymbol("XAUUSD", "", SymbolMapCsv, gold_symbol, reason))
      {
