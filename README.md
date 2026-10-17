@@ -142,12 +142,14 @@ TelegramSignalEA mengirim snapshot master ke Core API; worker managed meneruskan
    Task bernama `Algentra Managed Copy Worker`, berjalan saat akun worker login, dan membutuhkan sesi interaktif. Periksa `managed-worker.json`/`master.json` hasil installer, lalu login kembali setelah reboot agar MT5 follower aktif. Source master default `telegram_signal`; installer tidak meminta path terminal master.
 4. User mendaftar, membuat pesanan, dan membayar dengan QRIS. Settlement otomatis membuat akun. User memasukkan kredensial broker follower serta batas lot di portal; worker memeriksa login, lalu user menyetujui aktivasi live. Uji alur dahulu dengan akun demo dan risk limit yang ditetapkan.
 
-### B. Copier standalone (publisher master + follower EA di host sendiri)
+### B. Copier standalone dari posisi MT5 (publisher master + follower EA di host sendiri)
 
 1. Buat satu instalasi MT5 portable terpisah untuk setiap follower, login ke akun yang benar lalu tutup terminal. Compile/pasang `MT5FollowerCopyEA.mq5` pada terminal masing-masing.
 2. Siapkan config lokal dari `apps/copier-worker/config/master.example.json`, lalu buat `akun*.json` dan `launcher.json` sesuai [panduan copier](apps/copier-worker/README.md). Tetapkan path terminal unik, folder sinyal yang sama, symbol mapping, mode lot, `dry_run`, dan batas `max_lot_per_order`, `max_posisi_terbuka`, `max_lot_total`.
-3. Compile/pasang `MT5MasterPublisherEA.mq5` pada terminal master. Set `MASTER_PUBLISHER_TOKEN` di environment akun Windows dan input `PublisherToken` EA dengan nilai yang sama. Allow-list `http://127.0.0.1:8765` pada MT5 master dan `http://127.0.0.1:8766` pada follower.
+3. Pasang `MT5MasterPublisherEA.mq5` pada chart mana pun di terminal MT5 yang login ke **akun master sumber posisi**. EA ini membaca posisi terbuka di akun itu dan mengirim snapshot ke publisher Go lokal; EA tidak membuka order. Compile EA dengan MetaEditor, set `MASTER_PUBLISHER_TOKEN` di environment akun Windows yang menjalankan publisher, lalu isi input `PublisherToken` EA dengan secret yang sama (minimal 32 karakter). Allow-list `http://127.0.0.1:8765` pada terminal master dan `http://127.0.0.1:8766` pada terminal follower.
 4. Mulai dari root release: `apps\copier-worker\scripts\start-all.ps1`. Task opsional saat login dapat dipasang melalui `apps\copier-worker\scripts\install_startup_task.ps1`. Jangan jalankan publisher master kedua bila managed worker atau launcher sudah menjalankannya.
+
+Pasang EA publisher ini hanya jika ingin menyalin posisi yang dibuka di MT5 master secara langsung (standalone/`master_source: publisher_ea`). Untuk managed copy yang menggunakan sinyal Telegram, pasang `TelegramSignalEA.mq5` di terminal master; `MT5MasterPublisherEA.mq5` tidak dipakai karena worker menerima snapshot dari Core API.
 
 ### C. Telegram Signal EA (mengirim order dari sinyal Telegram)
 

@@ -216,7 +216,7 @@ func (api paymentAPI) createOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	var id int64
 	now := time.Now().UTC()
-	err = tx.QueryRow(ctx, `INSERT INTO payment_orders(owner_id,email,label,server,login,plan,execution_mode,total_idr,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9) RETURNING id`, ownerID, email, p.Label, p.Server, p.Login, p.Plan, executionMode, amount, now).Scan(&id)
+	err = tx.QueryRow(ctx, `INSERT INTO payment_orders(owner_id,email,label,server,login,plan,execution_mode,total_idr,status,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'PENDING_PAYMENT',$9,$9) RETURNING id`, ownerID, email, p.Label, p.Server, p.Login, p.Plan, executionMode, amount, now).Scan(&id)
 	if err != nil {
 		writeError(w, 503, "Pesanan pembayaran gagal disimpan")
 		return

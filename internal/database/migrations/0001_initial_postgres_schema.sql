@@ -386,7 +386,7 @@ CREATE TABLE payment_orders (
     plan VARCHAR(16) NOT NULL, 
     execution_mode VARCHAR(16) NOT NULL, 
     total_idr INTEGER NOT NULL, 
-    status VARCHAR(24) NOT NULL, 
+    status VARCHAR(24) NOT NULL DEFAULT 'PENDING_PAYMENT',
     proof_filename VARCHAR(128), 
     account_id INTEGER, 
     admin_notified_at TIMESTAMP WITH TIME ZONE, 

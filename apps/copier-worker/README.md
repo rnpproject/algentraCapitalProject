@@ -101,7 +101,7 @@ Worker tidak memerlukan Python atau package MetaTrader5. Supervisor, publisher, 
 
 ## Publisher master Go
 
-Pembacaan posisi master sudah tersedia sebagai binary Go. Terminal master menjalankan `MT5MasterPublisherEA.mq5`, yang mengirim snapshot melalui HTTP loopback; `copier-master.exe` membandingkan snapshot dan menulis JSONL yang dibaca follower. EA hanya membaca posisi master dan tidak membuat order.
+Mode publisher EA dipakai untuk standalone yang menyalin posisi terbuka MT5 secara langsung (`master_source: publisher_ea`). Pasang `MT5MasterPublisherEA.mq5` pada chart mana pun di terminal MT5 yang login ke akun master sumber posisi. EA hanya membaca posisi master dan mengirim snapshot melalui HTTP loopback; `copier-master.exe` membandingkan snapshot dan menulis JSONL yang dibaca follower. EA ini tidak membuat order dan tidak dipasang pada terminal follower. Untuk managed mode dengan `master_source: telegram_signal`, gunakan `TelegramSignalEA.mq5` di terminal master; EA publisher ini tidak diperlukan.
 
 1. Build dari root repo: `go build -ldflags="-s -w" -o algentra-copier-master.exe ./cmd/copier-master` dan `go build -ldflags="-s -w" -o algentra-copier-launcher.exe ./cmd/copier-launcher`.
 2. Set `MASTER_PUBLISHER_TOKEN` sebagai environment variable akun Windows yang menjalankan publisher. Gunakan secret acak minimal 32 karakter dan masukkan nilai yang sama pada input `PublisherToken` EA.

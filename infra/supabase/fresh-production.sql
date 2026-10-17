@@ -418,7 +418,7 @@ CREATE TABLE payment_orders (
     midtrans_order_id VARCHAR(64),
     midtrans_transaction_id VARCHAR(64),
     midtrans_status VARCHAR(32),
-    status VARCHAR(24) NOT NULL, 
+    status VARCHAR(24) NOT NULL DEFAULT 'PENDING_PAYMENT',
     proof_filename VARCHAR(128), 
     account_id INTEGER, 
     admin_notified_at TIMESTAMP WITH TIME ZONE, 
