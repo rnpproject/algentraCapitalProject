@@ -4,6 +4,12 @@ function readError(data: unknown): string {
     : "Permintaan tidak berhasil.";
 }
 
+function reportApiActivity(phase: "start" | "end"): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(`algentra:api-${phase}`));
+  }
+}
+
 function csrfHeaders(): Headers {
   const headers = new Headers();
   if (typeof window !== "undefined") {
@@ -50,6 +56,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   const stopLoading = new Set(["GET", "HEAD", "OPTIONS"]).has(method)
     ? () => {}
     : beginActionButtonLoading();
+  reportApiActivity("start");
   try {
     const response = await fetch(`/api/core/${path}`, { ...init, method, headers, cache: "no-store" });
     const data: unknown = await response.json().catch(() => ({}));
@@ -58,12 +65,14 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     return data as T;
   } finally {
     stopLoading();
+    reportApiActivity("end");
   }
 }
 
 export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
   const headers = csrfHeaders();
   const stopLoading = beginActionButtonLoading();
+  reportApiActivity("start");
   try {
     const response = await fetch(`/api/core/${path}`, { method: "POST", headers, body: form, cache: "no-store" });
     const data: unknown = await response.json().catch(() => ({}));
@@ -72,5 +81,6 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
     return data as T;
   } finally {
     stopLoading();
+    reportApiActivity("end");
   }
 }

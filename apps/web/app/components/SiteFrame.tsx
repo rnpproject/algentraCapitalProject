@@ -6,24 +6,6 @@ import { apiRequest } from "../lib/api";
 
 type SessionInfo = { admin: boolean; client: boolean; csrf_token?: string };
 
-const BRAND_SVG = (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M12 16v5" />
-    <path d="M16 14.639V21" />
-    <path d="M20 10.656V21" />
-    <path d="m22 3-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15" />
-    <path d="M4 18.463V21" />
-    <path d="M8 14.656V21" />
-  </svg>
-);
-
 const THEME_ICONS = (
   <>
     <svg
@@ -72,11 +54,13 @@ function NavLink({
   active,
   title,
   desc,
+  icon,
 }: {
   href: string;
   active: boolean;
   title: string;
   desc: string;
+  icon?: string;
 }) {
   return (
     <a
@@ -84,7 +68,10 @@ function NavLink({
       href={href}
       aria-current={active ? "location" : undefined}
     >
-      <span>{title}</span>
+      <span className="nav-link__title">
+        {icon && <svg aria-hidden="true"><use href={`/brand-kit/icons/algentra-icons-sprite.svg#${icon}`} /></svg>}
+        {title}
+      </span>
       <small>{desc}</small>
     </a>
   );
@@ -98,7 +85,6 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-
   // Sesi: kontrak apiRequest<{admin, client}>("auth/session"); gagal/401 -> anonim.
   useEffect(() => {
     let alive = true;
@@ -292,7 +278,7 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
       return (
         <>
           <NavLink href="/" active={false} title="Algentra Capital" desc="Beranda" />
-          <NavLink href="/login" active title="Portal klien" desc="Masuk akun klien" />
+          <NavLink href="/login" active title="Portal klien" desc="Masuk akun klien" icon="ac-client-portal" />
           {registrationOpen ? (
             <NavLink href="/register" active={false} title="Daftar" desc="Akun klien" />
           ) : (
@@ -344,6 +330,7 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
           active={false}
           title="Portal klien"
           desc={registrationOpen ? "Masuk atau daftar" : "Masuk client"}
+          icon="ac-client-portal"
         />
       </>
     );
@@ -356,15 +343,10 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
       </a>
       <header className="topbar">
         <a className="brand" href={isAdmin ? "/dashboard" : "/"}>
-          <span className="brand-mark" aria-hidden="true">
-            {BRAND_SVG}
-          </span>
-          <span className="brand-copy">
-            <strong>Algentra Capital</strong>
-            <small>
-              {isAdmin ? "AI-driven copy trading" : "Copy trading otomatis berbasis AI"}
-            </small>
-          </span>
+          <img className="brand-logo brand-logo--dark" src="/brand-kit/logo/algentra-horizontal-dark.svg" alt="Algentra Capital" />
+          <img className="brand-logo brand-logo--light" src="/brand-kit/logo/algentra-horizontal-light.svg" alt="" aria-hidden="true" />
+          <img className="brand-mark-image brand-mark-image--dark" src="/brand-kit/logo/algentra-mark-dark.svg" alt="" aria-hidden="true" />
+          <img className="brand-mark-image brand-mark-image--light" src="/brand-kit/logo/algentra-mark-light.svg" alt="" aria-hidden="true" />
         </a>
         <nav
           className={`site-nav${navOpen ? " is-open" : ""}`}

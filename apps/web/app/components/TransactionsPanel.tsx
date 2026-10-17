@@ -251,6 +251,7 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
 function TransactionsPanelInner() {
   const searchParams = useSearchParams();
   const [orders, setOrders] = useState<PaymentOrder[]>([]);
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
   const [plans, setPlans] = useState<Record<string, Plan>>({});
   const [manualPayment, setManualPayment] = useState<ManualPaymentDetails | null>(null);
   const [filter, setFilter] = useState("PENDING_PAYMENT");
@@ -283,6 +284,7 @@ function TransactionsPanelInner() {
       orderStatusesRef.current = new Map(data.map((order) => [order.id, order.status]));
       fingerprintRef.current = fingerprint;
       setOrders(data);
+      setOrdersLoaded(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Permintaan gagal.");
     }
@@ -436,7 +438,13 @@ function TransactionsPanelInner() {
             {message}
           </p>
           <div id="transactions-list" className="grid" aria-live="polite">
-            {visible.length === 0
+            {!ordersLoaded ? (
+              <div className="app-loading app-loading--inline" role="status" aria-live="polite">
+                <span className="app-loading__spinner" aria-hidden="true" />
+                <p>Memuat transaksi</p>
+                <span className="app-loading__hint">Mengambil status pesanan terbaru…</span>
+              </div>
+            ) : visible.length === 0
               ? orders.length
                 ? "Tidak ada transaksi untuk filter ini."
                 : "Belum ada transaksi."

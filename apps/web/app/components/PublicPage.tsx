@@ -762,23 +762,14 @@ export default function PublicPage() {
 
         <section className="community-card" aria-labelledby="community-heading">
           <div className="community-emblem" aria-hidden="true">
-            <svg
-              viewBox="0 0 32 32"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="10" r="4"></circle>
-              <path d="M4.5 25v-2.2a7.5 7.5 0 0 1 15 0V25"></path>
-              <path d="M21 7.2a4 4 0 0 1 0 7.6M23 18a6.5 6.5 0 0 1 4.5 6.2V25"></path>
-              <path d="m21 19.5 1.8 1.8 3.8-4"></path>
-            </svg>
+            <img src="/brand-kit/icons/client-portal.svg" alt="" />
           </div>
           <div className="community-copy">
             <span className="section-kicker">Portal klien</span>
-            <h2 id="community-heading">Pengguna terverifikasi</h2>
+            <h2 id="community-heading">
+              Pengguna terverifikasi
+              <img className="inline-brand-icon" src="/brand-kit/icons/verified.svg" alt="" />
+            </h2>
             <p>Jumlah akun klien yang menyelesaikan verifikasi email.</p>
           </div>
           <div className="community-count" aria-label="Jumlah akun klien terverifikasi">
@@ -889,7 +880,9 @@ export default function PublicPage() {
             </article>
             <article className="panel watchlist-panel">
               <div className="panel-head">
-                <span className="section-kicker">Watchlist harga</span>
+                <span className="section-kicker">
+                  Watchlist harga
+                </span>
                 <span id="market-status" className="status-pill" data-state="warn" ref={marketStatusRef}>
                   RECONNECT
                 </span>
@@ -914,18 +907,7 @@ export default function PublicPage() {
             <article className="approach-card">
               <div className="approach-top">
                 <span className="approach-icon">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="m22 3-20 8 6 3 2 6 3-4 5 4z" />
-                    <path d="m8 14 14-11" />
-                  </svg>
+                  <img src="/brand-kit/icons/signal-source.svg" alt="" />
                 </span>
                 <span className="index">01 / SUMBER</span>
               </div>
@@ -935,18 +917,7 @@ export default function PublicPage() {
             <article className="approach-card">
               <div className="approach-top">
                 <span className="approach-icon">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />
-                    <path d="M19 16v4M17 18h4" />
-                  </svg>
+                  <img src="/brand-kit/icons/automation-ea.svg" alt="" />
                 </span>
                 <span className="index">02 / ANALISIS AI</span>
               </div>
@@ -956,18 +927,7 @@ export default function PublicPage() {
             <article className="approach-card">
               <div className="approach-top">
                 <span className="approach-icon">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <rect x="9" y="9" width="11" height="11" rx="2" />
-                    <path d="M5 15V6a2 2 0 0 1 2-2h9" />
-                  </svg>
+                  <img src="/brand-kit/icons/copy-trade.svg" alt="" />
                 </span>
                 <span className="index">03 / OTOMASI MT5</span>
               </div>
@@ -1124,6 +1084,7 @@ export default function PublicPage() {
         <p className="risk-copy">
           Trading memiliki risiko kerugian. Equity dan perubahan historis bukan jaminan hasil di masa depan. Data
           publik ini berasal dari akun utama MT5 yang menjalankan Telegram Signal EA.
+          <img className="inline-brand-icon" src="/brand-kit/icons/risk-shield.svg" alt="" />
         </p>
 
         <CsChatWidget mode="public" />

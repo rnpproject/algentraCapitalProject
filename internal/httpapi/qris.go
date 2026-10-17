@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -30,6 +31,7 @@ type midtransReply struct {
 	TransactionStatus string `json:"transaction_status"`
 	FraudStatus       string `json:"fraud_status"`
 	StatusCode        string `json:"status_code"`
+	StatusMessage     string `json:"status_message"`
 	GrossAmount       string `json:"gross_amount"`
 	SignatureKey      string `json:"signature_key"`
 	Actions           []struct {
@@ -116,12 +118,10 @@ func (api paymentAPI) midtransRequest(ctx context.Context, method, path string, 
 		return result, 0, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == 200 || resp.StatusCode == 201 {
-		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil {
+		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
 			return result, resp.StatusCode, err
 		}
-	} else {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	}
 	return result, resp.StatusCode, nil
 }
@@ -187,21 +187,26 @@ func (api paymentAPI) createQRIS(w http.ResponseWriter, r *http.Request) {
 	payload := map[string]any{"payment_type": "qris", "transaction_details": map[string]any{"order_id": midtransID, "gross_amount": amount}, "item_details": []any{map[string]any{"id": plan, "price": amount, "quantity": 1, "name": "rnp-project"}}, "customer_details": map[string]any{"email": email}, "custom_field1": fmt.Sprint(id)}
 	response, code, err := api.midtransRequest(ctx, http.MethodPost, "/v2/charge", payload)
 	if err != nil {
+		slog.Error("Midtrans QRIS request failed", "order_id", id, "error", err)
 		writeError(w, 502, "Tidak dapat menghubungi Midtrans. Coba lagi sebentar.")
 		return
 	}
 	if code != 200 && code != 201 {
+		slog.Error("Midtrans rejected QRIS request", "order_id", id, "http_status", code, "provider_status", response.StatusCode, "provider_message", response.StatusMessage)
 		writeError(w, 502, "Midtrans menolak pembuatan QRIS. Coba lagi sebentar.")
 		return
 	}
 	qrURL := ""
 	for _, action := range response.Actions {
-		if action.Name == "generate-qr-code" {
+		if action.Name == "generate-qr-code" || (qrURL == "" && action.Name == "generate-qr-code-v2") {
 			qrURL = action.URL
-			break
+			if action.Name == "generate-qr-code" {
+				break
+			}
 		}
 	}
 	if qrURL == "" {
+		slog.Error("Midtrans QRIS response did not include QR action", "order_id", id, "provider_status", response.StatusCode, "transaction_status", response.TransactionStatus)
 		writeError(w, 502, "Midtrans tidak mengembalikan kode QR.")
 		return
 	}
