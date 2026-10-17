@@ -86,20 +86,22 @@ type child struct {
 }
 
 type worker struct {
-	cfg            config
-	client         *http.Client
-	children       map[int64]*child
-	retryAt        map[int64]time.Time
-	failures       map[int64]int
-	master         *exec.Cmd
-	masterDone     chan error
-	masterLog      *os.File
-	masterRetryAt  time.Time
-	stop           chan struct{}
-	stopOnce       sync.Once
-	loginProbePath string
-	masterBinary   string
-	feed           *managed.Feed
+	cfg           config
+	client        *http.Client
+	children      map[int64]*child
+	retryAt       map[int64]time.Time
+	failures      map[int64]int
+	master        *exec.Cmd
+	masterDone    chan error
+	masterLog     *os.File
+	masterRetryAt time.Time
+	stop          chan struct{}
+	stopOnce      sync.Once
+	masterBinary  string
+	feed          *managed.Feed
+	checkMu       sync.Mutex
+	checking      map[int64]bool
+	checks        sync.WaitGroup
 }
 
 func main() {
@@ -243,10 +245,9 @@ func newWorker(cfg config) (*worker, error) {
 	}
 	return &worker{
 		cfg: cfg, client: &http.Client{Timeout: 20 * time.Second}, children: map[int64]*child{},
-		retryAt: map[int64]time.Time{}, failures: map[int64]int{}, stop: make(chan struct{}),
-		loginProbePath: filepath.Join(cfg.projectRoot, "algentra-mt5-login-probe.exe"),
-		masterBinary:   filepath.Join(cfg.projectRoot, "algentra-copier-master.exe"),
-		feed:           feed,
+		retryAt: map[int64]time.Time{}, failures: map[int64]int{}, stop: make(chan struct{}), checking: map[int64]bool{},
+		masterBinary: filepath.Join(cfg.projectRoot, "algentra-copier-master.exe"),
+		feed:         feed,
 	}, nil
 }
 
@@ -439,6 +440,7 @@ func (w *worker) makeJobConfig(j job) (string, string, string, error) {
 	name := fmt.Sprintf("managed_%d", j.AccountID)
 	accountDir := filepath.Join(w.cfg.runtimeDir, "terminals", fmt.Sprint(j.AccountID))
 	terminal := filepath.Join(accountDir, "terminal64.exe")
+	w.killTerminalsIn(accountDir)
 	if _, err := os.Stat(terminal); err != nil {
 		if err := copyTree(w.cfg.templateDir, accountDir); err != nil {
 			w.feed.Unregister(j.AccountID)
@@ -463,61 +465,6 @@ func (w *worker) makeJobConfig(j job) (string, string, string, error) {
 		return "", "", "", err
 	}
 	return startupConfig, filepath.Join(w.cfg.runtimeDir, "heartbeats", "heartbeat_"+name+".txt"), token, nil
-}
-
-func (w *worker) validateLogin(check loginCheck) (bool, string) {
-	accountDir := filepath.Join(w.cfg.runtimeDir, "terminals", fmt.Sprint(check.AccountID))
-	terminal := filepath.Join(accountDir, "terminal64.exe")
-	if _, err := os.Stat(terminal); err != nil {
-		if err := copyTree(w.cfg.templateDir, accountDir); err != nil {
-			if isTerminalFileBusy(err) {
-				return false, terminalInUseMessage
-			}
-			return false, "Terminal follower tidak tersedia pada server."
-		}
-	}
-	if _, err := os.Stat(terminal); err != nil {
-		return false, "Terminal follower tidak tersedia pada server."
-	}
-	root := filepath.Join(w.cfg.projectRoot, "mt5", "experts", "Algentra", "MT5LoginProbe.ex5")
-	target := filepath.Join(accountDir, "MQL5", "Experts", "Algentra", "MT5LoginProbe.ex5")
-	if err := copyFile(root, target); err != nil {
-		if isTerminalFileBusy(err) {
-			return false, terminalInUseMessage
-		}
-		return false, "Expert MT5LoginProbe.ex5 belum dikompilasi pada server."
-	}
-	if err := enableAutoTrading(accountDir); err != nil {
-		if isTerminalFileBusy(err) {
-			return false, terminalInUseMessage
-		}
-		return false, "Worker tidak dapat menyiapkan izin trading terminal MT5."
-	}
-	payload := map[string]any{"path": terminal, "login": mustInt(check.Login), "password": check.BrokerPassword, "server": check.Server}
-	input, _ := json.Marshal(payload)
-	ctx, cancel := context.WithTimeout(context.Background(), 155*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, w.loginProbePath)
-	cmd.Dir = w.cfg.projectRoot
-	cmd.Env = w.cleanEnvironment(false)
-	cmd.Stdin = strings.NewReader(string(input))
-	var stdout strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return false, "Pemeriksaan MT5 melewati batas 150 detik. Terminal tidak merespons; worker utama tetap berjalan."
-		}
-		return false, "Worker tidak dapat memvalidasi login pada terminal MT5."
-	}
-	var result struct {
-		Valid   *bool   `json:"valid"`
-		Message *string `json:"message"`
-	}
-	if json.Unmarshal([]byte(stdout.String()), &result) != nil || result.Valid == nil || result.Message == nil {
-		return false, "Worker tidak dapat memvalidasi login pada terminal MT5."
-	}
-	return *result.Valid, limitRunes(*result.Message, 240)
 }
 
 const terminalInUseMessage = "File terminal MT5 sedang dipakai proses lain. Tutup terminal MT5 untuk akun ini lalu coba simpan kredensial lagi."
@@ -551,16 +498,12 @@ func (w *worker) syncOnce() error {
 		}
 	}
 	for _, check := range response.LoginChecks {
-		if check.AccountID <= 0 {
+		if check.AccountID <= 0 || !w.beginCheck(check.AccountID) {
 			continue
 		}
 		w.stopChild(check.AccountID, false)
-		valid, message := w.validateLogin(check)
-		log.Printf("probe login akun %d selesai: valid=%t pesan=%q", check.AccountID, valid, message)
-		var ignored any
-		if err := w.request(fmt.Sprintf("/api/mt5/copier/jobs/%d/login-check", check.AccountID), map[string]any{"valid": valid, "message": message}, &ignored); err != nil {
-			log.Printf("hasil pemeriksaan login akun %d tidak terkirim: %v", check.AccountID, err)
-		}
+		w.checks.Add(1)
+		go w.runLoginCheck(check)
 	}
 	desired := make(map[int64]job)
 	usedBroker := make(map[string]struct{})
@@ -589,7 +532,7 @@ func (w *worker) syncOnce() error {
 		for _, entry := range entries {
 			id, parseErr := parsePositive(entry.Name())
 			if entry.IsDir() && parseErr == nil {
-				if _, ok := managed[id]; !ok {
+				if _, ok := managed[id]; !ok && !w.isChecking(id) {
 					if err := w.removeOrphan(id); err != nil {
 						log.Printf("runtime orphan akun %d tidak dapat dibersihkan: %v", id, err)
 					}
@@ -598,6 +541,9 @@ func (w *worker) syncOnce() error {
 		}
 	}
 	for id, j := range desired {
+		if w.isChecking(id) {
+			continue
+		}
 		current := w.children[id]
 		sum := fingerprint(j)
 		if current != nil && current.fingerprint != sum {
@@ -770,6 +716,12 @@ func (w *worker) shutdown() {
 		w.stopChild(id, true)
 	}
 	w.stopMaster()
+	waited := make(chan struct{})
+	go func() { w.checks.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(30 * time.Second):
+	}
 	log.Printf("managed copier Go supervisor berhenti")
 }
 
@@ -864,4 +816,46 @@ func signalDir(path string) string {
 	}
 	_ = json.Unmarshal(data, &value)
 	return value.Dir
+}
+
+func (w *worker) beginCheck(id int64) bool {
+	w.checkMu.Lock()
+	defer w.checkMu.Unlock()
+	if w.checking[id] {
+		return false
+	}
+	w.checking[id] = true
+	return true
+}
+
+func (w *worker) isChecking(id int64) bool {
+	w.checkMu.Lock()
+	defer w.checkMu.Unlock()
+	return w.checking[id]
+}
+
+// runLoginCheck berjalan di goroutine sendiri supaya polling job dan heartbeat
+// worker tetap jalan selama terminal MT5 diperiksa (bisa sampai 150 detik).
+func (w *worker) runLoginCheck(check loginCheck) {
+	defer w.checks.Done()
+	defer func() {
+		w.checkMu.Lock()
+		delete(w.checking, check.AccountID)
+		w.checkMu.Unlock()
+	}()
+	valid, message := w.validateLogin(check)
+	log.Printf("probe login akun %d selesai: valid=%t pesan=%q", check.AccountID, valid, message)
+	for attempt := 0; attempt < 3; attempt++ {
+		var ignored any
+		err := w.request(fmt.Sprintf("/api/mt5/copier/jobs/%d/login-check", check.AccountID), map[string]any{"valid": valid, "message": message}, &ignored)
+		if err == nil {
+			return
+		}
+		log.Printf("hasil pemeriksaan login akun %d tidak terkirim (percobaan %d): %v", check.AccountID, attempt+1, err)
+		select {
+		case <-w.stop:
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
 }

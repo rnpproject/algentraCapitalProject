@@ -4,9 +4,9 @@
 
 #include <Trade/Trade.mqh>
 
-input string ServerURL = "https://algentracapital.my.id";
+input string ServerURL = "http://127.0.0.1:8000";
 input string AccountToken = "";
-input int PollIntervalMs = 1000;
+input int PollIntervalMs = 500;
 input long MagicNumber = 26100301;
 input double VolumeMultiplier = 1.0;
 input double MaxEntryDeviationPercent = 0.0; // 0 disables the late-entry gate for existing master positions

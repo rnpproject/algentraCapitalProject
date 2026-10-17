@@ -20,10 +20,6 @@ $masterPublisher = Join-Path $resolvedRoot "algentra-copier-master.exe"
 if (-not (Test-Path -LiteralPath $masterPublisher -PathType Leaf)) {
     throw "Binary publisher Go tidak ditemukan: $masterPublisher. Build dengan go build -o algentra-copier-master.exe ./cmd/copier-master terlebih dahulu."
 }
-$loginProbe = Join-Path $resolvedRoot "algentra-mt5-login-probe.exe"
-if (-not (Test-Path -LiteralPath $loginProbe -PathType Leaf)) {
-    throw "Binary probe login Go tidak ditemukan: $loginProbe. Build dengan go build -o algentra-mt5-login-probe.exe ./cmd/mt5-login-probe terlebih dahulu."
-}
 $createdConfigs = $false
 foreach ($pair in @(
     @{ Path = $workerConfigPath; Example = $workerExamplePath },

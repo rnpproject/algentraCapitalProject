@@ -13,7 +13,7 @@ string EscapeJSON(string value)
 
 void WriteStatus(const bool ready, const bool valid, const string message)
   {
-   int file = FileOpen("algentra-login-probe.json", FILE_WRITE|FILE_TXT|FILE_ANSI);
+   int file = FileOpen("algentra-login-probe.json", FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE);
    if(file == INVALID_HANDLE) return;
    string safe_message = EscapeJSON(message);
    string server = EscapeJSON(AccountInfoString(ACCOUNT_SERVER));
@@ -54,6 +54,11 @@ void OnTimer()
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
      {
       WriteStatus(true, false, "Login berhasil, tetapi izin Auto Trading terminal belum aktif.");
+      return;
+     }
+   if(!MQLInfoInteger(MQL_TRADE_ALLOWED))
+     {
+      WriteStatus(true, false, "Login berhasil, tetapi Expert tidak diizinkan trading (Allow Algo Trading pada Expert).");
       return;
      }
    WriteStatus(true, true, "Login broker berhasil dan terminal siap untuk copy trading.");

@@ -50,7 +50,6 @@ go test ./...
 go build -ldflags='-s -w' -o algentra-backend.exe ./cmd/algentra-backend
 go build -ldflags='-s -w' -o algentra-copier-master.exe ./cmd/copier-master
 go build -ldflags='-s -w' -o algentra-copier-launcher.exe ./cmd/copier-launcher
-go build -ldflags='-s -w' -o algentra-mt5-login-probe.exe ./cmd/mt5-login-probe
 go build -ldflags='-s -w' -o algentra-copier-worker.exe ./cmd/copier-worker
 ```
 
