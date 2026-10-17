@@ -354,6 +354,7 @@ function ManagedAccountCard({
     CHECKING: "Sedang memeriksa login broker dan kesiapan terminal MT5…",
     VALID: profile.login_message || "Login broker berhasil dan terminal siap.",
     ERROR:
+      profile.login_message ||
       "Pemeriksaan login belum berhasil. Silakan periksa kembali data akun atau coba lagi nanti.",
   };
   const loginMessage =
@@ -643,6 +644,7 @@ export function AccountPanel() {
   const [tokenBox, setTokenBox] = useState<TokenBox>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
   const managedFormDirty = useRef(false);
+  const loginCheckPending = useRef(false);
   const modeTouched = useRef(false);
 
   const managedWorkerReady = copier?.available === true;
@@ -654,6 +656,14 @@ export function AccountPanel() {
         ? "Worker managed copy offline. Layanan managed belum dapat dipesan atau dimulai."
         : "Layanan managed belum dikonfigurasi di server. Anda tetap dapat memilih Pasang EA sendiri.";
 
+  const refreshAccountList = useCallback(async () => {
+    const accountList = await apiRequest<Account[]>("mt5/accounts");
+    setAccounts(accountList);
+    loginCheckPending.current = accountList.some(
+      (account) => account.managed_copy?.login_status === "CHECKING"
+    );
+  }, []);
+
   const loadAccounts = useCallback(async () => {
     try {
       const [accountList, perfData, copierStatus] = await Promise.all([
@@ -662,6 +672,9 @@ export function AccountPanel() {
         apiRequest<CopierStatus>("mt5/copier/status"),
       ]);
       setAccounts(accountList);
+      loginCheckPending.current = accountList.some(
+        (account) => account.managed_copy?.login_status === "CHECKING"
+      );
       setPerformance(perfData);
       setCopier(copierStatus);
       if (!modeTouched.current) {
@@ -689,11 +702,25 @@ export function AccountPanel() {
       .then(setPricing)
       .catch(() => {});
     loadAccounts();
-    const timer = setInterval(() => {
-      if (!document.hidden && !managedFormDirty.current) loadAccounts();
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [loadAccounts]);
+    let timer: ReturnType<typeof setTimeout>;
+    const pollAccounts = async () => {
+      if (!document.hidden && !managedFormDirty.current) {
+        if (loginCheckPending.current) {
+          try {
+            await refreshAccountList();
+          } catch {
+            // Keep the last known status and retry on the next short poll.
+          }
+        } else {
+          await loadAccounts();
+        }
+      }
+      const fastPoll = !document.hidden && !managedFormDirty.current && loginCheckPending.current;
+      timer = setTimeout(pollAccounts, fastPoll ? 1000 : 5000);
+    };
+    timer = setTimeout(pollAccounts, 1000);
+    return () => clearTimeout(timer);
+  }, [loadAccounts, refreshAccountList]);
 
   useEffect(() => {
     const query = serverSearch.trim();
@@ -1283,7 +1310,10 @@ export function AccountPanel() {
                     managedFormDirty.current = true;
                   }}
                   onMessage={setAccountMessage}
-                  onReload={loadAccounts}
+                  onReload={() => {
+                    managedFormDirty.current = false;
+                    void loadAccounts();
+                  }}
                 />
               ) : (
                 <EaAccountCard

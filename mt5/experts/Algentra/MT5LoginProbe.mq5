@@ -80,6 +80,7 @@ bool ResolveGoldSymbol(string &resolved)
    string best = "";
    string best_upper = "";
    long best_quote_time = 0;
+   int best_exact_rank = 1;
    int best_suffix_length = 2147483647;
    int symbols_total = SymbolsTotal(false);
    for(int i = 0; i < symbols_total; i++)
@@ -98,14 +99,22 @@ bool ResolveGoldSymbol(string &resolved)
       long quote_time = 0;
       if(SymbolInfoTick(candidate, tick) && tick.bid > 0.0 && tick.ask > 0.0)
          quote_time = tick.time_msc > 0 ? tick.time_msc : (long)tick.time * 1000;
+      long server_now = (long)TimeTradeServer() * 1000;
+      // On weekends/closed sessions, stale ticks cannot identify the account's
+      // instrument. In that case prefer a broker suffix over the bare symbol.
+      if(server_now > 0 && quote_time < server_now - 30 * 60 * 1000)
+         quote_time = 0;
       int suffix_length = StringLen(candidate) - 6;
+      int exact_rank = suffix_length == 0 ? 1 : 0;
       if(best == "" || quote_time > best_quote_time ||
-         (quote_time == best_quote_time && suffix_length < best_suffix_length) ||
-         (quote_time == best_quote_time && suffix_length == best_suffix_length && upper < best_upper))
+         (quote_time == best_quote_time && exact_rank < best_exact_rank) ||
+         (quote_time == best_quote_time && exact_rank == best_exact_rank && suffix_length < best_suffix_length) ||
+         (quote_time == best_quote_time && exact_rank == best_exact_rank && suffix_length == best_suffix_length && upper < best_upper))
         {
          best = candidate;
          best_upper = upper;
          best_quote_time = quote_time;
+         best_exact_rank = exact_rank;
          best_suffix_length = suffix_length;
         }
      }

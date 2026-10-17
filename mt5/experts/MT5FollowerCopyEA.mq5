@@ -215,9 +215,13 @@ long BrokerSymbolQuoteTime(const string symbol)
    MqlTick tick;
    if(!SymbolInfoTick(symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
       return 0;
-   if(tick.time_msc > 0)
-      return tick.time_msc;
-   return (long)tick.time * 1000;
+   long quote_time = tick.time_msc > 0 ? tick.time_msc : (long)tick.time * 1000;
+   long server_now = (long)TimeTradeServer() * 1000;
+   // A weekend/closed-market tick cannot reliably identify this account's
+   // instrument. Treat old quotes as unavailable and use the suffix fallback.
+   if(server_now > 0 && quote_time < server_now - 30 * 60 * 1000)
+      return 0;
+   return quote_time;
   }
 
 bool ResolveBrokerSymbol(const string requested, const string suffix, const string mapping_csv,
@@ -277,6 +281,7 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
    string match = "";
    string match_upper = "";
    long best_quote_time = 0;
+   int best_exact_rank = 1;
    int best_suffix_length = 2147483647;
    int symbols_total = SymbolsTotal(false);
    for(int i = 0; i < symbols_total; i++)
@@ -297,12 +302,15 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
       SymbolSelect(candidate, true);
       long quote_time = BrokerSymbolQuoteTime(candidate);
       int suffix_length = StringLen(candidate) - StringLen(search_for);
+      int exact_rank = suffix_length == 0 ? 1 : 0;
       if(match == "" || quote_time > best_quote_time ||
-         (quote_time == best_quote_time && suffix_length < best_suffix_length) ||
-         (quote_time == best_quote_time && suffix_length == best_suffix_length && candidate_upper < match_upper))
+         (quote_time == best_quote_time && exact_rank < best_exact_rank) ||
+         (quote_time == best_quote_time && exact_rank == best_exact_rank && suffix_length < best_suffix_length) ||
+         (quote_time == best_quote_time && exact_rank == best_exact_rank && suffix_length == best_suffix_length && candidate_upper < match_upper))
         {
          best_suffix_length = suffix_length;
          best_quote_time = quote_time;
+         best_exact_rank = exact_rank;
          match = candidate;
          match_upper = candidate_upper;
         }

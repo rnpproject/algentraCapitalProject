@@ -176,7 +176,7 @@ func loadConfig(path string) (config, error) {
 	cfg.masterConfig = resolve(cfg.configDir, cfg.MasterConfig)
 	cfg.templateDir = resolve(cfg.configDir, cfg.TerminalTemplateDir)
 	cfg.runtimeDir = resolve(cfg.configDir, cfg.RuntimeDir)
-	cfg.PollSeconds = clamp(cfg.PollSeconds, 2, 60, 5)
+	cfg.PollSeconds = clamp(cfg.PollSeconds, 1, 60, 5)
 	cfg.HeartbeatTimeoutSecond = clamp(cfg.HeartbeatTimeoutSecond, 15, 180, 45)
 	cfg.projectRoot = findProjectRoot(absolute)
 	cfg.apiKey = strings.TrimSpace(os.Getenv(cfg.WorkerAPIKeyEnv))
