@@ -92,13 +92,37 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 	}
 
 	filesDir := filepath.Join(accountDir, "MQL5", "Files")
-	statusPath := filepath.Join(filesDir, probeStatusFile)
+	legacyStatusPath := filepath.Join(filesDir, probeStatusFile)
 	if err := os.MkdirAll(filesDir, 0o700); err != nil {
 		return false, "Worker tidak dapat menyiapkan folder status terminal MT5."
 	}
-	if err := os.Remove(statusPath); err != nil && !os.IsNotExist(err) {
-		return false, terminalInUseMessage
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
+		appData, _ = os.UserConfigDir()
 	}
+	if appData == "" {
+		return false, "Worker tidak dapat menemukan folder data bersama MT5 untuk laporan probe."
+	}
+	commonFilesDir := filepath.Join(appData, "MetaQuotes", "Terminal", "Common", "Files")
+	if err := os.MkdirAll(commonFilesDir, 0o700); err != nil {
+		return false, "Worker tidak dapat menyiapkan folder laporan bersama MT5."
+	}
+	statusName := fmt.Sprintf("algentra-login-probe-%d.json", check.AccountID)
+	statusPath := filepath.Join(commonFilesDir, statusName)
+	for _, oldPath := range []string{statusPath, legacyStatusPath} {
+		if err := os.Remove(oldPath); err != nil && !os.IsNotExist(err) {
+			return false, terminalInUseMessage
+		}
+	}
+	presetName := fmt.Sprintf("algentra-login-probe-%d.set", check.AccountID)
+	presetPath := filepath.Join(accountDir, "MQL5", "Presets", presetName)
+	if err := os.MkdirAll(filepath.Dir(presetPath), 0o700); err != nil {
+		return false, "Worker tidak dapat menyiapkan preset Expert login probe."
+	}
+	if err := os.WriteFile(presetPath, []byte("ProbeStatusFileName="+statusName+"\r\n"), 0o600); err != nil {
+		return false, "Worker tidak dapat menulis preset Expert login probe."
+	}
+	defer os.Remove(presetPath)
 
 	probeDir, err := os.MkdirTemp("", "algentra-mt5-login-")
 	if err != nil {
@@ -125,6 +149,7 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 		"",
 		"[StartUp]",
 		`Expert=Algentra\MT5LoginProbe`,
+		"ExpertParameters=" + presetName,
 		"Symbol=EURUSD",
 		"Period=M1",
 		"",
@@ -168,7 +193,7 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 			return false, "Pemeriksaan dibatalkan karena worker dihentikan."
 		case waitErr := <-done:
 			exited = true
-			if status, ok := readProbeStatus(statusPath); ok && status.Ready {
+			if status, ok := readAnyProbeStatus(statusPath, legacyStatusPath); ok && status.Ready {
 				return validateProbeResult(status, login, server)
 			}
 			authorized, reason := scanAuthLog(accountDir, offsets, login)
@@ -198,7 +223,7 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 			}
 		case <-tick.C:
 		}
-		if status, ok := readProbeStatus(statusPath); ok {
+		if status, ok := readAnyProbeStatus(statusPath, legacyStatusPath); ok {
 			last, seen = status, true
 			if status.Ready {
 				return validateProbeResult(status, login, server)
@@ -381,6 +406,15 @@ func readProbeStatus(path string) (probeStatus, bool) {
 		return probeStatus{}, false // file sedang ditulis EA; coba lagi
 	}
 	return status, true
+}
+
+func readAnyProbeStatus(paths ...string) (probeStatus, bool) {
+	for _, path := range paths {
+		if status, ok := readProbeStatus(path); ok {
+			return status, true
+		}
+	}
+	return probeStatus{}, false
 }
 
 func logOffsets(dir string) map[string]int64 {

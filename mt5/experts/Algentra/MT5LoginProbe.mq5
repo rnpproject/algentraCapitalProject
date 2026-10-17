@@ -2,6 +2,9 @@
 #property version   "1.000"
 #property description "Reports isolated MT5 terminal login and trade readiness to the Go managed worker."
 
+input string ProbeStatusFileName = "algentra-login-probe.json";
+bool g_status_write_error_logged = false;
+
 string EscapeJSON(string value)
   {
    StringReplace(value, "\\", "\\\\");
@@ -13,8 +16,19 @@ string EscapeJSON(string value)
 
 void WriteStatus(const bool ready, const bool valid, const string message)
   {
-   int file = FileOpen("algentra-login-probe.json", FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE);
-   if(file == INVALID_HANDLE) return;
+   int file = FileOpen(ProbeStatusFileName,
+                       FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_COMMON);
+   if(file == INVALID_HANDLE)
+     {
+      if(!g_status_write_error_logged)
+        {
+         Print("[MT5LoginProbe] cannot write common status file ", ProbeStatusFileName,
+               "; error ", GetLastError());
+         g_status_write_error_logged = true;
+        }
+      return;
+     }
+   g_status_write_error_logged = false;
    string safe_message = EscapeJSON(message);
    string server = EscapeJSON(AccountInfoString(ACCOUNT_SERVER));
    FileWriteString(file, StringFormat("{\"ready\":%s,\"valid\":%s,\"message\":\"%s\",\"login\":%I64d,\"server\":\"%s\"}",

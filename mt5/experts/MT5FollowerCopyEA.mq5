@@ -255,38 +255,46 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
    string search_for = mapped != "" ? mapped : source;
    string search_upper = search_for;
    StringToUpper(search_upper);
-   int matches = 0;
    string match = "";
-   string match_list = "";
+   string match_upper = "";
+   int best_suffix_length = 2147483647;
    int symbols_total = SymbolsTotal(false);
    for(int i = 0; i < symbols_total; i++)
      {
       string candidate = SymbolName(i, false);
       string candidate_upper = candidate;
       StringToUpper(candidate_upper);
-      if(candidate_upper == search_upper)
+      // Exact symbols were tried above. For broker suffixes (XAUUSDc,
+      // XAUUSDm, XAUUSD.a, etc.), prefer the shortest suffix and use the
+      // symbol name as a stable tie-breaker. Do not select every match:
+      // that would clutter Market Watch and leave the chosen instrument
+      // dependent on the broker's symbol enumeration order.
+      if(candidate_upper == search_upper || StringFind(candidate_upper, search_upper) != 0)
          continue;
-      bool candidate_has_suffix = StringFind(candidate_upper, search_upper) == 0;
-      bool candidate_is_base = StringLen(candidate_upper) >= 3 && StringFind(search_upper, candidate_upper) == 0;
-      if(!candidate_has_suffix && !candidate_is_base)
+      long trade_mode = SymbolInfoInteger(candidate, SYMBOL_TRADE_MODE);
+      if(trade_mode == SYMBOL_TRADE_MODE_DISABLED)
          continue;
-      if(!SymbolSelect(candidate, true))
-         continue;
-      matches++;
-      match = candidate;
-      if(matches <= 3)
-         match_list += (matches == 1 ? "" : ", ") + candidate;
+      int suffix_length = StringLen(candidate) - StringLen(search_for);
+      if(suffix_length < best_suffix_length ||
+         (suffix_length == best_suffix_length && (match == "" || candidate_upper < match_upper)))
+        {
+         best_suffix_length = suffix_length;
+         match = candidate;
+         match_upper = candidate_upper;
+        }
      }
 
-   if(matches == 1)
+   if(match != "")
      {
+      if(!SymbolSelect(match, true))
+        {
+         reason = StringFormat("broker symbol %s was found but could not be shown in Market Watch", match);
+         return false;
+        }
       resolved = match;
+      Print("[MT5FollowerCopyEA] auto-selected broker symbol ", resolved,
+            " for ", search_for, " (shortest available suffix)");
       return true;
-     }
-   if(matches > 1)
-     {
-      reason = StringFormat("master symbol %s matches multiple follower instruments (%s); configure SymbolSuffix or SymbolMapCsv", source, match_list);
-      return false;
      }
    reason = StringFormat("no follower symbol matches master symbol %s; configure SymbolSuffix or SymbolMapCsv", source);
    return false;
@@ -1123,6 +1131,21 @@ int OnInit()
       (LotMode == "tetap" && FixedLot <= 0.0) || (LotMode == "rasio" && RatioLot <= 0.0) ||
       (LotMode == "saldo" && MasterBalance <= 0.0)))
       return INIT_PARAMETERS_INCORRECT;
+   string gold_symbol, gold_reason;
+   if(ResolveBrokerSymbol("XAUUSD", "", SymbolMapCsv, gold_symbol, gold_reason))
+     {
+      if(_Symbol != gold_symbol)
+        {
+         if(!ChartSetSymbolPeriod(0, gold_symbol, PERIOD_M1))
+            Print("[MT5FollowerCopyEA] could not switch default chart to ", gold_symbol,
+                  "; chart error ", GetLastError());
+        }
+      else
+         SymbolSelect(gold_symbol, true);
+      Print("[MT5FollowerCopyEA] default gold chart: ", gold_symbol, ", M1");
+     }
+   else
+      Print("[MT5FollowerCopyEA] gold chart not available yet: ", gold_reason);
    EventSetMillisecondTimer(PollIntervalMs);
    ReportAccountState();
    PollAndCopy();
