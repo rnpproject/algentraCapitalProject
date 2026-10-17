@@ -27,7 +27,7 @@ type Mt5Live = {
     currency?: string | null;
     trade_mode?: string | null;
   } | null;
-  positions: Array<{
+  positions?: Array<{
     ticket: string;
     symbol: string;
     action: string;
@@ -35,8 +35,8 @@ type Mt5Live = {
     entry_price: number;
     sl: number;
     tp: number;
-  }>;
-  market_quotes: Array<{ symbol: string; bid: number; ask: number; time_msc: number }>;
+  }> | null;
+  market_quotes?: Array<{ symbol: string; bid: number; ask: number; time_msc: number }> | null;
 };
 type Signal = {
   created_at: string;
@@ -76,6 +76,13 @@ const TRADE_PAGE_SIZE = 10;
 
 const displayTime = (value?: string | null) =>
   value ? new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : EMPTY;
+
+const displayQuoteTime = (value: number | string | null | undefined) => {
+  const milliseconds = Number(value);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return EMPTY;
+  const date = new Date(milliseconds);
+  return Number.isNaN(date.getTime()) ? EMPTY : displayTime(date.toISOString());
+};
 
 const truncateSignalText = (value: string, limit = 140) =>
   value.length > limit ? `${value.slice(0, limit).trimEnd()}......` : value;
@@ -764,7 +771,7 @@ export function DashboardPanel() {
                   <span>Floating P/L</span>
                 </div>
                 <div>
-                  <b id="mt5-position-count">{formatInteger(live ? live.positions.length : 0)}</b>
+                  <b id="mt5-position-count">{formatInteger(live?.positions?.length ?? 0)}</b>
                   <span>Posisi terbuka</span>
                 </div>
               </div>
@@ -824,7 +831,7 @@ export function DashboardPanel() {
                         <td>{quote.symbol}</td>
                         <td className="num">{formatPrice(quote.bid)}</td>
                         <td className="num">{formatPrice(quote.ask)}</td>
-                        <td>{displayTime(new Date(Number(quote.time_msc)).toISOString())}</td>
+                        <td>{displayQuoteTime(quote.time_msc)}</td>
                       </tr>
                     ))}
                   </tbody>

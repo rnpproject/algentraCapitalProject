@@ -201,7 +201,15 @@ func (api dashboardAPI) mt5Live(w http.ResponseWriter, r *http.Request) {
 		a := current.Account
 		account = map[string]any{"balance": a.Balance, "equity": a.Equity, "floating_profit": a.FloatingProfit, "currency": a.Currency, "trade_mode": a.TradeMode, "observed_at": wibTime(a.ObservedAt)}
 	}
-	writeJSON(w, 200, map[string]any{"available": true, "online": time.Since(current.ObservedAt) <= 20*time.Second, "observed_at": wibTime(current.ObservedAt), "account": account, "positions": current.Positions, "market_quotes": current.MarketQuotes})
+	positions := current.Positions
+	if positions == nil {
+		positions = []snapshot.Position{}
+	}
+	quotes := current.MarketQuotes
+	if quotes == nil {
+		quotes = []snapshot.Quote{}
+	}
+	writeJSON(w, 200, map[string]any{"available": true, "online": time.Since(current.ObservedAt) <= 20*time.Second, "observed_at": wibTime(current.ObservedAt), "account": account, "positions": positions, "market_quotes": quotes})
 }
 
 func wibDayStart(now time.Time) time.Time {

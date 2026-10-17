@@ -4,6 +4,8 @@
 
 input string ProbeStatusFileName = "algentra-login-probe.json";
 bool g_status_write_error_logged = false;
+bool g_gold_chart_ready = false;
+datetime g_gold_chart_last_log = 0;
 
 string EscapeJSON(string value)
   {
@@ -14,16 +16,22 @@ string EscapeJSON(string value)
    return value;
   }
 
-void WriteStatus(const bool ready, const bool valid, const string message)
+void WriteStatusToFile(const string file_name,
+                       const bool ready,
+                       const bool valid,
+                       const string message,
+                       const bool common)
   {
-   int file = FileOpen(ProbeStatusFileName,
-                       FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_COMMON);
+   int flags = FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_SHARE_READ|FILE_SHARE_WRITE;
+   if(common)
+      flags |= FILE_COMMON;
+   int file = FileOpen(file_name, flags);
    if(file == INVALID_HANDLE)
      {
       if(!g_status_write_error_logged)
         {
-         Print("[MT5LoginProbe] cannot write common status file ", ProbeStatusFileName,
-               "; error ", GetLastError());
+         Print("[MT5LoginProbe] cannot write ", common ? "common" : "portable",
+               " status file ", file_name, "; error ", GetLastError());
          g_status_write_error_logged = true;
         }
       return;
@@ -41,6 +49,85 @@ void WriteStatus(const bool ready, const bool valid, const string message)
    FileClose(file);
   }
 
+void WriteStatus(const bool ready, const bool valid, const string message)
+  {
+   // The worker runs this terminal in portable mode, so its local MQL5/Files
+   // directory is deterministic. Also write to FILE_COMMON for diagnostics and
+   // compatibility with non-portable terminal layouts.
+   WriteStatusToFile(ProbeStatusFileName, ready, valid, message, false);
+   WriteStatusToFile(ProbeStatusFileName, ready, valid, message, true);
+  }
+
+bool ResolveGoldSymbol(string &resolved)
+  {
+   resolved = "";
+   if(SymbolSelect("XAUUSD", true))
+     {
+      resolved = "XAUUSD";
+      return true;
+     }
+
+   string best = "";
+   string best_upper = "";
+   int best_suffix_length = 2147483647;
+   int symbols_total = SymbolsTotal(false);
+   for(int i = 0; i < symbols_total; i++)
+     {
+      string candidate = SymbolName(i, false);
+      string upper = candidate;
+      StringToUpper(upper);
+      if(StringLen(candidate) <= 6 || StringSubstr(upper, 0, 6) != "XAUUSD")
+         continue;
+      if(SymbolInfoInteger(candidate, SYMBOL_TRADE_MODE) == SYMBOL_TRADE_MODE_DISABLED)
+         continue;
+      int suffix_length = StringLen(candidate) - 6;
+      if(suffix_length < best_suffix_length ||
+         (suffix_length == best_suffix_length && (best == "" || upper < best_upper)))
+        {
+         best = candidate;
+         best_upper = upper;
+         best_suffix_length = suffix_length;
+        }
+     }
+   if(best == "" || !SymbolSelect(best, true))
+      return false;
+   resolved = best;
+   return true;
+  }
+
+void EnsureDefaultGoldChart()
+  {
+   if(g_gold_chart_ready)
+      return;
+   string gold_symbol;
+   if(!ResolveGoldSymbol(gold_symbol))
+     {
+      if(TimeCurrent() - g_gold_chart_last_log >= 15)
+        {
+         Print("[MT5LoginProbe] XAUUSD belum ditemukan di daftar simbol broker.");
+         g_gold_chart_last_log = TimeCurrent();
+        }
+      return;
+     }
+   if(_Symbol == gold_symbol && _Period == PERIOD_M1)
+     {
+      g_gold_chart_ready = true;
+      return;
+     }
+   ResetLastError();
+   if(ChartSetSymbolPeriod(0, gold_symbol, PERIOD_M1))
+     {
+      g_gold_chart_ready = true;
+      Print("[MT5LoginProbe] chart probe memakai ", gold_symbol, ", M1.");
+     }
+   else if(TimeCurrent() - g_gold_chart_last_log >= 15)
+     {
+      Print("[MT5LoginProbe] gagal mengganti chart ke ", gold_symbol,
+            "; error ", GetLastError());
+      g_gold_chart_last_log = TimeCurrent();
+     }
+  }
+
 int OnInit()
   {
    WriteStatus(false, false, "Menunggu koneksi broker MT5.");
@@ -55,6 +142,7 @@ void OnDeinit(const int reason)
 
 void OnTimer()
   {
+   EnsureDefaultGoldChart();
    if(!TerminalInfoInteger(TERMINAL_CONNECTED) || AccountInfoInteger(ACCOUNT_LOGIN) <= 0)
      {
       WriteStatus(false, false, "Menunggu koneksi broker MT5.");

@@ -109,7 +109,8 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 	}
 	statusName := fmt.Sprintf("algentra-login-probe-%d.json", check.AccountID)
 	statusPath := filepath.Join(commonFilesDir, statusName)
-	for _, oldPath := range []string{statusPath, legacyStatusPath} {
+	portableStatusPath := filepath.Join(filesDir, statusName)
+	for _, oldPath := range []string{statusPath, portableStatusPath, legacyStatusPath} {
 		if err := os.Remove(oldPath); err != nil && !os.IsNotExist(err) {
 			return false, terminalInUseMessage
 		}
@@ -150,7 +151,7 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 		"[StartUp]",
 		`Expert=Algentra\MT5LoginProbe`,
 		"ExpertParameters=" + presetName,
-		"Symbol=EURUSD",
+		"Symbol=XAUUSD",
 		"Period=M1",
 		"",
 	}, "\r\n")
@@ -193,7 +194,7 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 			return false, "Pemeriksaan dibatalkan karena worker dihentikan."
 		case waitErr := <-done:
 			exited = true
-			if status, ok := readAnyProbeStatus(statusPath, legacyStatusPath); ok && status.Ready {
+			if status, ok := readAnyProbeStatus(portableStatusPath, statusPath, legacyStatusPath); ok && status.Ready {
 				return validateProbeResult(status, login, server)
 			}
 			authorized, reason := scanAuthLog(accountDir, offsets, login)
@@ -223,7 +224,7 @@ func (w *worker) probeLogin(check loginCheck) (bool, string) {
 			}
 		case <-tick.C:
 		}
-		if status, ok := readAnyProbeStatus(statusPath, legacyStatusPath); ok {
+		if status, ok := readAnyProbeStatus(portableStatusPath, statusPath, legacyStatusPath); ok {
 			last, seen = status, true
 			if status.Ready {
 				return validateProbeResult(status, login, server)

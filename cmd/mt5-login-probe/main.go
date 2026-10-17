@@ -144,5 +144,5 @@ func run(out *result) error {
 }
 
 func makeConfig(req request) string {
-	return fmt.Sprintf("[Common]\r\nLogin=%d\r\nServer=%s\r\nPassword=%s\r\n\r\n[Experts]\r\nEnabled=1\r\nAllowLiveTrading=1\r\nAllowDllImport=0\r\nAccount=0\r\nProfile=0\r\n\r\n[StartUp]\r\nExpert=Algentra\\MT5LoginProbe\r\nSymbol=EURUSD\r\nPeriod=M1\r\n", req.Login, req.Server, req.Password)
+	return fmt.Sprintf("[Common]\r\nLogin=%d\r\nServer=%s\r\nPassword=%s\r\n\r\n[Experts]\r\nEnabled=1\r\nAllowLiveTrading=1\r\nAllowDllImport=0\r\nAccount=0\r\nProfile=0\r\n\r\n[StartUp]\r\nExpert=Algentra\\MT5LoginProbe\r\nSymbol=XAUUSD\r\nPeriod=M1\r\n", req.Login, req.Server, req.Password)
 }
