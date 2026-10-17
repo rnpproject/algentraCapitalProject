@@ -210,20 +210,6 @@ bool TrySelectBrokerSymbol(const string candidate, string &resolved)
    return true;
   }
 
-long BrokerSymbolQuoteTime(const string symbol)
-  {
-   MqlTick tick;
-   if(!SymbolInfoTick(symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
-      return 0;
-   long quote_time = tick.time_msc > 0 ? tick.time_msc : (long)tick.time * 1000;
-   long server_now = (long)TimeTradeServer() * 1000;
-   // A weekend/closed-market tick cannot reliably identify this account's
-   // instrument. Treat old quotes as unavailable and use the suffix fallback.
-   if(server_now > 0 && quote_time < server_now - 30 * 60 * 1000)
-      return 0;
-   return quote_time;
-  }
-
 bool ResolveBrokerSymbol(const string requested, const string suffix, const string mapping_csv,
                          string &resolved, string &reason)
   {
@@ -280,7 +266,6 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
    StringToUpper(search_upper);
    string match = "";
    string match_upper = "";
-   long best_quote_time = 0;
    int best_exact_rank = 1;
    int best_suffix_length = 2147483647;
    int symbols_total = SymbolsTotal(false);
@@ -297,19 +282,16 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
       long trade_mode = SymbolInfoInteger(candidate, SYMBOL_TRADE_MODE);
       if(trade_mode == SYMBOL_TRADE_MODE_DISABLED)
          continue;
-      // Load matching broker variants into Market Watch so MT5 can expose
-      // account-specific quotes used to choose XAUUSDc/XAUUSDm correctly.
-      SymbolSelect(candidate, true);
-      long quote_time = BrokerSymbolQuoteTime(candidate);
+      // Enumerate the broker's complete symbol catalog (including hidden
+      // Market Watch entries), as the Symbols dialog does. Pick a stable
+      // broker-name match; quote freshness must not affect symbol selection.
       int suffix_length = StringLen(candidate) - StringLen(search_for);
       int exact_rank = suffix_length == 0 ? 1 : 0;
-      if(match == "" || quote_time > best_quote_time ||
-         (quote_time == best_quote_time && exact_rank < best_exact_rank) ||
-         (quote_time == best_quote_time && exact_rank == best_exact_rank && suffix_length < best_suffix_length) ||
-         (quote_time == best_quote_time && exact_rank == best_exact_rank && suffix_length == best_suffix_length && candidate_upper < match_upper))
+      if(match == "" || exact_rank < best_exact_rank ||
+         (exact_rank == best_exact_rank && suffix_length < best_suffix_length) ||
+         (exact_rank == best_exact_rank && suffix_length == best_suffix_length && candidate_upper < match_upper))
         {
          best_suffix_length = suffix_length;
-         best_quote_time = quote_time;
          best_exact_rank = exact_rank;
          match = candidate;
          match_upper = candidate_upper;
@@ -325,7 +307,8 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
         }
       resolved = match;
       Print("[MT5FollowerCopyEA] auto-selected broker symbol ", resolved,
-            " for ", search_for, " (freshest available quote)");
+            " for ", search_for, " from ", symbols_total,
+            " broker symbols; shown in Market Watch");
       return true;
      }
    reason = StringFormat("no follower symbol matches master symbol %s; configure SymbolSuffix or SymbolMapCsv", source);
