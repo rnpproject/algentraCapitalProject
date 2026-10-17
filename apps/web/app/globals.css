@@ -785,7 +785,9 @@
     .account-page .account-fields label { gap: 8px; }
     .account-page .account-fields input { min-height: 50px; border-radius: 12px; }
     .account-page .broker-server-field { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
-    .account-page .broker-server-field .server-manual-toggle { width: auto; min-height: 0; justify-self: start; padding: 0; border: 0; color: var(--link); background: transparent; font-size: 12px; font-weight: 650; text-align: left; cursor: pointer; }
+    .account-page .broker-server-field > button.server-manual-toggle { display: inline-flex; align-self: flex-start; width: fit-content; max-width: 100%; min-height: 34px; padding: 6px 0; border: 0; color: var(--link); background: transparent; font: 650 12px/1.4 var(--font-body); text-align: left; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
+    .account-page .broker-server-field > button.server-manual-toggle:hover { color: var(--action); background: transparent; text-decoration: underline; text-underline-offset: 3px; transform: none; }
+    .account-page .broker-server-field > button.server-manual-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .account-page .account-fields .field-help { line-height: 1.45; }
     .account-page .form-actions { margin-top: -2px; }
     .account-page .form-actions button { min-height: 50px; padding-inline: 24px; border-radius: 12px; font-size: 14px; }

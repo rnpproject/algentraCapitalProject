@@ -1141,7 +1141,7 @@ export function AccountPanel() {
               </span>
               <button
                 type="button"
-                className="server-manual-toggle"
+                className="server-manual-toggle secondary"
                 onClick={() => {
                   setManualServerEntry((value) => !value);
                   setManualServer("");
