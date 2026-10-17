@@ -36,7 +36,7 @@ BEGIN
 END
 $$;
 
--- Alembic's first revision creates schema app. These temporary grants are required only
+-- The Go migration runner's first revision creates schema app. These temporary grants are required only
 -- for that first development migration, which creates app and public.alembic_version.
 GRANT CREATE ON DATABASE postgres TO algentra_migrator;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;

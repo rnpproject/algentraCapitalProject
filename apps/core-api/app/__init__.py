@@ -1,1 +1,0 @@
-"""Copy trading backend application."""

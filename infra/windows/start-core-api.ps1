@@ -18,11 +18,11 @@ if ($env:MIGRATION_DATABASE_URL) {
 [Environment]::SetEnvironmentVariable('SUPABASE_DEV_PROJECT_REF', $null, 'Process')
 $env:APP_ENV = 'production'
 
-$python = Join-Path $resolvedRoot '.venv\Scripts\python.exe'
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
-    throw "Python environment tidak ditemukan: $python"
+$backend = Join-Path $resolvedRoot 'algentra-backend.exe'
+if (-not (Test-Path -LiteralPath $backend -PathType Leaf)) {
+    throw "Binary Go Core API tidak ditemukan: $backend. Build dengan go build terlebih dahulu."
 }
 
 Set-Location -LiteralPath $resolvedRoot
-& $python -m uvicorn app.main:app --app-dir apps/core-api --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+& $backend
 exit $LASTEXITCODE

@@ -262,7 +262,6 @@ function TransactionsPanelInner() {
   const [cancelOrder, setCancelOrder] = useState<PaymentOrder | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [qrisAvailable, setQrisAvailable] = useState(false);
-  const [payMethod, setPayMethod] = useState<Record<number, "qris" | "manual">>({});
   const fingerprintRef = useRef("");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const successDialogRef = useRef<HTMLDialogElement>(null);
@@ -455,7 +454,7 @@ function TransactionsPanelInner() {
                     <OrderDetails
                       order={order}
                       plans={plans}
-                      selectedPaymentMethod={expandedOrderId === order.id && qrisAvailable ? (payMethod[order.id] ?? "qris") : undefined}
+                      selectedPaymentMethod={expandedOrderId === order.id && qrisAvailable ? "qris" : undefined}
                     />
 
                     {order.status === "PAYMENT_SUBMITTED" && (
@@ -529,44 +528,6 @@ function TransactionsPanelInner() {
                     {order.status === "PENDING_PAYMENT" && expandedOrderId === order.id && (
                       <>
                         {qrisAvailable ? (
-                          <div
-                            className="payment-method-picker"
-                            role="radiogroup"
-                            aria-label="Pilih metode pembayaran"
-                          >
-                            {(["qris", "manual"] as const).map((value) => {
-                              const active = (payMethod[order.id] ?? "qris") === value;
-                              return (
-                                <label
-                                  key={value}
-                                  className={`payment-method-option${
-                                    active ? " payment-method-option--active" : ""
-                                  }`}
-                                >
-                                  <input
-                                    type="radio"
-                                    name={`pay-method-${order.id}`}
-                                    checked={active}
-                                    onChange={() =>
-                                      setPayMethod((prev) => ({ ...prev, [order.id]: value }))
-                                    }
-                                  />
-                                  <span className="payment-method-option__body">
-                                    <strong>
-                                      {value === "qris" ? "QRIS · Otomatis" : "Manual"}
-                                    </strong>
-                                    <small>
-                                      {value === "qris"
-                                        ? "Scan QR, akun langsung aktif tanpa menunggu admin"
-                                        : "Transfer lalu kirim bukti, diperiksa admin"}
-                                    </small>
-                                  </span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        ) : null}
-                        {qrisAvailable && (payMethod[order.id] ?? "qris") === "qris" ? (
                           <QrisPayment
                             key={`qris-${order.id}`}
                             order={order}

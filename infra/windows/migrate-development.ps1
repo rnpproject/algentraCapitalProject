@@ -1,11 +1,10 @@
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$python = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Buat .venv dan pasang apps/core-api/requirements.txt terlebih dahulu.' }
+if (-not (Get-Command go -ErrorAction SilentlyContinue)) { throw 'Go belum terpasang atau tidak ada di PATH.' }
 
 Remove-Item Env:APP_ENV -ErrorAction SilentlyContinue
 Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
 Remove-Item Env:MIGRATION_DATABASE_URL -ErrorAction SilentlyContinue
 Set-Location -LiteralPath $ProjectRoot
-& $python -m alembic -c alembic.ini upgrade head
+& go run ./cmd/migrate-development
 exit $LASTEXITCODE

@@ -10,9 +10,20 @@ input int PollIntervalMs = 1000;
 input long MagicNumber = 26100301;
 input double VolumeMultiplier = 1.0;
 input double MaxEntryDeviationPercent = 0.0; // 0 disables the late-entry gate for existing master positions
+input double MaxSignalAgeSeconds = 3.0;
 input int MaxSlippagePoints = 20;
 input string SymbolSuffix = "";
 input string SymbolMapCsv = ""; // Optional source-to-broker mapping, e.g. XAUUSDc=GOLD
+input bool ManagedMode = false;
+input bool DryRun = false; // Validate and report targets without sending, modifying, or closing orders
+input string LotMode = "rasio"; // tetap, rasio, saldo
+input double FixedLot = 0.01;
+input double RatioLot = 1.0;
+input double MasterBalance = 10000.0;
+input double MaxLotPerOrder = 100.0;
+input double MaxLotTotal = 100.0;
+input int MaxOpenPositions = 100;
+input bool ReverseDirection = false;
 
 CTrade g_trade;
 string g_connection_status = "starting";
@@ -21,6 +32,10 @@ datetime g_last_log = 0;
 datetime g_last_report_attempt = 0;
 long g_history_cursor = 0;
 long g_history_cursor_msc = 0;
+string g_halted_symbols[];
+string g_dry_sources[];
+string g_dry_symbols[];
+double g_dry_volumes[];
 
 string TrimTrailingSlash(string value)
   {
@@ -307,7 +322,9 @@ bool BuildHistoryDealsJson(const long cursor, const long cursor_msc, string &dea
   {
    deals_json = "[";
    batch_cursor = cursor;
-   datetime from_time = cursor_msc > 0 ? (datetime)MathMax(0, cursor_msc / 1000 - 1) : 0;
+   datetime from_time = cursor_msc > 0
+                        ? (datetime)MathMax(0, cursor_msc / 1000 - 1)
+                        : TimeCurrent() - 30 * 24 * 60 * 60;
    if(!HistorySelect(from_time, TimeCurrent())) return false;
    int count = 0;
    int total = HistoryDealsTotal();
@@ -384,15 +401,22 @@ void ReportAccountState()
       return;
      }
    string currency = JsonEscape(AccountInfoString(ACCOUNT_CURRENCY));
+   double floating_profit = 0.0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionGetTicket(i) == 0) continue;
+      floating_profit += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+     }
+   string trade_mode = AccountTradeModeText();
    string payload = StringFormat(
       "{\"balance\":%s,\"equity\":%s,\"floating_profit\":%s,\"margin\":%s,\"free_margin\":%s,\"currency\":\"%s\",\"trade_mode\":\"%s\",\"allow_live_trading\":%s,\"terminal_trade_allowed\":%s,\"expert_trade_allowed\":%s,\"open_position_ids\":%s,\"deals\":%s}",
       DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 8),
       DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 8),
-      DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 8),
+      DoubleToString(floating_profit, 8),
       DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN), 8),
       DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 8),
-      currency, AccountTradeModeText(),
-      "true",
+      currency, trade_mode,
+      trade_mode == "real" ? "true" : "false",
       (TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) && AccountInfoInteger(ACCOUNT_TRADE_ALLOWED)) ? "true" : "false",
       (MQLInfoInteger(MQL_TRADE_ALLOWED) && AccountInfoInteger(ACCOUNT_TRADE_EXPERT)) ? "true" : "false",
       CurrentOpenPositionIds(), deals_json);
@@ -439,10 +463,36 @@ double NormalizeLots(const string symbol, const double requested)
    if(minimum <= 0.0 || maximum <= 0.0 || step <= 0.0 || requested < minimum)
       return 0.0;
    double capped_request = MathMin(requested, maximum);
-   double lots = minimum + MathFloor((capped_request - minimum + step * 0.000001) / step) * step;
-   if(lots > maximum + step * 0.000001)
-      lots -= step;
+   double lots = MathFloor(capped_request / step + 0.0000000001) * step;
+   double float_tolerance = MathMax(0.000000000000001,
+                                    MathAbs(capped_request) * 2.220446049250313e-16 * 2.0);
+   if(lots > capped_request + float_tolerance) lots -= step;
+   if(lots + step * 0.000000001 < minimum) return 0.0;
+   if(lots > maximum) lots = MathFloor(maximum / step + 0.0000000001) * step;
    return NormalizeDouble(lots, VolumePrecision(step));
+  }
+
+void AdjustStops(const string symbol, const string action, const double price, double &sl, double &tp)
+  {
+   double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   double distance = MathMax((double)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL),
+                             (double)SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL)) * point;
+   if(distance > 0.0)
+     {
+      if(action == "BUY")
+        {
+         if(sl > 0.0 && sl > price - distance) sl = price - distance;
+         if(tp > 0.0 && tp < price + distance) tp = price + distance;
+        }
+      else
+        {
+         if(sl > 0.0 && sl < price + distance) sl = price + distance;
+         if(tp > 0.0 && tp > price - distance) tp = price - distance;
+        }
+     }
+   int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+   sl = NormalizeDouble(sl, digits);
+   tp = NormalizeDouble(tp, digits);
   }
 
 int CountManagedPositions()
@@ -454,6 +504,335 @@ int CountManagedPositions()
    return count;
   }
 
+double TargetVolume(const double master_lots)
+  {
+   double requested = master_lots * VolumeMultiplier;
+   if(ManagedMode)
+     {
+      if(LotMode == "tetap") requested = FixedLot;
+      else if(LotMode == "rasio") requested = master_lots * RatioLot;
+      else if(LotMode == "saldo")
+        {
+         if(MasterBalance <= 0.0) return 0.0;
+         requested = master_lots * AccountInfoDouble(ACCOUNT_BALANCE) / MasterBalance;
+        }
+      else return 0.0;
+      if(MaxLotPerOrder <= 0.0) return 0.0;
+      requested = MathMin(requested, MaxLotPerOrder);
+     }
+   return requested;
+  }
+
+bool RiskAllowsIncrease(const string symbol, const double additional_lots, const bool opens_position)
+  {
+   if(!ManagedMode) return true;
+   if(MaxOpenPositions <= 0 || MaxLotTotal <= 0.0 || additional_lots <= 0.0) return false;
+   int open_count = PositionsTotal();
+   double total_lots = 0.0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(PositionGetTicket(i) == 0) continue;
+      total_lots += PositionGetDouble(POSITION_VOLUME);
+     }
+   if(DryRun)
+     {
+      open_count += ArraySize(g_dry_sources);
+      for(int i = 0; i < ArraySize(g_dry_volumes); i++) total_lots += g_dry_volumes[i];
+     }
+   if(opens_position && open_count >= MaxOpenPositions) return false;
+   return total_lots + additional_lots <= MaxLotTotal + 0.0000000001;
+  }
+
+string NettingExposureKey(const string symbol)
+  {
+   return StringFormat("AGNE_%I64d_%I64d_%s", AccountInfoInteger(ACCOUNT_LOGIN), MagicNumber, symbol);
+  }
+
+string VirtualStopKey(const string source_ticket)
+  {
+   return StringFormat("AGNS_%I64d_%I64d_%s", AccountInfoInteger(ACCOUNT_LOGIN), MagicNumber, source_ticket);
+  }
+
+string CopiedSourceKey(const string source_ticket)
+  {
+   return StringFormat("AGNC_%I64d_%I64d_%s", AccountInfoInteger(ACCOUNT_LOGIN), MagicNumber, source_ticket);
+  }
+
+bool IsSymbolHalted(const string symbol)
+  {
+   for(int i = 0; i < ArraySize(g_halted_symbols); i++)
+      if(g_halted_symbols[i] == symbol) return true;
+   return false;
+  }
+
+void HaltSymbol(const string symbol, const string reason)
+  {
+   if(!IsSymbolHalted(symbol))
+     {
+      int size = ArraySize(g_halted_symbols);
+      ArrayResize(g_halted_symbols, size + 1);
+      g_halted_symbols[size] = symbol;
+     }
+   Print("[MT5FollowerCopyEA] Netting ", symbol, " halted: ", reason);
+  }
+
+double FloorVolumeStep(const double requested, const double step)
+  {
+   if(step <= 0.0 || requested <= 0.0) return 0.0;
+   return NormalizeDouble(MathFloor(requested / step + 0.0000000001) * step, VolumePrecision(step));
+  }
+
+bool ReadNetExposure(const string symbol, double &signed_volume, ulong &ticket)
+  {
+   signed_volume = 0.0;
+   ticket = 0;
+   if(!PositionSelect(symbol)) return true;
+   ticket = (ulong)PositionGetInteger(POSITION_TICKET);
+   double volume = PositionGetDouble(POSITION_VOLUME);
+   long side = PositionGetInteger(POSITION_TYPE);
+   signed_volume = side == POSITION_TYPE_BUY ? volume : -volume;
+   return true;
+  }
+
+bool IsVirtualStop(const string source_ticket)
+  {
+   string key = VirtualStopKey(source_ticket);
+   return GlobalVariableCheck(key) && GlobalVariableGet(key) > 0.5;
+  }
+
+void MarkVirtualStop(const string source_ticket)
+  {
+   GlobalVariableSet(VirtualStopKey(source_ticket), 1.0);
+  }
+
+bool IsSourceTicket(const string ticket, string &source_tickets[]);
+void PollNetting(string &objects[], const double copy_after)
+  {
+   string source_tickets[];
+   ArrayResize(source_tickets, ArraySize(objects));
+   for(int i = 0; i < ArraySize(objects); i++)
+      source_tickets[i] = JsonStringValue(objects[i], "ticket");
+
+   // A virtual stop suppresses one master position until its close signal is
+   // consumed; it must not be reopened by the unchanged master snapshot.
+   for(int i = GlobalVariablesTotal() - 1; i >= 0; i--)
+     {
+      string name = GlobalVariableName(i);
+      string prefix = StringFormat("AGNS_%I64d_%I64d_", AccountInfoInteger(ACCOUNT_LOGIN), MagicNumber);
+      if(StringFind(name, prefix) != 0) continue;
+      string source_ticket = StringSubstr(name, StringLen(prefix));
+      if(!IsSourceTicket(source_ticket, source_tickets)) GlobalVariableDel(name);
+     }
+   string copied_prefix = StringFormat("AGNC_%I64d_%I64d_", AccountInfoInteger(ACCOUNT_LOGIN), MagicNumber);
+   for(int i = GlobalVariablesTotal() - 1; i >= 0; i--)
+     {
+      string name = GlobalVariableName(i);
+      if(StringFind(name, copied_prefix) != 0) continue;
+      string source_ticket = StringSubstr(name, StringLen(copied_prefix));
+      if(!IsSourceTicket(source_ticket, source_tickets)) GlobalVariableDel(name);
+     }
+
+   string symbols[];
+   double targets[];
+   double gross_by_symbol[];
+   for(int i = 0; i < ArraySize(objects); i++)
+     {
+      string object = objects[i];
+      string source_ticket = JsonStringValue(object, "ticket");
+      string source_symbol = JsonStringValue(object, "symbol");
+      string action = JsonStringValue(object, "action");
+      double master_lots = JsonNumberValue(object, "lots");
+      double opened_at = JsonNumberValue(object, "opened_at");
+      if(source_ticket == "" || source_symbol == "" || master_lots <= 0.0 ||
+         (action != "BUY" && action != "SELL")) continue;
+      if(IsVirtualStop(source_ticket)) continue;
+      if(ReverseDirection) action = action == "BUY" ? "SELL" : "BUY";
+      string symbol, reason;
+      if(!ResolveBrokerSymbol(source_symbol, SymbolSuffix, SymbolMapCsv, symbol, reason)) continue;
+      string copied_key = CopiedSourceKey(source_ticket);
+      if(opened_at > 0.0 && opened_at <= copy_after && !GlobalVariableCheck(copied_key)) continue;
+      if(opened_at > 0.0 && !GlobalVariableCheck(copied_key) && TimeGMT() - opened_at > MaxSignalAgeSeconds) continue;
+      if(!SymbolSelect(symbol, true)) continue;
+      MqlTick tick;
+      if(!SymbolInfoTick(symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0) continue;
+      double sl = JsonNumberValue(object, "sl");
+      double tp = JsonNumberValue(object, "tp");
+      double stop_price = action == "BUY" ? tick.bid : tick.ask;
+      bool stopped = (action == "BUY" && ((sl > 0.0 && stop_price <= sl) || (tp > 0.0 && stop_price >= tp))) ||
+                     (action == "SELL" && ((sl > 0.0 && stop_price >= sl) || (tp > 0.0 && stop_price <= tp)));
+      if(stopped)
+        {
+         MarkVirtualStop(source_ticket);
+         Print("[MT5FollowerCopyEA] virtual SL/TP triggered for source ", source_ticket, " on ", symbol);
+         continue;
+        }
+      double volume = NormalizeLots(symbol, TargetVolume(master_lots));
+      if(volume <= 0.0) continue;
+      int index = -1;
+      for(int j = 0; j < ArraySize(symbols); j++)
+         if(symbols[j] == symbol) { index = j; break; }
+      if(index < 0)
+        {
+         index = ArraySize(symbols);
+         ArrayResize(symbols, index + 1);
+         ArrayResize(targets, index + 1);
+         ArrayResize(gross_by_symbol, index + 1);
+         symbols[index] = symbol;
+         targets[index] = 0.0;
+         gross_by_symbol[index] = 0.0;
+        }
+      double direction = action == "BUY" ? 1.0 : -1.0;
+      targets[index] += direction * volume;
+      gross_by_symbol[index] += volume;
+     }
+
+   // Revisit symbols saved by earlier polls, including symbols whose final
+   // master position just closed, so a zero target closes the net position.
+   string exposure_prefix = StringFormat("AGNE_%I64d_%I64d_", AccountInfoInteger(ACCOUNT_LOGIN), MagicNumber);
+   for(int i = GlobalVariablesTotal() - 1; i >= 0; i--)
+     {
+      string name = GlobalVariableName(i);
+      if(StringFind(name, exposure_prefix) != 0) continue;
+      string symbol = StringSubstr(name, StringLen(exposure_prefix));
+      if(StringLen(symbol) == 0) continue;
+      bool exists = false;
+      for(int j = 0; j < ArraySize(symbols); j++)
+         if(symbols[j] == symbol) { exists = true; break; }
+      if(exists) continue;
+      int index = ArraySize(symbols);
+      ArrayResize(symbols, index + 1);
+      ArrayResize(targets, index + 1);
+      ArrayResize(gross_by_symbol, index + 1);
+      symbols[index] = symbol;
+      targets[index] = 0.0;
+      gross_by_symbol[index] = 0.0;
+     }
+
+   // Include existing broker positions even if the last managed state file is
+   // missing. With no saved expected exposure, the fail-closed check below
+   // pauses the symbol instead of silently taking over a manual position.
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong position_ticket = PositionGetTicket(i);
+      if(position_ticket == 0) continue;
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      bool exists = false;
+      for(int j = 0; j < ArraySize(symbols); j++)
+         if(symbols[j] == symbol) { exists = true; break; }
+      if(exists) continue;
+      int index = ArraySize(symbols);
+      ArrayResize(symbols, index + 1);
+      ArrayResize(targets, index + 1);
+      ArrayResize(gross_by_symbol, index + 1);
+      symbols[index] = symbol;
+      targets[index] = 0.0;
+      gross_by_symbol[index] = 0.0;
+     }
+
+   int exposed_symbols = 0;
+   double gross_total = 0.0;
+   for(int i = 0; i < ArraySize(symbols); i++)
+     {
+      gross_total += gross_by_symbol[i];
+      if(gross_by_symbol[i] > 0.00000001) exposed_symbols++;
+     }
+   if(ManagedMode && (exposed_symbols > MaxOpenPositions || gross_total > MaxLotTotal + 0.0000000001))
+     {
+      g_connection_status = "Netting target exceeds managed risk limits";
+      Print("[MT5FollowerCopyEA] managed Netting risk limit exceeded; no target changes sent");
+      return;
+     }
+
+   if(DryRun)
+     {
+      if(TimeCurrent() - g_last_log >= 15)
+        {
+         Print("[MT5FollowerCopyEA] dry run: Netting targets checked; no broker orders sent");
+         g_last_log = TimeCurrent();
+        }
+      g_connection_status = "dry run (Netting)";
+      return;
+     }
+
+   for(int i = 0; i < ArraySize(symbols); i++)
+     {
+      string symbol = symbols[i];
+      if(IsSymbolHalted(symbol)) continue;
+      double actual;
+      ulong ticket;
+      if(!ReadNetExposure(symbol, actual, ticket))
+        {
+         HaltSymbol(symbol, "cannot read actual position");
+         continue;
+        }
+      string key = NettingExposureKey(symbol);
+      double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+      double minimum = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+      double tolerance = MathMax(step * 0.25, 0.00000001);
+      double expected = GlobalVariableCheck(key) ? GlobalVariableGet(key) : 0.0;
+      if(MathAbs(actual - expected) > tolerance)
+        {
+         HaltSymbol(symbol, StringFormat("actual %.8g differs from saved copier exposure %.8g", actual, expected));
+         continue;
+        }
+      double delta = targets[i] - actual;
+      if(MathAbs(delta) < minimum - tolerance)
+        {
+         GlobalVariableSet(key, actual);
+         continue;
+        }
+      double volume = FloorVolumeStep(MathAbs(delta), step);
+      if(volume < minimum - tolerance)
+        {
+         Print("[MT5FollowerCopyEA] Netting adjustment for ", symbol, " is below broker minimum");
+         continue;
+        }
+      g_trade.SetTypeFillingBySymbol(symbol);
+      bool sent = delta > 0.0
+                  ? g_trade.Buy(volume, symbol, 0.0, 0.0, 0.0, "Algentra managed")
+                  : g_trade.Sell(volume, symbol, 0.0, 0.0, 0.0, "Algentra managed");
+      bool accepted = sent && (g_trade.ResultRetcode() == TRADE_RETCODE_DONE ||
+                               g_trade.ResultRetcode() == TRADE_RETCODE_DONE_PARTIAL ||
+                               g_trade.ResultRetcode() == TRADE_RETCODE_PLACED);
+      double after;
+      ulong after_ticket;
+      if(!ReadNetExposure(symbol, after, after_ticket))
+        {
+         HaltSymbol(symbol, "cannot verify broker result");
+         continue;
+        }
+      if(!accepted && MathAbs(after - actual) <= tolerance)
+        {
+         Print("[MT5FollowerCopyEA] Netting order failed for ", symbol, ": ", g_trade.ResultRetcodeDescription());
+         continue;
+        }
+      if(MathAbs(after - actual) > tolerance && MathAbs(targets[i] - after) >= minimum - tolerance && !accepted)
+        {
+         HaltSymbol(symbol, "broker changed exposure after an unconfirmed order");
+         continue;
+        }
+      GlobalVariableSet(key, after);
+      if(MathAbs(after - targets[i]) > tolerance)
+         Print("[MT5FollowerCopyEA] Netting ", symbol, " partial adjustment; will retry on next poll");
+      else
+        {
+         for(int j = 0; j < ArraySize(objects); j++)
+           {
+            string object_symbol = JsonStringValue(objects[j], "symbol");
+            string resolved_symbol, resolve_reason;
+            if(!ResolveBrokerSymbol(object_symbol, SymbolSuffix, SymbolMapCsv, resolved_symbol, resolve_reason) || resolved_symbol != symbol)
+               continue;
+            double opened_at = JsonNumberValue(objects[j], "opened_at");
+            string source_ticket = JsonStringValue(objects[j], "ticket");
+            if(opened_at > 0.0 && opened_at <= copy_after && !GlobalVariableCheck(CopiedSourceKey(source_ticket)))
+               continue;
+            GlobalVariableSet(CopiedSourceKey(source_ticket), 1.0);
+           }
+        }
+     }
+   g_connection_status = "copying / live (Netting)";
+  }
+
 bool IsSourceTicket(const string ticket, string &source_tickets[])
   {
    for(int i = 0; i < ArraySize(source_tickets); i++)
@@ -463,6 +842,7 @@ bool IsSourceTicket(const string ticket, string &source_tickets[])
 
 void CloseMissingCopies(string &source_tickets[])
   {
+   if(DryRun) return;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
       ulong local_ticket = PositionGetTicket(i);
@@ -476,24 +856,46 @@ void CloseMissingCopies(string &source_tickets[])
       else
          Print("[MT5FollowerCopyEA] failed to close Copy Trading position ", local_ticket, ": ", g_trade.ResultRetcodeDescription());
      }
+   string copied_prefix = StringFormat("AGNC_%I64d_%I64d_", AccountInfoInteger(ACCOUNT_LOGIN), MagicNumber);
+   for(int i = GlobalVariablesTotal() - 1; i >= 0; i--)
+     {
+      string name = GlobalVariableName(i);
+      if(StringFind(name, copied_prefix) != 0) continue;
+      string source_ticket = StringSubstr(name, StringLen(copied_prefix));
+      if(!IsSourceTicket(source_ticket, source_tickets)) GlobalVariableDel(name);
+     }
   }
 
 bool OpenCopy(const string source_ticket, const string symbol, const string action,
               const double lots, const double sl, const double tp)
   {
+   if(DryRun)
+     {
+      Print("[MT5FollowerCopyEA] dry run: would copy ", action, " ", DoubleToString(lots, 2), " ", symbol,
+            " from source ", source_ticket);
+      return true;
+     }
+   if(GlobalVariableCheck(CopiedSourceKey(source_ticket)))
+     {
+      Print("[MT5FollowerCopyEA] source ", source_ticket, " was previously copied; an absent local position will not be reopened automatically");
+      return false;
+     }
    MqlTick quote;
    if(!SymbolSelect(symbol, true) || !SymbolInfoTick(symbol, quote)) return false;
    g_trade.SetTypeFillingBySymbol(symbol);
    bool sent = action == "BUY"
                ? g_trade.Buy(lots, symbol, 0.0, sl, tp, Marker(source_ticket))
                : g_trade.Sell(lots, symbol, 0.0, sl, tp, Marker(source_ticket));
-   if(!sent || (g_trade.ResultRetcode() != TRADE_RETCODE_DONE && g_trade.ResultRetcode() != TRADE_RETCODE_DONE_PARTIAL))
+   if(!sent || (g_trade.ResultRetcode() != TRADE_RETCODE_DONE &&
+                g_trade.ResultRetcode() != TRADE_RETCODE_DONE_PARTIAL &&
+                g_trade.ResultRetcode() != TRADE_RETCODE_PLACED))
      {
       Print("[MT5FollowerCopyEA] copy open failed for source ", source_ticket, ": ", g_trade.ResultRetcodeDescription());
       return false;
      }
    Print("[MT5FollowerCopyEA] copied ", action, " ", DoubleToString(lots, 2), " ", symbol,
          " from source ", source_ticket);
+   GlobalVariableSet(CopiedSourceKey(source_ticket), 1.0);
    return true;
   }
 
@@ -503,10 +905,34 @@ void ReconcileVolumeAndStops(const string source_ticket, const string symbol, co
    ulong local_tickets[];
    double current_volume = 0.0;
    FindCopiedPositions(source_ticket, local_tickets, current_volume);
-   double target_volume = NormalizeLots(symbol, requested_lots * VolumeMultiplier);
+   double target_volume = NormalizeLots(symbol, TargetVolume(requested_lots));
    if(target_volume <= 0.0)
      {
       Print("[MT5FollowerCopyEA] source ", source_ticket, " skipped: Copy Trading lot is outside broker limits");
+      return;
+     }
+   if(DryRun)
+     {
+      for(int i=0;i<ArraySize(g_dry_sources);i++)
+         if(g_dry_sources[i]==source_ticket) return;
+      if(!RiskAllowsIncrease(symbol,target_volume,true))
+        {
+         Print("[MT5FollowerCopyEA] dry run: risk limits prevent opening source ",source_ticket);
+         return;
+        }
+      int dry_index=ArraySize(g_dry_sources);
+      ArrayResize(g_dry_sources,dry_index+1);
+      ArrayResize(g_dry_symbols,dry_index+1);
+      ArrayResize(g_dry_volumes,dry_index+1);
+      g_dry_sources[dry_index]=source_ticket;
+      g_dry_symbols[dry_index]=symbol;
+      g_dry_volumes[dry_index]=target_volume;
+      if(TimeCurrent() - g_last_log >= 15)
+        {
+         Print("[MT5FollowerCopyEA] dry run: target ", action, " ", DoubleToString(target_volume, 2), " ", symbol,
+               " from source ", source_ticket, "; no broker orders sent");
+         g_last_log = TimeCurrent();
+        }
       return;
      }
    double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
@@ -514,6 +940,11 @@ void ReconcileVolumeAndStops(const string source_ticket, const string symbol, co
 
    if(ArraySize(local_tickets) == 0)
      {
+      if(!RiskAllowsIncrease(symbol, target_volume, true))
+        {
+         Print("[MT5FollowerCopyEA] risk limits prevent opening source ", source_ticket);
+         return;
+        }
       OpenCopy(source_ticket, symbol, action, target_volume, sl, tp);
       return;
      }
@@ -560,7 +991,7 @@ void ReconcileVolumeAndStops(const string source_ticket, const string symbol, co
    else if(target_volume > current_volume + tolerance)
      {
       double extra = NormalizeLots(symbol, target_volume - current_volume);
-      if(extra > 0.0) OpenCopy(source_ticket, symbol, action, extra, sl, tp);
+      if(extra > 0.0 && RiskAllowsIncrease(symbol, extra, false)) OpenCopy(source_ticket, symbol, action, extra, sl, tp);
      }
   }
 
@@ -593,11 +1024,19 @@ void PollAndCopy()
       g_connection_status = "invalid master snapshot";
       return;
      }
+   double copy_after = JsonNumberValue(response, "copy_after");
    string source_tickets[];
    int total = ArraySize(objects);
    ArrayResize(source_tickets, total);
    for(int i = 0; i < total; i++)
       source_tickets[i] = JsonStringValue(objects[i], "ticket");
+
+   if(DryRun)
+     {
+      ArrayResize(g_dry_sources,0);
+      ArrayResize(g_dry_symbols,0);
+      ArrayResize(g_dry_volumes,0);
+     }
 
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED) ||
       !AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT))
@@ -605,13 +1044,13 @@ void PollAndCopy()
       g_connection_status = "connected / trading not allowed by terminal";
       return;
      }
-   if(AccountInfoInteger(ACCOUNT_MARGIN_MODE) != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
-     {
-      g_connection_status = "Copy Trading account must use hedging mode";
-      return;
-     }
    g_trade.SetExpertMagicNumber(MagicNumber);
    g_trade.SetDeviationInPoints(MaxSlippagePoints);
+   if(AccountInfoInteger(ACCOUNT_MARGIN_MODE) != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
+     {
+      PollNetting(objects, copy_after);
+      return;
+     }
 
    for(int i = 0; i < total; i++)
      {
@@ -627,6 +1066,7 @@ void PollAndCopy()
       double tp = JsonNumberValue(object, "tp");
       if(source_ticket == "" || source_symbol == "" || (action != "BUY" && action != "SELL") || lots <= 0.0)
          continue;
+      if(ReverseDirection) action = action == "BUY" ? "SELL" : "BUY";
       if(!ResolveBrokerSymbol(source_symbol, SymbolSuffix, SymbolMapCsv, symbol, symbol_error))
         {
          if(TimeCurrent() - g_last_log >= 15)
@@ -640,6 +1080,11 @@ void PollAndCopy()
       ulong local_tickets[];
       double local_volume = 0.0;
       bool already_copied = FindCopiedPositions(source_ticket, local_tickets, local_volume);
+      double opened_at = JsonNumberValue(object, "opened_at");
+      if(!already_copied && ManagedMode && copy_after > 0.0 && opened_at > 0.0 && opened_at <= copy_after)
+         continue;
+      if(!already_copied && ManagedMode && opened_at > 0.0 && TimeGMT() - opened_at > MaxSignalAgeSeconds)
+         continue;
       MqlTick quote;
       if(!SymbolInfoTick(symbol, quote) || quote.ask <= 0.0 || quote.bid <= 0.0)
         {
@@ -661,21 +1106,27 @@ void PollAndCopy()
            }
          continue;
         }
+      AdjustStops(symbol, action, current_price, sl, tp);
       ReconcileVolumeAndStops(source_ticket, symbol, action, lots, sl, tp);
      }
    CloseMissingCopies(source_tickets);
-   g_connection_status = "copying / live";
+   g_connection_status = DryRun ? "dry run" : "copying / live";
   }
 
 int OnInit()
   {
-   if(PollIntervalMs < 500 || StringLen(AccountToken) < 32 || VolumeMultiplier <= 0.0 ||
-      MaxEntryDeviationPercent < 0.0)
+   if(PollIntervalMs < 20 || StringLen(AccountToken) < 32 || VolumeMultiplier <= 0.0 ||
+      MaxEntryDeviationPercent < 0.0 || MaxSignalAgeSeconds < 0.0)
+      return INIT_PARAMETERS_INCORRECT;
+   if(ManagedMode && (MaxOpenPositions <= 0 || MaxLotTotal <= 0.0 || MaxLotPerOrder <= 0.0 ||
+      (LotMode != "tetap" && LotMode != "rasio" && LotMode != "saldo") ||
+      (LotMode == "tetap" && FixedLot <= 0.0) || (LotMode == "rasio" && RatioLot <= 0.0) ||
+      (LotMode == "saldo" && MasterBalance <= 0.0)))
       return INIT_PARAMETERS_INCORRECT;
    EventSetMillisecondTimer(PollIntervalMs);
    ReportAccountState();
    PollAndCopy();
-   Print("[MT5FollowerCopyEA] initialized; live copying is enabled when MT5 trading permissions are enabled. Allow ServerURL in MT5 WebRequest options.");
+   Print("[MT5FollowerCopyEA] initialized; DryRun=", DryRun, ". Allow ServerURL in MT5 WebRequest options.");
    return INIT_SUCCEEDED;
   }
 
@@ -693,6 +1144,6 @@ void OnTimer()
    Comment("Algentra MT5 Copy Trading\nBackend: ", g_connection_status,
            "\nManaged positions: ", CountManagedPositions(),
            "\nSaldo: ", AccountInfoString(ACCOUNT_CURRENCY), " ", DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2),
-           "\nCopying permission: ON",
+           "\nCopying permission: ", DryRun ? "DRY RUN" : "ON",
            "\nLaporan akun: ", g_account_report_status);
   }

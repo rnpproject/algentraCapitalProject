@@ -443,8 +443,9 @@ h1 "Riwayat transaksi", link `.workspace-tag` "Kembali ke akun MT5" → `/accoun
     (head "Nota pembayaran" + Tutup; body: h2, `.transaction-note` status,
     details, img `.receipt-proof` `src=/api/payments/orders/{id}/proof` atau `.receipt-empty`).
   - PENDING_PAYMENT → "Lanjutkan pembayaran"/"Tutup pembayaran" (expand):
-    `.transaction-note` instruksi (`manualPaymentInstructions`) + "Saya sudah bayar" →
-    `.transaction-proof-form` (file JPG/PNG/WebP ≤5MB) → `POST …/proof` (FormData).
+    jika QRIS tersedia tampilkan `QrisPayment` saja; setelah Midtrans settlement akun dibuat
+    otomatis. Jika QRIS tidak dikonfigurasi, tampilkan instruksi transfer manual dan
+    `.transaction-proof-form` (file JPG/PNG/WebP ≤5MB) → `POST …/proof` untuk review admin.
   - PAYMENT_SUBMITTED → note progres; bila `!notification_sent` → "Kirim ulang notifikasi admin"
     (`POST …/notify`).
   - APPROVED → note + "Buka akun Copy Trading" → `/account`.

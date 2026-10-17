@@ -10,6 +10,7 @@ Pasang PostgreSQL client tools (`pg_dump`, `pg_restore`) dan `age` pada host bac
 - `BACKUP_DATABASE_URL`: koneksi Supabase dengan role `algentra_backup` yang read-only.
 - `BACKUP_AGE_RECIPIENT`: public key age untuk enkripsi.
 - `DATABASE_URL`: koneksi runtime yang digunakan script untuk memvalidasi target.
+- `SUPABASE_PROJECT_REF`: identitas project production; harus cocok dengan host atau username pada `DATABASE_URL`.
 
 Jangan letakkan private key age di server backup. Simpan private key pada lokasi terpisah dan terlindungi.
 
@@ -22,6 +23,12 @@ Uji manual:
 ```
 
 Jadwalkan command yang sama setiap hari melalui Task Scheduler, dengan akun backup. Script membuat custom dump schema `app`, mengenkripsinya, menghapus dump plaintext sementara, dan merotasi 14 file terenkripsi. Pastikan folder backup punya ruang cukup dan lakukan pemeriksaan rutin atas hasil serta kode keluar task.
+
+Sebelum menjadwalkan, build executable Go dari root repository dan salin bersama PostgreSQL client tools serta `age` ke host backup:
+
+```powershell
+go build -ldflags="-s -w" -o algentra-backup.exe ./cmd/backup-database
+```
 
 Simpan salinan tambahan di lokasi yang terpisah dari host backup dan Supabase. Folder backup pada disk yang sama bukan perlindungan terhadap kerusakan atau kehilangan host.
 
