@@ -36,6 +36,8 @@ string g_halted_symbols[];
 string g_dry_sources[];
 string g_dry_symbols[];
 double g_dry_volumes[];
+bool g_gold_chart_ready = false;
+datetime g_gold_chart_last_log = 0;
 
 string TrimTrailingSlash(string value)
   {
@@ -298,6 +300,40 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
      }
    reason = StringFormat("no follower symbol matches master symbol %s; configure SymbolSuffix or SymbolMapCsv", source);
    return false;
+  }
+
+void EnsureDefaultGoldChart()
+  {
+   if(g_gold_chart_ready)
+      return;
+   string gold_symbol, reason;
+   if(!ResolveBrokerSymbol("XAUUSD", "", SymbolMapCsv, gold_symbol, reason))
+     {
+      if(TimeCurrent() - g_gold_chart_last_log >= 15)
+        {
+         Print("[MT5FollowerCopyEA] gold chart not available yet: ", reason);
+         g_gold_chart_last_log = TimeCurrent();
+        }
+      return;
+     }
+   if(_Symbol == gold_symbol)
+     {
+      g_gold_chart_ready = true;
+      Print("[MT5FollowerCopyEA] default gold chart: ", gold_symbol, ", M1");
+      return;
+     }
+   ResetLastError();
+   if(ChartSetSymbolPeriod(0, gold_symbol, PERIOD_M1))
+     {
+      g_gold_chart_ready = true;
+      Print("[MT5FollowerCopyEA] switching default chart to ", gold_symbol, ", M1");
+     }
+   else if(TimeCurrent() - g_gold_chart_last_log >= 15)
+     {
+      Print("[MT5FollowerCopyEA] could not switch default chart to ", gold_symbol,
+            "; chart error ", GetLastError());
+      g_gold_chart_last_log = TimeCurrent();
+     }
   }
 
 string DealEntryText(const ENUM_DEAL_ENTRY entry)
@@ -1131,21 +1167,7 @@ int OnInit()
       (LotMode == "tetap" && FixedLot <= 0.0) || (LotMode == "rasio" && RatioLot <= 0.0) ||
       (LotMode == "saldo" && MasterBalance <= 0.0)))
       return INIT_PARAMETERS_INCORRECT;
-   string gold_symbol, gold_reason;
-   if(ResolveBrokerSymbol("XAUUSD", "", SymbolMapCsv, gold_symbol, gold_reason))
-     {
-      if(_Symbol != gold_symbol)
-        {
-         if(!ChartSetSymbolPeriod(0, gold_symbol, PERIOD_M1))
-            Print("[MT5FollowerCopyEA] could not switch default chart to ", gold_symbol,
-                  "; chart error ", GetLastError());
-        }
-      else
-         SymbolSelect(gold_symbol, true);
-      Print("[MT5FollowerCopyEA] default gold chart: ", gold_symbol, ", M1");
-     }
-   else
-      Print("[MT5FollowerCopyEA] gold chart not available yet: ", gold_reason);
+   EnsureDefaultGoldChart();
    EventSetMillisecondTimer(PollIntervalMs);
    ReportAccountState();
    PollAndCopy();
@@ -1162,6 +1184,7 @@ void OnDeinit(const int reason)
 
 void OnTimer()
   {
+   EnsureDefaultGoldChart();
    ReportAccountState();
    PollAndCopy();
    Comment("Algentra MT5 Copy Trading\nBackend: ", g_connection_status,

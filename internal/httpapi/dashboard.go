@@ -244,7 +244,7 @@ func (api dashboardAPI) signals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit, offset, ok := dashboardPage(r, 500)
-	if !ok || !validQueryLength(r, "status", 1, 32) || !validQueryLength(r, "group_id", 0, 128) {
+	if !ok || !validQueryLength(r, "status", 0, 32) || !validQueryLength(r, "group_id", 0, 128) {
 		writeError(w, http.StatusUnprocessableEntity, "Parameter pagination/filter tidak valid")
 		return
 	}
