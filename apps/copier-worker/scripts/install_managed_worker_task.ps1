@@ -88,6 +88,10 @@ if (-not [string]::IsNullOrWhiteSpace($MasterTerminalPath)) {
 if (-not [string]::IsNullOrWhiteSpace($SignalDirectory)) {
     $masterConfig.folder_sinyal = $SignalDirectory
 }
+if ([string]::IsNullOrWhiteSpace([string]$masterConfig.folder_sinyal) -or
+    [string]$masterConfig.folder_sinyal -eq "C:/Algentra/signals") {
+    $masterConfig.folder_sinyal = "apps/copier-worker/config/runtime/signals"
+}
 if ($createdConfigs -or
     -not [string]::IsNullOrWhiteSpace($ApiBaseUrl) -or
     -not [string]::IsNullOrWhiteSpace($TerminalTemplateDir)) {
@@ -95,13 +99,9 @@ if ($createdConfigs -or
     $json = ConvertTo-Json -InputObject $workerConfig -Depth 12
     [IO.File]::WriteAllText((Join-Path $configDirectory "managed-worker.json"), $json, $encoding)
 }
-if ($createdConfigs -or
-    -not [string]::IsNullOrWhiteSpace($MasterTerminalPath) -or
-    -not [string]::IsNullOrWhiteSpace($SignalDirectory)) {
-    $encoding = New-Object System.Text.UTF8Encoding($false)
-    $json = ConvertTo-Json -InputObject $masterConfig -Depth 12
-    [IO.File]::WriteAllText((Join-Path $configDirectory "master.json"), $json, $encoding)
-}
+$encoding = New-Object System.Text.UTF8Encoding($false)
+$json = ConvertTo-Json -InputObject $masterConfig -Depth 12
+[IO.File]::WriteAllText((Join-Path $configDirectory "master.json"), $json, $encoding)
 if ([string]::IsNullOrWhiteSpace([string]$workerConfig.api_base_url)) {
     throw "api_base_url wajib diisi pada managed-worker.json."
 }
@@ -111,6 +111,9 @@ if (-not [Uri]::TryCreate([string]$workerConfig.api_base_url, [UriKind]::Absolut
     throw "api_base_url harus berupa URL HTTP(S) yang valid."
 }
 $terminalTemplateDir = [string]$workerConfig.terminal_template_dir
+if (-not [IO.Path]::IsPathRooted($terminalTemplateDir)) {
+    $terminalTemplateDir = Join-Path $configDirectory $terminalTemplateDir
+}
 if (-not (Test-Path -LiteralPath $terminalTemplateDir -PathType Container) -or
     -not (Test-Path -LiteralPath (Join-Path $terminalTemplateDir "terminal64.exe") -PathType Leaf)) {
     throw "terminal_template_dir harus menunjuk folder MT5 follower bersih yang berisi terminal64.exe."
@@ -132,8 +135,17 @@ Copy-Item -LiteralPath $probeExpertSource -Destination $probeExpertTarget -Force
 if ([string]$workerConfig.master_source -eq "publisher_ea" -and -not (Test-Path -LiteralPath ([string]$masterConfig.terminal_path) -PathType Leaf)) {
     throw "terminal_path pada master.json harus menunjuk terminal64.exe master yang tersedia."
 }
-if (-not (Test-Path -LiteralPath ([string]$masterConfig.folder_sinyal) -PathType Container)) {
-    throw "folder_sinyal pada master.json harus menunjuk folder sinyal yang tersedia."
+$signalPath = [string]$masterConfig.folder_sinyal
+if (-not [IO.Path]::IsPathRooted($signalPath)) {
+    $signalPath = Join-Path $resolvedRoot $signalPath
+}
+New-Item -ItemType Directory -Path $signalPath -Force | Out-Null
+$runtimeDirectory = [string]$workerConfig.runtime_dir
+if (-not [IO.Path]::IsPathRooted($runtimeDirectory)) {
+    $runtimeDirectory = Join-Path $configDirectory $runtimeDirectory
+}
+foreach ($directory in @("terminals", "states", "reports", "heartbeats", "logs")) {
+    New-Item -ItemType Directory -Path (Join-Path $runtimeDirectory $directory) -Force | Out-Null
 }
 $workerKey = [Environment]::GetEnvironmentVariable("COPIER_WORKER_API_KEY", "User")
 if (-not $workerKey) {
@@ -198,7 +210,7 @@ if ($workerHealth.status -ne "ok") {
     throw "Backend tidak mengonfirmasi key worker."
 }
 $taskName = "Algentra Managed Copy Worker"
-$taskLogDirectory = Join-Path $resolvedRoot "logs"
+$taskLogDirectory = Join-Path $runtimeDirectory "logs"
 New-Item -ItemType Directory -Path $taskLogDirectory -Force | Out-Null
 $taskErrorLog = Join-Path $taskLogDirectory "managed_worker-task-error.log"
 $launcherCommand = "`$env:APP_ENV='production'; `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'User'); if (-not `$workerKey) { `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'Machine') }; if (-not `$workerKey) { throw 'COPIER_WORKER_API_KEY tidak tersedia pada environment akun worker.' }; `$env:COPIER_WORKER_API_KEY = `$workerKey; Remove-Variable workerKey; `$publisherToken = [Environment]::GetEnvironmentVariable('MASTER_PUBLISHER_TOKEN', 'User'); if (-not `$publisherToken) { `$publisherToken = [Environment]::GetEnvironmentVariable('MASTER_PUBLISHER_TOKEN', 'Machine') }; if (-not `$publisherToken) { throw 'MASTER_PUBLISHER_TOKEN tidak tersedia pada environment akun worker.' }; `$env:MASTER_PUBLISHER_TOKEN = `$publisherToken; Remove-Variable publisherToken; Set-Location -LiteralPath '$resolvedRoot'; & '$workerBinary' '$workerConfigPath' 2> '$taskErrorLog'"

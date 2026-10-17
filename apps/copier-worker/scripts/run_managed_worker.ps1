@@ -18,8 +18,12 @@ foreach ($name in @("managed-worker", "master")) {
         $createdConfigs = $true
     }
 }
+$runtimeDirectory = Join-Path $configDirectory "runtime"
+foreach ($directory in @("signals", "terminals", "states", "reports", "heartbeats", "logs")) {
+    New-Item -ItemType Directory -Path (Join-Path $runtimeDirectory $directory) -Force | Out-Null
+}
 if ($createdConfigs) {
-    Write-Output "Konfigurasi lokal dibuat pada $configDirectory. Atur URL API, terminal template follower, dan folder sinyal, lalu jalankan lagi."
+    Write-Output "Konfigurasi lokal dibuat pada $configDirectory. Atur api_base_url dan terminal_template_dir pada managed-worker.json bila nilainya belum sesuai, lalu jalankan lagi."
     exit 0
 }
 

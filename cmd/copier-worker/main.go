@@ -221,6 +221,18 @@ func loadConfig(path string) (config, error) {
 }
 
 func newWorker(cfg config) (*worker, error) {
+	for _, directory := range []string{
+		cfg.signalDir,
+		filepath.Join(cfg.runtimeDir, "logs"),
+		filepath.Join(cfg.runtimeDir, "states"),
+		filepath.Join(cfg.runtimeDir, "reports"),
+		filepath.Join(cfg.runtimeDir, "heartbeats"),
+		filepath.Join(cfg.runtimeDir, "terminals"),
+	} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return nil, fmt.Errorf("buat direktori runtime %s: %w", directory, err)
+		}
+	}
 	store, err := managed.OpenSnapshotStore(cfg.signalDir, filepath.Join(cfg.runtimeDir, "states", "master-snapshot.json"), 3*time.Second)
 	if err != nil {
 		return nil, err
