@@ -12,6 +12,8 @@ Pasang PostgreSQL client tools (`pg_dump`, `pg_restore`) dan `age` pada host bac
 - `DATABASE_URL`: koneksi runtime yang digunakan script untuk memvalidasi target.
 - `SUPABASE_PROJECT_REF`: identitas project production; harus cocok dengan host atau username pada `DATABASE_URL`.
 
+Pada schema fresh production, role `algentra_backup` dibuat `NOLOGIN`. Aktifkan login dan set password interaktif hanya jika host backup benar-benar digunakan; role tersebut hanya mendapat hak baca.
+
 Jangan letakkan private key age di server backup. Simpan private key pada lokasi terpisah dan terlindungi.
 
 ## Menjalankan backup

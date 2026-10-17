@@ -38,7 +38,7 @@ Gunakan project Supabase terpisah dari production.
 
 ### Production
 
-Dokumen ini hanya untuk development lokal. Production menggunakan schema SQL berurutan di `internal/database/migrations/` dan prosedur migrasi tersendiri pada [README production](../README.md). Database SQLite lokal dan importer yang disebut di bawah hanya untuk Supabase development; jangan gunakan untuk target production.
+Dokumen ini hanya untuk development lokal. Production baru memakai [installer schema final](../infra/supabase/fresh-production.sql) pada project Supabase kosong; data SQLite tidak diimpor ke production. Runner migration dan importer SQLite yang disebut di bawah hanya untuk project development dan tidak boleh dijalankan pada production.
 
 ### Membersihkan sinyal IGNORED
 

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,10 +30,10 @@ func EnsureAdmin(ctx context.Context, pool *pgxpool.Pool, username, password str
 		return errors.New("password admin tidak dapat diproses bcrypt")
 	}
 	_, err = pool.Exec(ctx, `
-		INSERT INTO admin_users (username, password_hash)
-		VALUES ($1, $2)
+		INSERT INTO admin_users (username, password_hash, created_at)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash
-	`, username, string(passwordHash))
+	`, username, string(passwordHash), time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("simpan akun admin: %w", err)
 	}

@@ -1,6 +1,6 @@
 package database
 
-// requiredColumns is generated from the checked-in SQLAlchemy model metadata during the Go migration.
+// requiredColumns is the minimum database contract required by the Go backend.
 var requiredColumns = map[string][]string{
 	"admin_users":                      {"username", "password_hash", "created_at"},
 	"auth_sessions":                    {"session_hash", "user_type", "user_id", "session_data", "created_at", "last_seen_at", "expires_at", "revoked_at"},

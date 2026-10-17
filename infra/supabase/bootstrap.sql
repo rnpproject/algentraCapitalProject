@@ -1,5 +1,6 @@
--- One-time Supabase project/role bootstrap. This file does not create application schemas or tables.
--- Run as the project postgres owner in SQL Editor. Replace environment/ref for the target project.
+-- Development-only Supabase role and marker bootstrap. Production fresh setup uses
+-- fresh-production.sql instead. This file does not create application tables.
+-- Run as the project postgres owner in SQL Editor and replace the development project ref.
 
 DO $$
 DECLARE

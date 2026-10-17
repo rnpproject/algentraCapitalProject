@@ -8,7 +8,7 @@ Runbook ini memandu instalasi production dari database dan API sampai portal, EA
 | --- | --- | --- |
 | Portal | Next.js di Vercel, root `apps/web` | Website publik dan portal admin/client |
 | Core API | Go Windows Service, `127.0.0.1:8000` | API, pembayaran, Telegram, Gemini, EA, dan akses PostgreSQL |
-| Database | Supabase PostgreSQL | Data aplikasi; schema dikelola lewat migrasi terpisah |
+| Database | Supabase PostgreSQL | Data aplikasi; schema final dibuat oleh installer production fresh |
 | Copier | Binary Go dan terminal MT5 pada sesi Windows interaktif | Managed copier dari akun master ke follower |
 | Signal EA | `TelegramSignalEA.mq5` pada terminal master | Mengirim snapshot untuk copier managed dan dapat mengeksekusi sinyal Telegram |
 
@@ -16,13 +16,27 @@ Vercel mengakses API melalui HTTPS origin di belakang Cloudflare Tunnel/Access d
 
 ## 1. Siapkan project Supabase production
 
-1. Buat project Supabase production dan catat project ref. Untuk perpindahan dari database lama, siapkan backup sumber dan target.
-2. Terapkan [schema awal production](internal/database/migrations/0001_initial_postgres_schema.sql) sebagai project owner pada database target kosong. Terapkan juga migration berikutnya berurutan: `0002_rls_and_token_redaction.sql`, lalu `0003_midtrans_qris.sql`. Jalankan SQL hanya sekali per revision; periksa hasil dan marker revision `0003_midtrans_qris`.
-3. Jalankan [bootstrap role dan marker](infra/supabase/bootstrap.sql) dengan marker project dan environment `production`. Bootstrap tidak membuat tabel aplikasi. Aktifkan role runtime `algentra_api`; `algentra_migrator` hanya untuk operator saat perubahan schema; `algentra_backup` hanya bila host backup disiapkan.
-4. Buat connection string terpisah: runtime `algentra_api`, migrator `algentra_migrator`, backup `algentra_backup`. Runtime harus memakai TLS (`sslmode=require` minimal), jangan gunakan role `postgres` atau `service_role` dalam aplikasi.
-5. Jika sumber data adalah database SQLite lama, gunakan prosedur migrasi satu kali yang disetujui operator/DBA untuk memetakan, mengimpor, dan mencocokkan jumlah/checksum data ke schema production. Importer yang ada hanya mengizinkan Supabase development; jangan arahkan ke production. Verifikasi data hasil migrasi sebelum mengalihkan aplikasi ke database baru.
+1. Buat project Supabase production baru dan catat project ref.
+2. Dari file [fresh production schema](infra/supabase/fresh-production.sql), ganti kedua kemunculan `REPLACE_WITH_SUPABASE_PROJECT_REF` dengan project ref tersebut. Jalankan seluruh file satu kali melalui SQL Editor sebagai role `postgres`. File ini membentuk schema final backend langsung, memberi marker revision `0003_midtrans_qris`, dan menolak berjalan bila schema `app` sudah ada. Setelah berhasil, verifikasi marker sebelum menghubungkan API:
 
-> API tidak menjalankan DDL ketika startup. Schema production disiapkan berurutan oleh operator/DBA. Migrasi data dari SQLite belum memiliki importer production-ready: importer repo hanya menerima project development. Jika schema sudah ada tetapi revision/marker tidak cocok, hentikan deployment dan rekonsiliasi dahulu. Prosedur lokal development ada di [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), bukan prasyarat deploy production.
+   ```sql
+   SELECT shobj_description(oid, 'pg_database') AS database_marker
+   FROM pg_database WHERE datname = current_database();
+
+   SELECT obj_description('app'::regnamespace, 'pg_namespace') AS schema_revision;
+   ```
+
+   Hasil yang diharapkan adalah `algentra:production:<project-ref>` dan `algentra:revision:0003_midtrans_qris`.
+3. File tersebut membuat role `algentra_api` dan `algentra_backup` sebagai `NOLOGIN`. Aktifkan login untuk role runtime di SQL Editor:
+
+   ```sql
+   ALTER ROLE algentra_api LOGIN;
+   ```
+
+   Jika menyiapkan host backup, jalankan juga `ALTER ROLE algentra_backup LOGIN;`. Dari `psql` yang terhubung sebagai project owner, atur password role yang diaktifkan dengan `\password algentra_api` atau `\password algentra_backup`. Perintah `\password` meminta password secara interaktif; jangan menaruhnya di source, SQL script, atau command history. Gunakan connection string TLS (`sslmode=require` minimal) untuk role runtime; jangan gunakan role `postgres` atau Supabase `service_role` pada aplikasi.
+4. Isi `SUPABASE_PROJECT_REF` di environment Core API dengan ref yang sama. Gunakan `DATABASE_URL` dengan role runtime `algentra_api`. Database production baru tidak mengambil data dari SQLite; importer SQLite tetap hanya alat development dan tidak diperlukan untuk deployment fresh.
+
+> API tidak menjalankan DDL ketika startup. Installer fresh hanya untuk project Supabase baru yang belum memiliki schema `app`; jangan jalankan pada database yang berisi data atau schema lama. Untuk rilis berikutnya, siapkan perubahan schema sebagai SQL upgrade terpisah dan tinjau/backup sebelum diterapkan. Prosedur migrasi database development dan importer SQLite lokal dijelaskan di [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), bukan bagian dari instalasi production fresh.
 
 ## 2. Build dan pasang Core API di Windows Server
 
@@ -44,21 +58,39 @@ Alternatifnya, ambil artifact Windows dari CI untuk commit yang sama. Jangan bui
 
 ### Environment dan service
 
-1. Siapkan Windows Server terkelola, NSSM, Cloudflare Tunnel, dan folder release tetap (contoh `D:\Algentra\release`). Salin binary backend ke root release.
+1. Root project production adalah `D:\Algentra\algentraCapitalProject`. Siapkan Windows Server terkelola, NSSM, dan Cloudflare Tunnel. Salin binary backend ke root project tersebut. Folder `backend\data` adalah data runtime, bukan source code, sehingga tidak tersedia di GitHub dan akan dibuat pada server.
 2. Salin [infra/windows/core-api.production.env.example](infra/windows/core-api.production.env.example) ke `D:\AlgentraSecure\core-api.env`. Isi `SUPABASE_PROJECT_REF`, `DATABASE_URL`, `APP_SECRET_KEY`, password admin, dan `BFF_HMAC_SECRET` acak minimal 32 karakter. Untuk akun otomatis setelah pembayaran, isi `MIDTRANS_SERVER_KEY`, `MIDTRANS_MERCHANT_ID`, set `MIDTRANS_IS_PRODUCTION=true`, dan konfigurasi notifikasi Midtrans ke `https://<api-origin>/api/payments/midtrans/notification`. Untuk managed copier, set `COPIER_WORKER_API_KEY` dan `EA_API_KEY`; salin key worker yang sama ke akun Windows worker dan gunakan key EA pada TelegramSignalEA master. Tambahkan integrasi opsional seperlunya.
-3. Batasi ACL file environment agar hanya SYSTEM, administrator, dan akun service yang dapat membacanya. Pastikan `backend\data` persisten dan privat; di sinilah session Telegram dan data lokal aplikasi berada.
-4. Dari PowerShell administrator pada checkout/release yang berisi `infra\windows`, daftarkan service (installer menunjuk binary di `$ProjectRoot`):
+3. Dari PowerShell administrator pada root project, daftarkan service (installer menunjuk binary di `$ProjectRoot`):
 
    ```powershell
    .\infra\windows\install-core-api-service.ps1 `
-     -ProjectRoot 'D:\Algentra\release' `
+     -ProjectRoot 'D:\Algentra\algentraCapitalProject' `
      -EnvironmentFile 'D:\AlgentraSecure\core-api.env' `
      -NssmPath 'C:\Tools\nssm\win64\nssm.exe'
    ```
 
-   Installer membuat service `AlgentraCoreApi` dengan restart otomatis. Service di-bind ke `127.0.0.1:8000`.
-5. Pasang Cloudflare Tunnel sebagai service terpisah dengan origin lokal `http://127.0.0.1:8000`; lindungi hostname API dengan Cloudflare Access service token khusus Vercel. Jangan expose port backend secara publik.
-6. Mulai dan periksa API:
+   Installer membuat service `AlgentraCoreApi` dengan restart otomatis dan membatasi ACL file environment. Setelah service terdaftar, buat folder data yang belum ada dan batasi ACL file environment serta data. Jalankan perintah ini dari PowerShell administrator:
+
+   ```powershell
+   $envFile = 'D:\AlgentraSecure\core-api.env'
+   $dataDir = 'D:\Algentra\algentraCapitalProject\backend\data'
+   $serviceAccount = 'NT SERVICE\AlgentraCoreApi'
+
+   New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+
+   icacls.exe $envFile /inheritance:r /grant:r `
+     'SYSTEM:F' 'BUILTIN\Administrators:F' "${serviceAccount}:R"
+
+   icacls.exe $dataDir /inheritance:r /grant:r `
+     'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' `
+     "${serviceAccount}:(OI)(CI)M" /T /C
+   icacls.exe $envFile
+   icacls.exe $dataDir
+   ```
+
+   `backend\data` menyimpan session Telegram dan data lokal aplikasi. Pertahankan folder ini pada path tersebut selama update agar datanya persisten. Service di-bind ke `127.0.0.1:8000`.
+4. Pasang Cloudflare Tunnel sebagai service terpisah dengan origin lokal `http://127.0.0.1:8000`; lindungi hostname API dengan Cloudflare Access service token khusus Vercel. Jangan expose port backend secara publik.
+5. Mulai dan periksa API:
 
    ```powershell
    Start-Service AlgentraCoreApi
@@ -101,7 +133,7 @@ TelegramSignalEA mengirim snapshot master ke Core API; worker managed meneruskan
 
    ```powershell
    .\apps\copier-worker\scripts\install_managed_worker_task.ps1 `
-     -ProjectRoot 'D:\Algentra\release' `
+     -ProjectRoot 'D:\Algentra\algentraCapitalProject' `
      -ApiBaseUrl 'https://api.example.com' `
      -TerminalTemplateDir 'D:\MT5Templates\CleanFollower' `
      -SignalDirectory 'D:\Algentra\signals'
@@ -170,8 +202,8 @@ Pastikan backup terenkripsi berhasil dan uji restore pada staging. Ikuti [docs/B
 
 ### Update schema
 
-1. Backup database, tinjau SQL revision baru, terapkan revision berurutan pada database target, lalu verifikasi schema/revision marker dan data.
-2. Jangan jalankan `migrate-development.ps1` pada production. Deploy API hanya setelah schema kompatibel. Hindari rollback DDL/data tanpa rencana pemulihan.
+1. Backup database, tinjau SQL upgrade baru, terapkan pada target production melalui operator/DBA, lalu verifikasi schema/revision marker dan data.
+2. Jangan jalankan `migrate-development.ps1` atau `fresh-production.sql` pada production yang sudah berjalan. Deploy API hanya setelah schema kompatibel. Hindari rollback DDL/data tanpa rencana pemulihan.
 
 ### Update backend dan copier
 
