@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.103"
+#property version   "1.104"
 #property description "Copies all published Algentra positions and reports MT5 account history"
 
 #include <Trade/Trade.mqh>
@@ -30,7 +30,7 @@ CTrade g_trade;
 string g_connection_status = "starting";
 string g_account_report_status = "waiting for MT5 report";
 datetime g_last_log = 0;
-datetime g_last_report_attempt = 0;
+ulong g_last_report_attempt_ms = 0;
 long g_history_cursor = 0;
 long g_history_cursor_msc = 0;
 string g_halted_symbols[];
@@ -58,6 +58,16 @@ string JsonEscape(string value)
    return value;
   }
 
+string WebRequest4014Status(const string url)
+  {
+   if(MQLInfoInteger(MQL_TESTER))
+      return "4014: WebRequest tidak tersedia di Strategy Tester";
+   long program_type = MQLInfoInteger(MQL_PROGRAM_TYPE);
+   if(program_type != PROGRAM_EXPERT && program_type != PROGRAM_SCRIPT)
+      return "4014: WebRequest hanya tersedia untuk EA atau script";
+   return StringFormat("4014: izinkan %s di terminal ini", TrimTrailingSlash(url));
+  }
+
 void LogWebRequestError(const string operation, const string url, int code, int mql_error, const string &response_body)
 {
    string truncated_response = StringLen(response_body) > 256 ? StringSubstr(response_body, 0, 256) + "..." : response_body;
@@ -69,10 +79,9 @@ void LogWebRequestError(const string operation, const string url, int code, int 
      {
       if(mql_error == 4014)
         {
-         if(ManagedMode)
-            error_details += ", MT5 WebRequest permission is being configured by the worker; check its webrequest_<account_id>.log if this persists";
-         else
-            error_details += ", URL not allowed: add ServerURL in Tools > Options > Expert Advisors > Allow WebRequest for listed URL";
+         error_details += ", " + WebRequest4014Status(url);
+         if(ManagedMode && !MQLInfoInteger(MQL_TESTER))
+            error_details += "; if already allowed, inspect webrequest_<account_id>.log";
         }
       else
          error_details += ", WebRequest failed before reaching the server (check ServerURL and network)";
@@ -233,7 +242,7 @@ bool HttpGet(string &response_body)
    if(code < 200 || code >= 300)
      {
       g_connection_status = mql_error == 4014
-                            ? "WebRequest URL belum diizinkan (4014)"
+                            ? WebRequest4014Status(ServerURL)
                             : StringFormat("HTTP %d / error %d", code, mql_error);
       LogWebRequestError("GET positions", TrimTrailingSlash(ServerURL) + "/api/mt5/follower/positions", code, mql_error, response_body);
       return false;
@@ -583,7 +592,7 @@ bool PostAccountReport(const string payload, string &response_body)
    if(code < 200 || code >= 300)
      {
       g_account_report_status = mql_error == 4014
-                                ? "WebRequest URL belum diizinkan (4014)"
+                                ? WebRequest4014Status(ServerURL)
                                 : StringFormat("report HTTP %d / error %d", code, mql_error);
       LogWebRequestError("POST report", TrimTrailingSlash(ServerURL) + "/api/mt5/follower/report", code, mql_error, response_body);
       return false;
@@ -598,9 +607,12 @@ bool PostAccountReport(const string payload, string &response_body)
 
 void ReportAccountState()
   {
-   datetime now = TimeCurrent();
-   if(now - g_last_report_attempt < 5) return;
-   g_last_report_attempt = now;
+   // TimeCurrent is the timestamp of the last received quote. It can remain
+   // frozen while the market is closed, which would suppress report retries
+   // after fixing a WebRequest permission. Use the local monotonic tick clock.
+   ulong now_ms = GetTickCount64();
+   if(g_last_report_attempt_ms > 0 && now_ms - g_last_report_attempt_ms < 5000) return;
+   g_last_report_attempt_ms = now_ms;
    if(!TerminalInfoInteger(TERMINAL_CONNECTED) || AccountInfoInteger(ACCOUNT_LOGIN) <= 0) return;
 
    string deals_json;

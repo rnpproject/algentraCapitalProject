@@ -64,6 +64,32 @@ Func ListContainsUrl($handle, $url)
    Return False
 EndFunc
 
+Func FindConfirmButton($handle)
+   ; Match the complete caption. A substring search for "ok" can match
+   ; unrelated captions such as "Broker" and click a different control.
+   Local $accepted[10] = ["ok", "okay", "&ok", "aceptar", "taip", "oui", "ja", "확인", "确定", "ОК"]
+   For $i = 1 To 25
+      Local $control = "Button" & $i
+      Local $position = ControlGetPos($handle, "", $control)
+      If @error Then ContinueLoop
+      If ControlCommand($handle, "", $control, "IsVisible", "") <> 1 Then ContinueLoop
+      Local $caption = StringLower(StringStripWS(ControlGetText($handle, "", $control), 3))
+      For $j = 0 To UBound($accepted) - 1
+         If $caption = $accepted[$j] Then Return $control
+      Next
+   Next
+   Return ""
+EndFunc
+
+Func WaitOptionsClosed($handle, $timeoutMs)
+   Local $timer = TimerInit()
+   While TimerDiff($timer) < $timeoutMs
+      If Not WinExists($handle) Then Return True
+      Sleep(100)
+   WEnd
+   Return Not WinExists($handle)
+EndFunc
+
 If $CmdLine[0] < 3 Then Exit 10
 Local $pid = Int($CmdLine[1])
 Local $url = StringStripWS($CmdLine[2], 3)
@@ -148,29 +174,34 @@ EndIf
 
 If Not ListContainsUrl($options, $url) Then
    LogLine("RESULT=FAIL reason=url_not_present_after_add")
-   Send("{ESC}")
+   ; Keep Options open for diagnosis. Escape here discards the URL and looks
+   ; exactly like the script clicked the window's close button.
    FileClose($gLog)
    Exit 8
 EndIf
 
-Local $ok = ""
-For $i = 1 To 25
-   Local $control = "Button" & $i
-   Local $position = ControlGetPos($options, "", $control)
-   If @error Then ContinueLoop
-   If StringInStr(StringLower(ControlGetText($options, "", $control)), "ok") > 0 Then
-      $ok = $control
-      ExitLoop
-   EndIf
-Next
-If $ok = "" Then
-   LogLine("RESULT=FAIL reason=ok_button_not_found")
-   Send("{ESC}")
+Local $confirm = FindConfirmButton($options)
+If $confirm <> "" Then
+   LogLine("clicking confirm control=" & $confirm & " caption=" & ControlGetText($options, "", $confirm))
+   ControlClick($options, "", $confirm)
+Else
+   For $i = 1 To 25
+      Local $control = "Button" & $i
+      Local $position = ControlGetPos($options, "", $control)
+      If @error Or ControlCommand($options, "", $control, "IsVisible", "") <> 1 Then ContinueLoop
+      LogLine("visible button " & $control & " caption=" & ControlGetText($options, "", $control))
+   Next
+   ; Leave the dialog open so a missing/localized button caption cannot
+   ; discard the newly entered URL by closing Options with Escape.
+   LogLine("RESULT=FAIL reason=confirm_button_not_found_dialog_left_open")
    FileClose($gLog)
    Exit 9
 EndIf
-ControlClick($options, "", $ok)
-Sleep(500)
+If Not WaitOptionsClosed($options, 3000) Then
+   LogLine("RESULT=FAIL reason=options_dialog_still_open_after_confirm")
+   FileClose($gLog)
+   Exit 9
+EndIf
 LogLine("RESULT=OK url=" & $url)
 FileClose($gLog)
 Exit 0
