@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Poppins, Plus_Jakarta_Sans } from "next/font/google";
 import Script from "next/script";
 import { InitialApiLoading } from "./components/InitialApiLoading";
@@ -22,7 +22,6 @@ export const metadata: Metadata = {
   title: "Algentra Capital | AI Copy Trading",
   description:
     "Algentra Capital membantu membaca sinyal XAUUSD dengan AI, menjalankan instruksi melalui EA MetaTrader, dan menyalin posisi ke akun Copy Trading.",
-  themeColor: "#0d1a24",
   icons: {
     icon: [
       { url: "/brand-kit/favicon/favicon.svg", type: "image/svg+xml" },
@@ -38,6 +37,10 @@ export const metadata: Metadata = {
       { rel: "icon", url: "/brand-kit/favicon/app-icon-maskable-512.png" },
     ],
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0d1a24",
 };
 
 // Mirror base.html: theme read from cookie/localStorage, fallback dark, applied
