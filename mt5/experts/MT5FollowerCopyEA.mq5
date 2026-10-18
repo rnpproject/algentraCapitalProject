@@ -4,8 +4,9 @@
 
 #include <Trade/Trade.mqh>
 
-input string ServerURL = "http://127.0.0.1:8000";
-input string AccountToken = "";
+input string ServerURL = "http://127.0.0.1:8000"; // Portal URL for EA communication
+input string AccountToken = ""; // EA-specific authentication token (separate from web session tokens). 
+                               // Stored in database and managed by bot - can be rotated/updated as needed.
 input int PollIntervalMs = 500;
 input long MagicNumber = 26100301;
 input double VolumeMultiplier = 1.0;
@@ -39,6 +40,7 @@ double g_dry_volumes[];
 bool g_gold_chart_ready = false;
 datetime g_gold_chart_last_log = 0;
 datetime g_gold_chart_last_check = 0;
+string g_symbol_suffix = ""; // input SymbolSuffix is read-only in MQL5, so the effective suffix lives here
 
 string TrimTrailingSlash(string value)
   {
@@ -55,6 +57,44 @@ string JsonEscape(string value)
    StringReplace(value, "\n", " ");
    return value;
   }
+
+void LogWebRequestError(const string operation, const string url, int code, int mql_error, const string &response_body)
+{
+   string truncated_response = StringLen(response_body) > 256 ? StringSubstr(response_body, 0, 256) + "..." : response_body;
+   string error_details = StringFormat("[MT5FollowerCopyEA] %s failed: URL=%s, HTTP=%d, MQL5 error=%d", 
+                                      operation, url, code, mql_error);
+   
+   // Provide specific guidance based on HTTP status code
+   if(code < 0)
+     {
+      if(mql_error == 4014)
+         error_details += ", URL not allowed: add ServerURL in Tools > Options > Expert Advisors > Allow WebRequest for listed URL";
+      else
+         error_details += ", WebRequest failed before reaching the server (check ServerURL and network)";
+     }
+   else if(code >= 400 && code < 500)
+     {
+      string guidance = "";
+      if(code == 400) guidance = ", check request format/headers";
+      else if(code == 401) guidance = ", check AccountToken (unauthorized)";
+      else if(code == 403) guidance = ", check AccountToken permissions (forbidden)";
+      else if(code == 404) guidance = ", check ServerURL endpoint";
+      else if(code == 408) guidance = ", request timeout";
+      else if(code == 429) guidance = ", rate limited";
+      else guidance = ", client error";
+      error_details += guidance;
+     }
+   else if(code >= 500 && code < 600)
+     {
+      error_details += ", server error";
+     }
+   else if(code == 0)
+     {
+      error_details += ", connection failed (check ServerURL and network)";
+     }
+   
+   Print(error_details + ", Response='" + truncated_response + "'");
+}
 
 int JsonValueStart(const string json, const string key)
   {
@@ -76,7 +116,21 @@ int JsonValueStart(const string json, const string key)
 string JsonStringValue(const string json, const string key)
   {
    int start = JsonValueStart(json, key);
-   if(start < 0 || StringGetCharacter(json, start) != '"') return "";
+   if(start < 0) return "";
+   // Accept both quoted ("123") and bare numeric (123) values, so a ticket or
+   // cursor is not silently dropped when the backend sends a JSON number.
+   if(StringGetCharacter(json, start) != '"')
+     {
+      int e = start;
+      while(e < StringLen(json))
+        {
+         ushort ch = StringGetCharacter(json, e);
+         if(ch == ',' || ch == '}' || ch == ']' || ch == 32 || ch == 9 || ch == 10 || ch == 13) break;
+         e++;
+        }
+      string raw = StringSubstr(json, start, e - start);
+      return raw == "null" ? "" : raw;
+     }
    int end = StringFind(json, "\"", start + 1);
    if(end < 0) return "";
    return StringSubstr(json, start + 1, end - start - 1);
@@ -168,11 +222,13 @@ bool HttpGet(string &response_body)
    ArrayResize(data, 0);
    ResetLastError();
    int code = WebRequest("GET", TrimTrailingSlash(ServerURL) + "/api/mt5/follower/positions",
-                         headers, 5000, data, result, result_headers);
+                            headers, 10000, data, result, result_headers);
+   int mql_error = GetLastError();
    response_body = CharArrayToString(result, 0, -1, CP_UTF8);
    if(code < 200 || code >= 300)
      {
-      g_connection_status = StringFormat("HTTP %d / error %d", code, GetLastError());
+      g_connection_status = StringFormat("HTTP %d / error %d", code, mql_error);
+      LogWebRequestError("GET positions", TrimTrailingSlash(ServerURL) + "/api/mt5/follower/positions", code, mql_error, response_body);
       return false;
      }
    long server_cursor = StringToInteger(JsonStringValue(response_body, "history_cursor"));
@@ -258,43 +314,71 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
       if(TrySelectBrokerSymbol(mapped, resolved))
          return true;
      }
-   if(suffix != "" && TrySelectBrokerSymbol(source + suffix, resolved))
-      return true;
-
+   
+   // Match the instrument, not the master's spelling. The master name can carry
+   // a different suffix than this account (master XAUUSDc / follower XAUUSD, or
+   // the reverse), so a name-prefix test against the master fails in one
+   // direction. The account's own catalog identifies the instrument through its
+   // base + profit currency (XAU + USD = "XAUUSD"); the master name only has to
+   // start with that key. If the catalog gives no currencies, names are compared
+   // as prefixes in either direction.
    string search_for = mapped != "" ? mapped : source;
    string search_upper = search_for;
    StringToUpper(search_upper);
+   string suffix_upper = suffix;
+   StringToUpper(suffix_upper);
    string match = "";
    string match_upper = "";
-   int best_exact_rank = 1;
-   int best_suffix_length = 2147483647;
+   bool best_exact = false;
+   bool best_user = false;
+   int best_common = -1;
+   int best_diff = 2147483647;
    int symbols_total = SymbolsTotal(false);
    for(int i = 0; i < symbols_total; i++)
      {
       string candidate = SymbolName(i, false);
       string candidate_upper = candidate;
       StringToUpper(candidate_upper);
-      // Compare the exact name and broker suffix variants together. The exact
-      // name can exist in the directory without being the instrument that
-      // receives this account's quotes, so prefer the freshest usable quote.
-      if(StringFind(candidate_upper, search_upper) != 0)
+      if(SymbolInfoInteger(candidate, SYMBOL_TRADE_MODE) == SYMBOL_TRADE_MODE_DISABLED)
          continue;
-      long trade_mode = SymbolInfoInteger(candidate, SYMBOL_TRADE_MODE);
-      if(trade_mode == SYMBOL_TRADE_MODE_DISABLED)
-         continue;
-      // Enumerate the broker's complete symbol catalog (including hidden
-      // Market Watch entries), as the Symbols dialog does. Pick a stable
-      // broker-name match; quote freshness must not affect symbol selection.
-      int suffix_length = StringLen(candidate) - StringLen(search_for);
-      int exact_rank = suffix_length == 0 ? 1 : 0;
-      if(match == "" || exact_rank < best_exact_rank ||
-         (exact_rank == best_exact_rank && suffix_length < best_suffix_length) ||
-         (exact_rank == best_exact_rank && suffix_length == best_suffix_length && candidate_upper < match_upper))
+      string key = SymbolInfoString(candidate, SYMBOL_CURRENCY_BASE) + SymbolInfoString(candidate, SYMBOL_CURRENCY_PROFIT);
+      StringToUpper(key);
+      bool related = (StringLen(key) >= 6 && StringFind(search_upper, key) == 0);
+      if(!related)
         {
-         best_suffix_length = suffix_length;
-         best_exact_rank = exact_rank;
+         int shorter = MathMin(StringLen(candidate_upper), StringLen(search_upper));
+         related = shorter >= 4 &&
+                   (StringFind(candidate_upper, search_upper) == 0 || StringFind(search_upper, candidate_upper) == 0);
+        }
+      if(!related)
+         continue;
+
+      int common = 0;
+      int limit = MathMin(StringLen(candidate_upper), StringLen(search_upper));
+      while(common < limit && StringGetCharacter(candidate_upper, common) == StringGetCharacter(search_upper, common))
+         common++;
+      int diff = MathAbs(StringLen(candidate_upper) - StringLen(search_upper));
+      bool exact = (candidate_upper == search_upper);
+      bool user_pick = (StringLen(suffix_upper) > 0 && StringLen(candidate_upper) > StringLen(suffix_upper) &&
+                        StringSubstr(candidate_upper, StringLen(candidate_upper) - StringLen(suffix_upper)) == suffix_upper);
+
+      // Order: identical name, the user's SymbolSuffix, longest shared name
+      // start, smallest length difference (XAUUSDc before XAUUSD247c), then name.
+      bool better;
+      if(match == "") better = true;
+      else if(exact != best_exact) better = exact;
+      else if(user_pick != best_user) better = user_pick;
+      else if(common != best_common) better = common > best_common;
+      else if(diff != best_diff) better = diff < best_diff;
+      else better = candidate_upper < match_upper;
+      if(better)
+        {
          match = candidate;
          match_upper = candidate_upper;
+         best_exact = exact;
+         best_user = user_pick;
+         best_common = common;
+         best_diff = diff;
         }
      }
 
@@ -311,7 +395,7 @@ bool ResolveBrokerSymbol(const string requested, const string suffix, const stri
             " broker symbols; shown in Market Watch");
       return true;
      }
-   reason = StringFormat("no follower symbol matches master symbol %s; configure SymbolSuffix or SymbolMapCsv", source);
+   reason = StringFormat("no follower symbol matches master symbol %s; check the account symbol list or configure SymbolMapCsv", source);
    return false;
   }
 
@@ -320,8 +404,32 @@ void EnsureDefaultGoldChart()
    if(g_gold_chart_ready && TimeCurrent() - g_gold_chart_last_check < 10)
       return;
    g_gold_chart_last_check = TimeCurrent();
+
+   // Shared rule with MT5LoginProbe: if the chart already shows any tradable
+   // XAUUSD variant, keep it. Both EAs previously picked a "best" variant with
+   // different rules and kept switching the chart back and forth, and every
+   // switch reloads the EA.
+   string current_symbol = ChartSymbol(0);
+   string current_upper = current_symbol;
+   StringToUpper(current_upper);
+   // Only keep it when it really has data: an XAUUSD chart that is black
+   // (no bars) must be replaced by the variant the account supports.
+   if(StringFind(current_upper, "XAUUSD") == 0 &&
+      SymbolInfoInteger(current_symbol, SYMBOL_TRADE_MODE) != SYMBOL_TRADE_MODE_DISABLED &&
+      SeriesInfoInteger(current_symbol, PERIOD_M1, SERIES_BARS_COUNT) > 0)
+     {
+      if(ChartPeriod(0) == PERIOD_M1)
+        {
+         g_gold_chart_ready = true;
+         return;
+        }
+      ResetLastError();
+      ChartSetSymbolPeriod(0, current_symbol, PERIOD_M1); // change timeframe only
+      return;
+     }
+
    string gold_symbol, reason;
-   if(!ResolveBrokerSymbol("XAUUSD", "", SymbolMapCsv, gold_symbol, reason))
+   if(!ResolveBrokerSymbol("XAUUSD", g_symbol_suffix, SymbolMapCsv, gold_symbol, reason))
      {
       if(TimeCurrent() - g_gold_chart_last_log >= 15)
         {
@@ -431,11 +539,13 @@ bool PostAccountReport(const string payload, string &response_body)
    if(count > 0) ArrayResize(data, count - 1);
    ResetLastError();
    int code = WebRequest("POST", TrimTrailingSlash(ServerURL) + "/api/mt5/follower/report",
-                         headers, 5000, data, result, result_headers);
+                         headers, 10000, data, result, result_headers);
+   int mql_error = GetLastError();
    response_body = CharArrayToString(result, 0, -1, CP_UTF8);
    if(code < 200 || code >= 300)
      {
-      g_account_report_status = StringFormat("report HTTP %d / error %d", code, GetLastError());
+      g_account_report_status = StringFormat("report HTTP %d / error %d", code, mql_error);
+      LogWebRequestError("POST report", TrimTrailingSlash(ServerURL) + "/api/mt5/follower/report", code, mql_error, response_body);
       return false;
      }
    long server_cursor = StringToInteger(JsonStringValue(response_body, "history_cursor"));
@@ -708,10 +818,10 @@ void PollNetting(string &objects[], const double copy_after)
       if(IsVirtualStop(source_ticket)) continue;
       if(ReverseDirection) action = action == "BUY" ? "SELL" : "BUY";
       string symbol, reason;
-      if(!ResolveBrokerSymbol(source_symbol, SymbolSuffix, SymbolMapCsv, symbol, reason)) continue;
+      if(!ResolveBrokerSymbol(source_symbol, g_symbol_suffix, SymbolMapCsv, symbol, reason)) continue;
       string copied_key = CopiedSourceKey(source_ticket);
       if(opened_at > 0.0 && opened_at <= copy_after && !GlobalVariableCheck(copied_key)) continue;
-      if(opened_at > 0.0 && !GlobalVariableCheck(copied_key) && TimeGMT() - opened_at > MaxSignalAgeSeconds) continue;
+      if(MaxSignalAgeSeconds > 0.0 && opened_at > 0.0 && !GlobalVariableCheck(copied_key) && TimeGMT() - opened_at > MaxSignalAgeSeconds) continue;
       if(!SymbolSelect(symbol, true)) continue;
       MqlTick tick;
       if(!SymbolInfoTick(symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0) continue;
@@ -880,7 +990,7 @@ void PollNetting(string &objects[], const double copy_after)
            {
             string object_symbol = JsonStringValue(objects[j], "symbol");
             string resolved_symbol, resolve_reason;
-            if(!ResolveBrokerSymbol(object_symbol, SymbolSuffix, SymbolMapCsv, resolved_symbol, resolve_reason) || resolved_symbol != symbol)
+            if(!ResolveBrokerSymbol(object_symbol, g_symbol_suffix, SymbolMapCsv, resolved_symbol, resolve_reason) || resolved_symbol != symbol)
                continue;
             double opened_at = JsonNumberValue(objects[j], "opened_at");
             string source_ticket = JsonStringValue(objects[j], "ticket");
@@ -1098,8 +1208,8 @@ void PollAndCopy()
       ArrayResize(g_dry_volumes,0);
      }
 
-   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED) ||
-      !AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT))
+   if(!DryRun && (!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED) ||
+      !AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) || !AccountInfoInteger(ACCOUNT_TRADE_EXPERT)))
      {
       g_connection_status = "connected / trading not allowed by terminal";
       return;
@@ -1127,7 +1237,7 @@ void PollAndCopy()
       if(source_ticket == "" || source_symbol == "" || (action != "BUY" && action != "SELL") || lots <= 0.0)
          continue;
       if(ReverseDirection) action = action == "BUY" ? "SELL" : "BUY";
-      if(!ResolveBrokerSymbol(source_symbol, SymbolSuffix, SymbolMapCsv, symbol, symbol_error))
+      if(!ResolveBrokerSymbol(source_symbol, g_symbol_suffix, SymbolMapCsv, symbol, symbol_error))
         {
          if(TimeCurrent() - g_last_log >= 15)
            {
@@ -1143,7 +1253,7 @@ void PollAndCopy()
       double opened_at = JsonNumberValue(object, "opened_at");
       if(!already_copied && ManagedMode && copy_after > 0.0 && opened_at > 0.0 && opened_at <= copy_after)
          continue;
-      if(!already_copied && ManagedMode && opened_at > 0.0 && TimeGMT() - opened_at > MaxSignalAgeSeconds)
+      if(!already_copied && ManagedMode && MaxSignalAgeSeconds > 0.0 && opened_at > 0.0 && TimeGMT() - opened_at > MaxSignalAgeSeconds)
          continue;
       MqlTick quote;
       if(!SymbolInfoTick(symbol, quote) || quote.ask <= 0.0 || quote.bid <= 0.0)
@@ -1175,7 +1285,23 @@ void PollAndCopy()
 
 int OnInit()
   {
-   if(PollIntervalMs < 20 || StringLen(AccountToken) < 32 || VolumeMultiplier <= 0.0 ||
+   // Validate required configuration
+   if(StringLen(ServerURL) == 0)
+     {
+      Print("[MT5FollowerCopyEA] Error: ServerURL is not configured. Please set ServerURL input parameter or ensure the bot configures it automatically.");
+      return INIT_PARAMETERS_INCORRECT;
+     }
+   if(StringLen(AccountToken) == 0)
+     {
+      Print("[MT5FollowerCopyEA] Error: AccountToken is not configured. Please set AccountToken input parameter or ensure the bot configures it automatically.");
+      return INIT_PARAMETERS_INCORRECT;
+     }
+   if(StringLen(AccountToken) < 32)
+     {
+      Print("[MT5FollowerCopyEA] Error: AccountToken appears too short (length: ", StringLen(AccountToken), "). Expected a 32+ character token.");
+      return INIT_PARAMETERS_INCORRECT;
+     }
+   if(PollIntervalMs < 20 || VolumeMultiplier <= 0.0 ||
       MaxEntryDeviationPercent < 0.0 || MaxSignalAgeSeconds < 0.0)
       return INIT_PARAMETERS_INCORRECT;
    if(ManagedMode && (MaxOpenPositions <= 0 || MaxLotTotal <= 0.0 || MaxLotPerOrder <= 0.0 ||
@@ -1183,11 +1309,15 @@ int OnInit()
       (LotMode == "tetap" && FixedLot <= 0.0) || (LotMode == "rasio" && RatioLot <= 0.0) ||
       (LotMode == "saldo" && MasterBalance <= 0.0)))
       return INIT_PARAMETERS_INCORRECT;
+   // Symbols are matched against the account's own catalog; SymbolSuffix is
+   // only an optional tie-breaker (inputs are read-only, so copy it).
+   g_symbol_suffix = SymbolSuffix;
    EnsureDefaultGoldChart();
    EventSetMillisecondTimer(PollIntervalMs);
    ReportAccountState();
    PollAndCopy();
-   Print("[MT5FollowerCopyEA] initialized; DryRun=", DryRun, ". Allow ServerURL in MT5 WebRequest options.");
+   Print("[MT5FollowerCopyEA] initialized; DryRun=", DryRun, ". ServerURL=", ServerURL, ", AccountToken length=", StringLen(AccountToken));
+   Print("[MT5FollowerCopyEA] Note: AccountToken is EA-specific (separate from web session tokens) and can be rotated/updated by the bot. Token changes require EA restart to take effect.");
    return INIT_SUCCEEDED;
   }
 

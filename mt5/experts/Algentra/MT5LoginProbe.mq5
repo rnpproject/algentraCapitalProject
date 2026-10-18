@@ -80,6 +80,7 @@ bool ResolveGoldSymbol(string &resolved)
    string best = "";
    string best_upper = "";
    long best_quote_time = 0;
+   int best_history = 0; // 1 when the broker actually serves M1 bars for this symbol
    int best_exact_rank = 1;
    int best_suffix_length = 2147483647;
    int symbols_total = SymbolsTotal(false);
@@ -106,13 +107,20 @@ bool ResolveGoldSymbol(string &resolved)
          quote_time = 0;
       int suffix_length = StringLen(candidate) - 6;
       int exact_rank = suffix_length == 0 ? 1 : 0;
-      if(best == "" || quote_time > best_quote_time ||
-         (quote_time == best_quote_time && exact_rank < best_exact_rank) ||
-         (quote_time == best_quote_time && exact_rank == best_exact_rank && suffix_length < best_suffix_length) ||
-         (quote_time == best_quote_time && exact_rank == best_exact_rank && suffix_length == best_suffix_length && upper < best_upper))
+      // A symbol can exist in the broker catalog (e.g. bare XAUUSD) without the
+      // account receiving any data for it, which gives a black chart. Symbols
+      // that actually have bars always outrank those that do not.
+      int history = SeriesInfoInteger(candidate, PERIOD_M1, SERIES_BARS_COUNT) > 0 ? 1 : 0;
+      bool same_data = (history == best_history && quote_time == best_quote_time);
+      if(best == "" || history > best_history ||
+         (history == best_history && quote_time > best_quote_time) ||
+         (same_data && exact_rank < best_exact_rank) ||
+         (same_data && exact_rank == best_exact_rank && suffix_length < best_suffix_length) ||
+         (same_data && exact_rank == best_exact_rank && suffix_length == best_suffix_length && upper < best_upper))
         {
          best = candidate;
          best_upper = upper;
+         best_history = history;
          best_quote_time = quote_time;
          best_exact_rank = exact_rank;
          best_suffix_length = suffix_length;
@@ -129,6 +137,29 @@ void EnsureDefaultGoldChart()
    if(g_gold_chart_ready && TimeCurrent() - g_gold_chart_last_check < 10)
       return;
    g_gold_chart_last_check = TimeCurrent();
+
+   // Shared rule with MT5FollowerCopyEA: if the chart already shows any tradable
+   // XAUUSD variant, keep it, so the two EAs never switch the chart back and
+   // forth between XAUUSD and XAUUSDc/m. Each switch also reloads the EA.
+   string current_symbol = _Symbol;
+   string current_upper = current_symbol;
+   StringToUpper(current_upper);
+   // Only keep it when it really has data: an XAUUSD chart that is black
+   // (no bars) must be replaced by the variant the account supports.
+   if(StringFind(current_upper, "XAUUSD") == 0 &&
+      SymbolInfoInteger(current_symbol, SYMBOL_TRADE_MODE) != SYMBOL_TRADE_MODE_DISABLED &&
+      SeriesInfoInteger(current_symbol, PERIOD_M1, SERIES_BARS_COUNT) > 0)
+     {
+      if(_Period == PERIOD_M1)
+        {
+         g_gold_chart_ready = true;
+         return;
+        }
+      ResetLastError();
+      ChartSetSymbolPeriod(0, current_symbol, PERIOD_M1); // change timeframe only
+      return;
+     }
+
    string gold_symbol;
    if(!ResolveGoldSymbol(gold_symbol))
      {
