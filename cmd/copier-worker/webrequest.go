@@ -30,7 +30,7 @@ func (w *worker) applyManagedWebRequest(c *child, url string) error {
 	// provisioning the terminal template or common.ini alone is not sufficient.
 	// Apply after startup and serialize desktop input across this worker's MT5s.
 	select {
-	case <-time.After(25 * time.Second):
+	case <-time.After(time.Second):
 	case <-c.stopped:
 		return fmt.Errorf("terminal follower berhenti sebelum pengaturan WebRequest")
 	}
@@ -49,14 +49,14 @@ func (w *worker) applyManagedWebRequest(c *child, url string) error {
 	}
 	logPath := filepath.Join(w.cfg.runtimeDir, "logs", fmt.Sprintf("webrequest_%d.log", c.accountID))
 	var lastErr error
-	for attempt := 1; attempt <= 5; attempt++ {
+	for attempt := 1; attempt <= 3; attempt++ {
 		select {
 		case <-c.stopped:
 			return fmt.Errorf("terminal follower sudah berhenti")
 		default:
 		}
 		_ = os.Remove(logPath)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 23*time.Second)
 		cmd := exec.CommandContext(ctx, interpreter, script, fmt.Sprint(c.cmd.Process.Pid), url, logPath)
 		cmd.Dir = filepath.Dir(c.cmd.Path)
 		cmd.Env = w.cleanEnvironment(false)
@@ -76,9 +76,9 @@ func (w *worker) applyManagedWebRequest(c *child, url string) error {
 			// Do not send another Ctrl+O into that modal dialog on the next retry.
 			return lastErr
 		}
-		if attempt < 5 {
+		if attempt < 3 {
 			select {
-			case <-time.After(20 * time.Second):
+			case <-time.After(2 * time.Second):
 			case <-c.stopped:
 				return fmt.Errorf("terminal follower berhenti sebelum pengaturan WebRequest")
 			}

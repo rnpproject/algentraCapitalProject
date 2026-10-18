@@ -12,14 +12,18 @@ Func LogLine($text)
    If $gLog <> -1 Then FileWrite($gLog, $text & @CRLF)
 EndFunc
 
-Func FindMainWindow($pid)
-   Local $windows = WinList()
-   For $i = 1 To $windows[0][0]
-      Local $handle = $windows[$i][1]
-      If $windows[$i][0] = "" Then ContinueLoop
-      If BitAND(WinGetState($handle), 2) = 0 Then ContinueLoop
-      If WinGetProcess($handle) = $pid Then Return $handle
-   Next
+Func FindMainWindow($pid, $timeoutMs)
+   Local $timer = TimerInit()
+   While TimerDiff($timer) < $timeoutMs
+      Local $windows = WinList()
+      For $i = 1 To $windows[0][0]
+         Local $handle = $windows[$i][1]
+         If $windows[$i][0] = "" Then ContinueLoop
+         If BitAND(WinGetState($handle), 2) = 0 Then ContinueLoop
+         If WinGetProcess($handle) = $pid Then Return $handle
+      Next
+      Sleep(200)
+   WEnd
    Return 0
 EndFunc
 
@@ -90,6 +94,18 @@ Func ClickControlOnScreen($handle, $control)
    Return True
 EndFunc
 
+Func InvokeButton($handle, $control)
+   ; Deliver the native BM_CLICK message directly to the MT5 button. This
+   ; activates the button without depending on simulated mouse coordinates.
+   Local $buttonHandle = ControlGetHandle($handle, "", $control)
+   If @error Or $buttonHandle = 0 Then Return False
+   WinActivate($handle)
+   If WinWaitActive($handle, "", 3) = 0 Then Return False
+   Local $sent = DllCall("user32.dll", "long", "SendMessageW", "hwnd", $buttonHandle, "uint", 0x00F5, "wparam", 0, "lparam", 0)
+   If @error Or Not IsArray($sent) Then Return False
+   Return True
+EndFunc
+
 Func FindConfirmButton($handle)
    ; Match the complete caption. A substring search for "ok" can match
    ; unrelated captions such as "Broker" and click a different control.
@@ -124,7 +140,7 @@ $gLog = FileOpen($logPath, 2)
 If $gLog = -1 Then Exit 11
 LogLine("begin pid=" & $pid & " url=" & $url)
 
-Local $main = FindMainWindow($pid)
+Local $main = FindMainWindow($pid, 8000)
 If $main = 0 Then
    LogLine("RESULT=FAIL reason=terminal_window_not_found")
    FileClose($gLog)
@@ -132,20 +148,20 @@ If $main = 0 Then
 EndIf
 $gMainWindow = $main
 WinActivate($main)
-If WinWaitActive($main, "", 5) = 0 Then
+If WinWaitActive($main, "", 2) = 0 Then
    LogLine("RESULT=FAIL reason=terminal_window_not_active")
    FileClose($gLog)
    Exit 3
 EndIf
 Send("^o")
-Local $options = FindOptionsWindow($pid, 10000)
+Local $options = FindOptionsWindow($pid, 6000)
 If $options = 0 Then
    LogLine("RESULT=FAIL reason=options_dialog_not_found")
    FileClose($gLog)
    Exit 4
 EndIf
 WinActivate($options)
-If WinWaitActive($options, "", 5) = 0 Then
+If WinWaitActive($options, "", 2) = 0 Then
    LogLine("RESULT=FAIL reason=options_dialog_not_active")
    FileClose($gLog)
    Exit 4
@@ -216,12 +232,14 @@ EndIf
 Local $confirm = FindConfirmButton($options)
 If $confirm <> "" Then
    LogLine("clicking confirm control=" & $confirm & " caption=" & ControlGetText($options, "", $confirm))
-   If Not ClickControlOnScreen($options, $confirm) Then
-      LogLine("physical confirm click failed; trying control click")
-      ControlClick($options, "", $confirm, "left", 1)
+   If InvokeButton($options, $confirm) Then
+      LogLine("confirm invoked with native BM_CLICK")
+   Else
+      LogLine("native confirm message failed; trying physical click")
+      ClickControlOnScreen($options, $confirm)
    EndIf
    If Not WaitOptionsClosed($options, 1200) Then
-      ; Some terminal builds consume the first click as activation only.
+      ; Some terminal builds require real input after the native button message.
       ClickControlOnScreen($options, $confirm)
    EndIf
    If Not WaitOptionsClosed($options, 1200) Then
