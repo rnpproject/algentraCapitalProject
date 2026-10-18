@@ -247,8 +247,12 @@ func newWorker(cfg config) (*worker, error) {
 	if err != nil {
 		return nil, err
 	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = 256
+	transport.MaxIdleConnsPerHost = 128
+	transport.MaxConnsPerHost = 128
 	return &worker{
-		cfg: cfg, client: &http.Client{Timeout: 20 * time.Second}, children: map[int64]*child{},
+		cfg: cfg, client: &http.Client{Timeout: 20 * time.Second, Transport: transport}, children: map[int64]*child{},
 		retryAt: map[int64]time.Time{}, failures: map[int64]int{}, stop: make(chan struct{}), checking: map[int64]bool{},
 		masterBinary: filepath.Join(cfg.projectRoot, "algentra-copier-master.exe"),
 		feed:         feed,
@@ -430,7 +434,8 @@ func (w *worker) startJob(j job, now time.Time) error {
 		c.done <- cmd.Wait()
 		close(c.stopped)
 	}()
-	go w.configureManagedWebRequest(c, w.cfg.FeedAddress)
+	go w.serveManagedFileBridge(c)
+	go w.watchReport(c)
 	_ = w.report(j.AccountID, "STARTING", "")
 	log.Printf("follower managed akun %d (mt5_ea) dimulai pid=%d", j.AccountID, cmd.Process.Pid)
 	go w.removeStartupConfigAfterLaunch(c)
@@ -600,7 +605,6 @@ func (w *worker) syncOnce() error {
 		if heartbeatAge <= time.Duration(w.cfg.HeartbeatTimeoutSecond)*time.Second {
 			w.failures[id] = 0
 			_ = w.report(id, "RUNNING", "")
-			w.syncReport(id)
 		} else if time.Since(current.startedAt) < time.Duration(w.cfg.HeartbeatTimeoutSecond)*time.Second {
 			_ = w.report(id, "STARTING", "")
 		} else {
@@ -656,26 +660,55 @@ func (w *worker) bridgeTelegramMasterSnapshot() error {
 	return nil
 }
 
-func (w *worker) syncReport(id int64) {
+func (w *worker) watchReport(c *child) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	reportPath := filepath.Join(w.cfg.runtimeDir, "reports", fmt.Sprintf("%d.json", c.accountID))
+	lastUploaded := ""
+	retryAt := time.Time{}
+	for {
+		select {
+		case <-c.stopped:
+			return
+		case <-ticker.C:
+			info, err := os.Stat(reportPath)
+			if err != nil || time.Since(info.ModTime()) > time.Duration(w.cfg.HeartbeatTimeoutSecond)*time.Second {
+				continue
+			}
+			version := fmt.Sprintf("%d:%d", info.ModTime().UnixNano(), info.Size())
+			if version == lastUploaded || time.Now().Before(retryAt) {
+				continue
+			}
+			if w.syncReport(c.accountID) {
+				lastUploaded = version
+				retryAt = time.Time{}
+			} else {
+				retryAt = time.Now().Add(time.Second)
+			}
+		}
+	}
+}
+
+func (w *worker) syncReport(id int64) bool {
 	path := filepath.Join(w.cfg.runtimeDir, "reports", fmt.Sprintf("%d.json", id))
 	info, err := os.Stat(path)
 	if err != nil || time.Since(info.ModTime()) > time.Duration(w.cfg.HeartbeatTimeoutSecond)*time.Second {
-		return
+		return false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return false
 	}
 	var report map[string]any
 	if json.Unmarshal(data, &report) != nil {
-		return
+		return false
 	}
 	scan, _ := report["history_scan_msc"]
 	delete(report, "history_scan_msc")
 	var response map[string]any
 	if err := w.request(fmt.Sprintf("/api/mt5/copier/jobs/%d/report", id), report, &response); err != nil {
 		log.Printf("laporan akun %d tidak tersinkron: %v", id, err)
-		return
+		return false
 	}
 	cursor := map[string]any{"history_cursor": response["history_cursor"], "history_cursor_msc": response["history_cursor_msc"], "scan_msc": scan}
 	data, _ = json.Marshal(cursor)
@@ -683,6 +716,7 @@ func (w *worker) syncReport(id int64) {
 	if writeAtomic(path, data) != nil {
 		log.Printf("cursor histori akun %d tidak dapat disimpan", id)
 	}
+	return true
 }
 
 func (w *worker) report(id int64, status, message string) error {

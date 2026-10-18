@@ -32,6 +32,9 @@ type Feed struct {
 	mu              sync.RWMutex
 	accounts        map[string]followerAccount
 	heartbeatPaths  map[int64]string
+	snapshotMu      sync.Mutex
+	snapshotAt      time.Time
+	snapshot        []Position
 	healthMu        sync.Mutex
 	healthAt        time.Time
 	healthActive    bool
@@ -110,7 +113,7 @@ func (f *Feed) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		positions, err := f.Store.Sync(time.Now())
+		positions, err := f.positionsSnapshot(time.Now())
 		if err != nil {
 			http.Error(w, "signal snapshot unavailable", http.StatusServiceUnavailable)
 			return
@@ -131,6 +134,24 @@ func (f *Feed) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", allowedMethod(r.URL.Path))
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// positionsSnapshot coalesces synchronized follower requests. With many
+// managed terminals polling together, they can share one signal-log scan and
+// state-file write while accepting at most 50 ms of extra signal visibility.
+func (f *Feed) positionsSnapshot(now time.Time) ([]Position, error) {
+	f.snapshotMu.Lock()
+	defer f.snapshotMu.Unlock()
+	if !f.snapshotAt.IsZero() && now.Sub(f.snapshotAt) >= 0 && now.Sub(f.snapshotAt) < 50*time.Millisecond {
+		return append([]Position(nil), f.snapshot...), nil
+	}
+	positions, err := f.Store.Sync(now)
+	if err != nil {
+		return nil, err
+	}
+	f.snapshot = append(f.snapshot[:0], positions...)
+	f.snapshotAt = now
+	return append([]Position(nil), f.snapshot...), nil
 }
 
 func (f *Feed) masterActive() bool {

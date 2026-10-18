@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const ExpectedSchemaRevision = "0003_midtrans_qris"
+const ExpectedSchemaRevision = "0004_account_daily_profit"
 
 func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	parsedURL, err := url.Parse(databaseURL)

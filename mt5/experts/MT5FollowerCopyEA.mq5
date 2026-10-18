@@ -16,6 +16,8 @@ input int MaxSlippagePoints = 20;
 input string SymbolSuffix = "";
 input string SymbolMapCsv = ""; // Optional source-to-broker mapping, e.g. XAUUSDc=GOLD
 input bool ManagedMode = false;
+input bool ManagedFileBridge = false; // Managed accounts use FILE_COMMON and do not need WebRequest allow-list
+input string BridgeChannel = ""; // Worker-assigned account channel for the local file bridge
 input bool DryRun = false; // Validate and report targets without sending, modifying, or closing orders
 input string LotMode = "rasio"; // tetap, rasio, saldo
 input double FixedLot = 0.01;
@@ -41,6 +43,7 @@ bool g_gold_chart_ready = false;
 datetime g_gold_chart_last_log = 0;
 datetime g_gold_chart_last_check = 0;
 string g_symbol_suffix = ""; // input SymbolSuffix is read-only in MQL5, so the effective suffix lives here
+ulong g_bridge_sequence = 0;
 
 string TrimTrailingSlash(string value)
   {
@@ -219,6 +222,87 @@ bool JsonObjects(const string json, string &objects[])
    return false;
   }
 
+int ManagedBridgeRequest(const string method, const string path, const string body, string &response_body)
+  {
+   response_body = "";
+   if(StringLen(BridgeChannel) < 1 || StringLen(BridgeChannel) > 32)
+     {
+      Print("[MT5FollowerCopyEA] managed file bridge channel is missing or invalid");
+      return -1;
+     }
+   for(int i = 0; i < StringLen(BridgeChannel); i++)
+     {
+      ushort c = StringGetCharacter(BridgeChannel, i);
+      if((c < '0' || c > '9') && c != '-' && c != '_') return -1;
+     }
+   ulong request_id = GetTickCount64() * 1000 + (++g_bridge_sequence % 1000);
+   string base = "algentra-managed-" + BridgeChannel;
+   string request_name = base + ".req";
+   string temp_name = base + "." + (string)request_id + ".tmp";
+   string response_name = base + ".res";
+   FileDelete(response_name, FILE_COMMON);
+   string login = IntegerToString((long)AccountInfoInteger(ACCOUNT_LOGIN));
+   string server = AccountInfoString(ACCOUNT_SERVER);
+   string request_json = StringFormat("{\"id\":%I64u,\"method\":\"%s\",\"path\":\"%s\",\"token\":\"%s\",\"login\":\"%s\",\"server\":\"%s\",\"body\":\"%s\"}",
+                                      request_id, method, path, JsonEscape(AccountToken), JsonEscape(login), JsonEscape(server), JsonEscape(body));
+   char request_bytes[];
+   int byte_count = StringToCharArray(request_json, request_bytes, 0, WHOLE_ARRAY, CP_UTF8);
+   if(byte_count <= 1) return -1;
+   ArrayResize(request_bytes, byte_count - 1);
+   int handle = FileOpen(temp_name, FILE_WRITE|FILE_BIN|FILE_COMMON);
+   if(handle == INVALID_HANDLE) return -1;
+   uint written = FileWriteArray(handle, request_bytes, 0, ArraySize(request_bytes));
+   FileFlush(handle);
+   FileClose(handle);
+   if(written != (uint)ArraySize(request_bytes))
+     {
+      FileDelete(temp_name, FILE_COMMON);
+      return -1;
+     }
+   if(!FileMove(temp_name, FILE_COMMON, request_name, FILE_COMMON|FILE_REWRITE))
+     {
+      FileDelete(temp_name, FILE_COMMON);
+      return -1;
+     }
+   ulong started = GetTickCount64();
+   while(GetTickCount64() - started < 10000)
+     {
+      if(FileIsExist(response_name, FILE_COMMON))
+        {
+         handle = FileOpen(response_name, FILE_READ|FILE_BIN|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE);
+         if(handle != INVALID_HANDLE)
+           {
+            int size = (int)FileSize(handle);
+            char response_bytes[];
+            ArrayResize(response_bytes, size);
+            int read_count = size > 0 ? (int)FileReadArray(handle, response_bytes, 0, size) : 0;
+            FileClose(handle);
+            if(read_count > 0)
+              {
+               int newline = -1;
+               for(int i = 0; i < read_count; i++)
+                  if((uchar)response_bytes[i] == 10) { newline = i; break; }
+               if(newline > 0)
+                 {
+                  string header = CharArrayToString(response_bytes, 0, newline, CP_UTF8);
+                  int split = StringFind(header, " ");
+                  if(split > 0 && (ulong)StringToInteger(StringSubstr(header, 0, split)) == request_id)
+                    {
+                     int status = (int)StringToInteger(StringSubstr(header, split + 1));
+                     response_body = CharArrayToString(response_bytes, newline + 1, read_count - newline - 1, CP_UTF8);
+                     FileDelete(response_name, FILE_COMMON);
+                     return status;
+                    }
+                 }
+              }
+           }
+        }
+      Sleep(25);
+     }
+   PrintFormat("[MT5FollowerCopyEA] local bridge timeout for %s %s", method, path);
+   return -1;
+  }
+
 bool HttpGet(string &response_body)
   {
    if(StringLen(AccountToken) < 32)
@@ -230,6 +314,22 @@ bool HttpGet(string &response_body)
    string terminal_server = AccountInfoString(ACCOUNT_SERVER);
    string headers = "X-Account-Token: " + AccountToken + "\r\n" +
                     "X-MT5-Login: " + terminal_login + "\r\nX-MT5-Server: " + terminal_server + "\r\n";
+   if(ManagedFileBridge)
+     {
+      int bridge_code = ManagedBridgeRequest("GET", "/api/mt5/follower/positions", "", response_body);
+      if(bridge_code < 200 || bridge_code >= 300)
+        {
+         g_connection_status = bridge_code < 0 ? "local bridge unavailable" : StringFormat("HTTP %d", bridge_code);
+         PrintFormat("[MT5FollowerCopyEA] local bridge GET positions failed: HTTP=%d, response='%s'", bridge_code, response_body);
+         return false;
+        }
+      long bridge_cursor = StringToInteger(JsonStringValue(response_body, "history_cursor"));
+      if(bridge_cursor > g_history_cursor) g_history_cursor = bridge_cursor;
+      long bridge_cursor_msc = (long)JsonNumberValue(response_body, "history_cursor_msc");
+      if(bridge_cursor_msc > g_history_cursor_msc) g_history_cursor_msc = bridge_cursor_msc;
+      g_connection_status = "online";
+      return true;
+     }
    char data[];
    char result[];
    string result_headers;
@@ -579,6 +679,22 @@ bool PostAccountReport(const string payload, string &response_body)
    string terminal_server = AccountInfoString(ACCOUNT_SERVER);
    string headers = "Content-Type: application/json\r\nX-Account-Token: " + AccountToken + "\r\n" +
                     "X-MT5-Login: " + terminal_login + "\r\nX-MT5-Server: " + terminal_server + "\r\n";
+   if(ManagedFileBridge)
+     {
+      int bridge_code = ManagedBridgeRequest("POST", "/api/mt5/follower/report", payload, response_body);
+      if(bridge_code < 200 || bridge_code >= 300)
+        {
+         g_account_report_status = bridge_code < 0 ? "local bridge unavailable" : StringFormat("report HTTP %d", bridge_code);
+         PrintFormat("[MT5FollowerCopyEA] local bridge POST report failed: HTTP=%d, response='%s'", bridge_code, response_body);
+         return false;
+        }
+      long bridge_cursor = StringToInteger(JsonStringValue(response_body, "history_cursor"));
+      if(bridge_cursor > g_history_cursor) g_history_cursor = bridge_cursor;
+      long bridge_cursor_msc = (long)JsonNumberValue(response_body, "history_cursor_msc");
+      if(bridge_cursor_msc > g_history_cursor_msc) g_history_cursor_msc = bridge_cursor_msc;
+      g_account_report_status = "saldo dan histori tersinkron";
+      return true;
+     }
    char data[];
    char result[];
    string result_headers;
@@ -611,7 +727,7 @@ void ReportAccountState()
    // frozen while the market is closed, which would suppress report retries
    // after fixing a WebRequest permission. Use the local monotonic tick clock.
    ulong now_ms = GetTickCount64();
-   if(g_last_report_attempt_ms > 0 && now_ms - g_last_report_attempt_ms < 5000) return;
+   if(g_last_report_attempt_ms > 0 && now_ms - g_last_report_attempt_ms < 250) return;
    g_last_report_attempt_ms = now_ms;
    if(!TerminalInfoInteger(TERMINAL_CONNECTED) || AccountInfoInteger(ACCOUNT_LOGIN) <= 0) return;
 

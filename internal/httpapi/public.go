@@ -163,6 +163,16 @@ func publicPerformance(pool *pgxpool.Pool, state *snapshot.Store) http.HandlerFu
 			"market_quotes_reported_at": optionalTime(masterSnapshot.MarketObservedAt),
 			"registered_clients":        registered,
 		}
+		masterCurrency := ""
+		if account != nil {
+			masterCurrency = account.Currency
+		}
+		dailyProfit, err := loadMasterDailyProfit(ctx, pool, now, masterCurrency)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "Profit harian akun master tidak tersedia")
+			return
+		}
+		payload["daily_profit"] = dailyProfit
 		if includeCurve {
 			candles, accountKey, err := loadEquityCandles(ctx, pool, now)
 			if err != nil {
@@ -186,6 +196,36 @@ func publicPerformance(pool *pgxpool.Pool, state *snapshot.Store) http.HandlerFu
 		}
 		writeJSON(w, http.StatusOK, payload)
 	}
+}
+
+func loadMasterDailyProfit(ctx context.Context, pool *pgxpool.Pool, now time.Time, currency string) ([]map[string]any, error) {
+	zone := time.FixedZone("WIB", 7*60*60)
+	local := now.In(zone)
+	first := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, zone).AddDate(0, 0, -6)
+	rows, err := pool.Query(ctx, `SELECT trade_date,profit FROM mt5_master_daily_profit WHERE trade_date >= $1 ORDER BY trade_date`, first.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := map[string]float64{}
+	for rows.Next() {
+		var day time.Time
+		var profit float64
+		if err := rows.Scan(&day, &profit); err != nil {
+			return nil, err
+		}
+		values[day.Format("2006-01-02")] = profit
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, 7)
+	for i := 0; i < 7; i++ {
+		day := first.AddDate(0, 0, i)
+		key := day.Format("2006-01-02")
+		out = append(out, map[string]any{"date": key, "profit": roundMoney(values[key]), "currency": currency, "timezone": "WIB"})
+	}
+	return out, nil
 }
 
 func loadEquityCandles(ctx context.Context, pool *pgxpool.Pool, now time.Time) ([]equityCandle, any, error) {

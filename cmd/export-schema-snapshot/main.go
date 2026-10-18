@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const schemaHead = "0003_midtrans_qris"
+const schemaHead = "0004_account_daily_profit"
 
 type dbConfig struct{ projectRef, runtimeURL, migrationURL string }
 

@@ -23,6 +23,7 @@ var revisions = []migration{
 	{"0001_initial_postgres_schema", "internal/database/migrations/0001_initial_postgres_schema.sql"},
 	{"0002_rls_and_token_redaction", "internal/database/migrations/0002_rls_and_token_redaction.sql"},
 	{"0003_midtrans_qris", "internal/database/migrations/0003_midtrans_qris.sql"},
+	{"0004_account_daily_profit", "internal/database/migrations/0004_account_daily_profit.sql"},
 }
 
 func main() {

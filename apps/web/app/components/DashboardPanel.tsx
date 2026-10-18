@@ -70,6 +70,7 @@ type Trade = {
   profit?: number | null;
   result?: string | null;
 };
+type MasterDailyProfit = { date: string; profit: number; currency?: string | null };
 
 const EMPTY = "—";
 const TRADE_PAGE_SIZE = 10;
@@ -120,6 +121,7 @@ export function DashboardPanel() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [live, setLive] = useState<Mt5Live | null>(null);
+  const [masterDailyProfit, setMasterDailyProfit] = useState<MasterDailyProfit[]>([]);
   const [mt5Error, setMt5Error] = useState("");
   const [signals, setSignals] = useState<Signal[]>([]);
   const [groups, setGroups] = useState<GroupStat[]>([]);
@@ -171,6 +173,11 @@ export function DashboardPanel() {
     const fresh = await apiRequest<Mt5Live>("dashboard/mt5-live");
     setLive(fresh);
     setMt5Error("");
+  }
+
+  async function loadMasterDailyProfit() {
+    const report = await apiRequest<{ daily_profit?: MasterDailyProfit[] }>("public/performance?include_equity_curve=false");
+    setMasterDailyProfit(report.daily_profit ?? []);
   }
 
   async function loadGroups() {
@@ -226,6 +233,7 @@ export function DashboardPanel() {
     await Promise.all([
       loadStatsAndSignals(),
       loadMt5Live(),
+      loadMasterDailyProfit(),
       loadGroups(),
       loadLogs(),
       loadTrades(tradePageRef.current),
@@ -287,7 +295,7 @@ export function DashboardPanel() {
     // Refresh data tabel secara berkala; statistik dan sinyal menerima event SSE.
     const detailTimer = setInterval(() => {
       if (document.hidden || cancelled) return;
-      void Promise.all([loadMt5Live(), loadGroups(), loadLogs(), loadTrades(tradePageRef.current), loadProfitChart()]).catch(() => {});
+      void Promise.all([loadMt5Live(), loadMasterDailyProfit(), loadGroups(), loadLogs(), loadTrades(tradePageRef.current), loadProfitChart()]).catch(() => {});
     }, 15000);
     // MT5 live: polling tiap 2 detik.
     const mt5Timer = setInterval(() => {
@@ -777,6 +785,13 @@ export function DashboardPanel() {
               </div>
             </div>
           </div>
+          <section className="master-daily-profit">
+            <h3>Profit harian akun master · WIB</h3>
+            <div className="cards daily-profit-cards">
+              {masterDailyProfit.map((day) => <article className="card" key={day.date}><span className="eyebrow">{new Date(`${day.date}T00:00:00+07:00`).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", weekday: "short", day: "2-digit", month: "short" })}</span><b className={toneClass(day.profit >= 0 ? "pos" : "neg")}>{formatMoney(day.profit, day.currency ?? account?.currency)}</b></article>)}
+              {!masterDailyProfit.length && <p className="muted">Belum ada profit tersimpan untuk tujuh hari terakhir.</p>}
+            </div>
+          </section>
           <div className="grid">
             <section>
               <h3>Posisi terminal</h3>

@@ -8,6 +8,7 @@ type Performance = {
   master_account?: { available?: boolean; online?: boolean; balance?: number | null; equity?: number | null; currency?: string | null; trade_mode?: string | null };
   registered_clients?: number;
   equity_curve?: Array<{ hour: string | null; equity: number; currency: string }>;
+  daily_profit?: Array<{ date: string; profit: number; currency?: string | null; timezone: string }>;
 };
 
 export function PerformancePanel() {
@@ -24,5 +25,7 @@ export function PerformancePanel() {
         </div>
       : report && <p className="muted">Belum ada laporan akun utama.</p>}
     {report?.equity_curve?.length ? <p className="muted">{formatInteger(report.equity_curve.length)} titik equity · {formatInteger(report.registered_clients ?? 0)} klien terdaftar</p> : null}
+    <h3>Profit harian akun master · WIB</h3>
+    {report?.daily_profit?.length ? <div className="cards daily-profit-cards">{report.daily_profit.map((day) => <article className="card" key={day.date}><span className="eyebrow">{new Date(`${day.date}T00:00:00+07:00`).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", weekday: "short", day: "2-digit", month: "short" })}</span><h2 className={day.profit >= 0 ? "tone-pos" : "tone-neg"}>{formatMoney(day.profit, day.currency)}</h2></article>)}</div> : <p className="muted">Belum ada hasil trade tersimpan untuk tujuh hari terakhir.</p>}
   </section>;
 }

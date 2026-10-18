@@ -210,6 +210,12 @@ export function SiteFrame({ children }: { children: React.ReactNode }) {
             desc="Overview & activity"
           />
           <NavLink
+            href="/admin/copy-accounts"
+            active={pathname === "/admin/copy-accounts"}
+            title="Akun copy trading"
+            desc="Saldo & riwayat akun"
+          />
+          <NavLink
             href="/parser-test"
             active={pathname === "/parser-test"}
             title="Parser test"

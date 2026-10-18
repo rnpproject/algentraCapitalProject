@@ -23,11 +23,14 @@ type clientMT5API struct {
 	pricing          ServicePricing
 	workerConfigured bool
 	appSecret        string
+	updates          *mt5UpdateHub
 }
 
 func (api clientMT5API) register(mux *http.ServeMux) {
 	for _, prefix := range []string{"/api/mt5", "/v1/mt5"} {
 		mux.HandleFunc("GET "+prefix+"/accounts", api.listAccounts)
+		mux.HandleFunc("GET "+prefix+"/accounts/{account_id}/details", api.accountDetails)
+		mux.HandleFunc("GET "+prefix+"/stream", api.accountUpdatesStream)
 		mux.HandleFunc("GET "+prefix+"/plans", api.listPlans)
 		mux.HandleFunc("GET "+prefix+"/pricing", api.servicePricing)
 		mux.HandleFunc("POST "+prefix+"/accounts", api.createAccount)

@@ -10,6 +10,7 @@ import {
   type Tone,
 } from "../lib/format";
 import { CsChatWidget } from "./CsChatWidget";
+import { AccountPerformanceDetails } from "./AccountPerformanceDetails";
 
 type Plan = {
   name: string;
@@ -279,6 +280,7 @@ function EaAccountCard({
         </span>
         <span>{connectionText}</span>
       </div>
+      <AccountPerformanceDetails accountId={account.id} />
       <div className="toolbar">
         <button type="button" className="secondary" onClick={handleEdit}>
           Edit akun
@@ -477,6 +479,7 @@ function ManagedAccountCard({
       >
         <span>{connectionText}</span>
       </div>
+      <AccountPerformanceDetails accountId={account.id} />
       <form
         className="form-grid"
         onSubmit={handleSubmit}
@@ -716,11 +719,27 @@ export function AccountPanel() {
         }
       }
       const fastPoll = !document.hidden && !managedFormDirty.current && loginCheckPending.current;
-      timer = setTimeout(pollAccounts, fastPoll ? 1000 : 5000);
+      timer = setTimeout(pollAccounts, fastPoll ? 1000 : 30000);
     };
     timer = setTimeout(pollAccounts, 1000);
     return () => clearTimeout(timer);
   }, [loadAccounts, refreshAccountList]);
+
+  useEffect(() => {
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const stream = new EventSource("/api/core/mt5/stream");
+    const scheduleRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        if (!document.hidden && !managedFormDirty.current) void loadAccounts();
+      }, 40);
+    };
+    stream.addEventListener("mt5-update", scheduleRefresh);
+    return () => {
+      stream.close();
+      if (refreshTimer) clearTimeout(refreshTimer);
+    };
+  }, [loadAccounts]);
 
   useEffect(() => {
     const query = serverSearch.trim();

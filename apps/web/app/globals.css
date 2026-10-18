@@ -1352,3 +1352,16 @@
   .telegram-page .telegram-groups td { padding: 8px 7px; }
   .telegram-page .telegram-groups .alias { min-width: 150px; }
 }
+
+.account-detail-section { margin: 14px 0; }
+.account-detail-content { margin-top: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface, #10212e); }
+.account-detail-content h3 { margin: 18px 0 10px; }
+.account-detail-metrics, .daily-profit-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.account-detail-metrics .card, .daily-profit-cards .card { min-width: 0; padding: 12px; }
+.account-detail-metrics .card b, .daily-profit-cards .card h2 { display: block; margin: 7px 0 0; overflow-wrap: anywhere; font-size: 16px; }
+.account-modal-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 20px; background: #0009; }
+.account-modal { position: relative; width: min(980px, 100%); max-height: min(88vh, 900px); overflow: auto; padding: 24px; box-shadow: 0 24px 80px #0008; }
+.account-modal-close { float: right; }
+.account-modal .account-detail-section > button { display: none; }
+.account-modal .account-detail-content { display: block; padding: 0; border: 0; background: transparent; }
+@media (max-width: 600px) { .account-modal-backdrop { padding: 8px; } .account-modal { max-height: 94vh; padding: 16px; } }

@@ -119,10 +119,14 @@ func NewHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
 	}
 	authClientAPI{pool: pool, appSecret: cfg.AppSecretKey, email: emailConfig{configured: cfg.EmailConfigured, host: cfg.EmailSMTPHost, port: cfg.EmailSMTPPort, username: cfg.EmailSMTPUsername, password: cfg.EmailSMTPPassword, from: cfg.EmailFrom, startTLS: cfg.EmailSMTPStartTLS, socials: configuredEmailSocials(cfg.Contact)}}.register(mux)
 	eaSnapshot := eaSnapshotAPI{pool: pool, key: cfg.EAAPIKey, state: &snapshot.Store{}}
+	mt5Updates := newMT5UpdateHub()
 	eaSnapshot.register(mux)
 	registerPublicRoutes(mux, pool, cfg.Contact, cfg.PublicMusicURL, eaSnapshot.state, cfg.WebSocketOrigins)
 	registerDownloads(mux, cfg.ProjectRoot)
-	(clientMT5API{pool: pool, state: eaSnapshot.state, pricing: cfg.Pricing, workerConfigured: cfg.WorkerAPIKey != "", appSecret: cfg.AppSecretKey}).register(mux)
+	(clientMT5API{pool: pool, state: eaSnapshot.state, pricing: cfg.Pricing, workerConfigured: cfg.WorkerAPIKey != "", appSecret: cfg.AppSecretKey, updates: mt5Updates}).register(mux)
+	adminAccounts := mt5AccountDetailsAPI{pool: pool}
+	mux.HandleFunc("GET /api/admin/copy-accounts", adminAccounts.list)
+	mux.HandleFunc("GET /api/admin/copy-accounts/{account_id}/details", adminAccounts.details)
 	payments := paymentAPI{pool: pool, pricing: cfg.Pricing, workerConfigured: cfg.WorkerAPIKey != "", bankName: cfg.PaymentBankName, paymentNumber: cfg.PaymentNumber, paymentName: cfg.PaymentName, qrisAvailable: cfg.MidtransConfigured, projectRoot: cfg.ProjectRoot, midtransServerKey: cfg.MidtransServerKey, midtransMerchantID: cfg.MidtransMerchantID, midtransProduction: cfg.MidtransProduction, midtransNotificationURL: cfg.MidtransNotificationURL}
 	if cfg.TelegramBotToken != "" && cfg.TelegramAdminChatID != "" {
 		payments.bot = &telegramPaymentBot{pool: pool, token: cfg.TelegramBotToken, chatID: cfg.TelegramAdminChatID, pricing: cfg.Pricing, projectRoot: cfg.ProjectRoot}
@@ -139,7 +143,7 @@ func NewHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
 	telegramAPI{pool: pool, manager: cfg.TelegramManager, parser: parser}.register(mux)
 	parser.register(mux)
 	customerServiceAPI{pool: pool, ctx: cfg.BotContext, secret: cfg.AppSecretKey, cookieSecure: cfg.CookieSecure, key: cfg.GeminiCSAPIKey, model: cfg.GeminiCSModel, timeout: time.Duration(cfg.GeminiCSTimeoutSeconds) * time.Second}.register(mux)
-	copierRoutes := copierAPI{pool: pool, apiKey: cfg.WorkerAPIKey, secret: cfg.AppSecretKey, master: eaSnapshot.state}
+	copierRoutes := copierAPI{pool: pool, apiKey: cfg.WorkerAPIKey, secret: cfg.AppSecretKey, master: eaSnapshot.state, updates: mt5Updates}
 	copierRoutes.register(mux, "/api/mt5")
 	copierRoutes.register(mux, "/v1/mt5")
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

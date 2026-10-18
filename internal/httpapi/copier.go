@@ -22,10 +22,11 @@ import (
 )
 
 type copierAPI struct {
-	pool   *pgxpool.Pool
-	apiKey string
-	secret string
-	master *snapshot.Store
+	pool    *pgxpool.Pool
+	apiKey  string
+	secret  string
+	master  *snapshot.Store
+	updates *mt5UpdateHub
 }
 
 type copierJob struct {
@@ -389,7 +390,8 @@ func (api copierAPI) reportLoginCheck(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	var status string
-	err := api.pool.QueryRow(ctx, `SELECT login_status FROM managed_copy_profiles WHERE account_id = $1`, accountID).Scan(&status)
+	var ownerID int64
+	err := api.pool.QueryRow(ctx, `SELECT p.login_status,a.owner_id FROM managed_copy_profiles p JOIN mt5_accounts a ON a.id=p.account_id WHERE p.account_id = $1`, accountID).Scan(&status, &ownerID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "Profil managed copy tidak ditemukan")
 		return
@@ -410,6 +412,7 @@ func (api copierAPI) reportLoginCheck(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, "Hasil pemeriksaan login tidak dapat disimpan")
 			return
 		}
+		api.updates.publish(ownerID, accountID)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": status})
 }
@@ -443,7 +446,8 @@ func (api copierAPI) reportStatus(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	var active bool
-	err := api.pool.QueryRow(ctx, `SELECT active FROM managed_copy_profiles WHERE account_id = $1`, accountID).Scan(&active)
+	var ownerID int64
+	err := api.pool.QueryRow(ctx, `SELECT p.active,a.owner_id FROM managed_copy_profiles p JOIN mt5_accounts a ON a.id=p.account_id WHERE p.account_id = $1`, accountID).Scan(&active, &ownerID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "Job copy tidak ditemukan")
 		return
@@ -478,6 +482,7 @@ func (api copierAPI) reportStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "Status worker tidak dapat disimpan")
 		return
 	}
+	api.updates.publish(ownerID, accountID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -506,13 +511,14 @@ func (api copierAPI) reportAccount(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(ctx)
 	var active bool
 	var executionMode string
+	var ownerID int64
 	err = tx.QueryRow(ctx, `
-		SELECT p.active, a.execution_mode
+		SELECT p.active, a.execution_mode, a.owner_id
 		FROM managed_copy_profiles AS p
 		JOIN mt5_accounts AS a ON a.id = p.account_id
 		WHERE p.account_id = $1
 		FOR UPDATE OF p
-	`, accountID).Scan(&active, &executionMode)
+	`, accountID).Scan(&active, &executionMode, &ownerID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "Akun managed copy tidak ditemukan")
 		return
@@ -582,6 +588,10 @@ func (api copierAPI) reportAccount(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err = refreshAccountDailyProfit(ctx, tx, accountID, payload.Deals, strings.ToUpper(payload.Currency), now); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "Profit harian akun MT5 tidak dapat disimpan")
+		return
+	}
 	if _, err = tx.Exec(ctx, `UPDATE mt5_accounts SET last_seen_at = $2 WHERE id = $1`, accountID, now); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "Laporan akun MT5 tidak dapat disimpan")
 		return
@@ -590,6 +600,7 @@ func (api copierAPI) reportAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "Laporan akun MT5 tidak dapat disimpan")
 		return
 	}
+	api.updates.publish(ownerID, accountID)
 	wib := time.FixedZone("WIB", 7*60*60)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "ok", "history_cursor": cursor, "history_cursor_msc": cursorMSC,

@@ -413,6 +413,7 @@ func (api clientMT5API) writeAccountPayload(ctx context.Context, w http.Response
 
 type tokenAccount struct {
 	id                  int64
+	ownerID             int64
 	login, server, mode string
 }
 
@@ -425,7 +426,7 @@ func (api clientMT5API) accountByToken(ctx context.Context, r *http.Request) (to
 	}
 	hash := sha256.Sum256([]byte(token))
 	var account tokenAccount
-	err := api.pool.QueryRow(ctx, `SELECT id,login,server,execution_mode FROM mt5_accounts WHERE token_hash=$1 AND active=TRUE`, hex.EncodeToString(hash[:])).Scan(&account.id, &account.login, &account.server, &account.mode)
+	err := api.pool.QueryRow(ctx, `SELECT id,owner_id,login,server,execution_mode FROM mt5_accounts WHERE token_hash=$1 AND active=TRUE`, hex.EncodeToString(hash[:])).Scan(&account.id, &account.ownerID, &account.login, &account.server, &account.mode)
 	if err != nil {
 		return tokenAccount{}, err
 	}
@@ -544,6 +545,10 @@ func (api clientMT5API) reportFollower(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err = refreshAccountDailyProfit(ctx, tx, account.id, p.Deals, strings.ToUpper(p.Currency), now); err != nil {
+		writeError(w, 503, "Profit harian akun MT5 tidak dapat disimpan")
+		return
+	}
 	if _, err = tx.Exec(ctx, `UPDATE mt5_accounts SET last_seen_at=$2 WHERE id=$1`, account.id, now); err != nil {
 		writeError(w, 503, "Laporan akun MT5 tidak dapat disimpan")
 		return
@@ -552,6 +557,7 @@ func (api clientMT5API) reportFollower(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, "Laporan akun MT5 tidak dapat disimpan")
 		return
 	}
+	api.updates.publish(account.ownerID, account.id)
 	writeJSON(w, 200, map[string]any{"status": "ok", "history_cursor": cursor, "history_cursor_msc": cursorMSC, "received_deals": len(p.Deals), "observed_at": now.In(time.FixedZone("WIB", 7*60*60)).Format(time.RFC3339Nano)})
 }
 

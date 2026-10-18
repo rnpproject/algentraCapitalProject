@@ -69,6 +69,11 @@ func (api eaSignalAPI) result(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "Trade tidak dapat ditutup")
 		return
 	}
+	masterDay := closed.In(time.FixedZone("WIB", 7*60*60)).Format("2006-01-02")
+	if _, err := tx.Exec(ctx, `INSERT INTO mt5_master_daily_profit(trade_date,profit,updated_at) VALUES($1,$2,$3) ON CONFLICT(trade_date) DO UPDATE SET profit=mt5_master_daily_profit.profit+EXCLUDED.profit,updated_at=EXCLUDED.updated_at`, masterDay, payload.Profit, time.Now().UTC()); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "Profit harian akun master tidak dapat disimpan")
+		return
+	}
 	if signalID.Valid {
 		var raw sql.NullString
 		if err := tx.QueryRow(ctx, `SELECT parsed_json FROM signals WHERE id=$1`, signalID.Int64).Scan(&raw); err != nil && !errors.Is(err, pgx.ErrNoRows) {

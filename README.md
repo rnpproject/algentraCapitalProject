@@ -17,7 +17,7 @@ Vercel mengakses API melalui HTTPS origin di belakang Cloudflare Tunnel/Access d
 ## 1. Siapkan project Supabase production
 
 1. Buat project Supabase production baru dan catat project ref.
-2. Dari file [fresh production schema](infra/supabase/fresh-production.sql), ganti kedua kemunculan `REPLACE_WITH_SUPABASE_PROJECT_REF` dengan project ref tersebut. Jalankan seluruh file satu kali melalui SQL Editor sebagai role `postgres`. File ini membentuk schema final backend langsung, memberi marker revision `0003_midtrans_qris`, dan menolak berjalan bila schema `app` sudah ada. Setelah berhasil, verifikasi marker sebelum menghubungkan API:
+2. Dari file [fresh production schema](infra/supabase/fresh-production.sql), ganti kedua kemunculan `REPLACE_WITH_SUPABASE_PROJECT_REF` dengan project ref tersebut. Jalankan seluruh file satu kali melalui SQL Editor sebagai role `postgres`. File ini membentuk schema final backend langsung, memberi marker revision `0004_account_daily_profit`, dan menolak berjalan bila schema `app` sudah ada. Setelah berhasil, verifikasi marker sebelum menghubungkan API:
 
    ```sql
    SELECT shobj_description(oid, 'pg_database') AS database_marker
@@ -26,7 +26,7 @@ Vercel mengakses API melalui HTTPS origin di belakang Cloudflare Tunnel/Access d
    SELECT obj_description('app'::regnamespace, 'pg_namespace') AS schema_revision;
    ```
 
-   Hasil yang diharapkan adalah `algentra:production:<project-ref>` dan `algentra:revision:0003_midtrans_qris`.
+   Hasil yang diharapkan adalah `algentra:production:<project-ref>` dan `algentra:revision:0004_account_daily_profit`.
 3. File tersebut membuat role `algentra_api` dan `algentra_backup` sebagai `NOLOGIN`. Aktifkan login untuk role runtime di SQL Editor:
 
    ```sql

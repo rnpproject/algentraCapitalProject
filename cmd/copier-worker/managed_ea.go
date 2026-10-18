@@ -36,7 +36,7 @@ func (w *worker) prepareManagedEA(j job, token, terminalDir, name string) error 
 	values := []string{
 		"ServerURL=" + "http://" + w.cfg.FeedAddress,
 		"AccountToken=" + token,
-		"PollIntervalMs=1000||1000||100||5000||N",
+		"PollIntervalMs=250||250||100||5000||N",
 		"MagicNumber=880001||880001||1||880001||N",
 		"VolumeMultiplier=1.0||1.0||0.1||10.0||N",
 		"MaxEntryDeviationPercent=0.0||0.0||0.1||10.0||N",
@@ -44,6 +44,8 @@ func (w *worker) prepareManagedEA(j job, token, terminalDir, name string) error 
 		"SymbolSuffix=",
 		"SymbolMapCsv=XAUUSD=" + j.FollowerSymbol,
 		"ManagedMode=true||true||false||true||N",
+		"ManagedFileBridge=true||true||false||true||N",
+		"BridgeChannel=" + strconv.FormatInt(j.AccountID, 10),
 		"LotMode=" + j.ModeLot,
 		fmt.Sprintf("FixedLot=%.8f||%.8f||0.01||100.0||N", j.FixedLot, j.FixedLot),
 		fmt.Sprintf("RatioLot=%.8f||%.8f||0.01||100.0||N", j.RatioLot, j.RatioLot),
