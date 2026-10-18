@@ -1,5 +1,5 @@
 #property strict
-#property version   "1.102"
+#property version   "1.103"
 #property description "Copies all published Algentra positions and reports MT5 account history"
 
 #include <Trade/Trade.mqh>
@@ -68,7 +68,12 @@ void LogWebRequestError(const string operation, const string url, int code, int 
    if(code < 0)
      {
       if(mql_error == 4014)
-         error_details += ", URL not allowed: add ServerURL in Tools > Options > Expert Advisors > Allow WebRequest for listed URL";
+        {
+         if(ManagedMode)
+            error_details += ", MT5 WebRequest permission is being configured by the worker; check its webrequest_<account_id>.log if this persists";
+         else
+            error_details += ", URL not allowed: add ServerURL in Tools > Options > Expert Advisors > Allow WebRequest for listed URL";
+        }
       else
          error_details += ", WebRequest failed before reaching the server (check ServerURL and network)";
      }
@@ -227,7 +232,9 @@ bool HttpGet(string &response_body)
    response_body = CharArrayToString(result, 0, -1, CP_UTF8);
    if(code < 200 || code >= 300)
      {
-      g_connection_status = StringFormat("HTTP %d / error %d", code, mql_error);
+      g_connection_status = mql_error == 4014
+                            ? "WebRequest URL belum diizinkan (4014)"
+                            : StringFormat("HTTP %d / error %d", code, mql_error);
       LogWebRequestError("GET positions", TrimTrailingSlash(ServerURL) + "/api/mt5/follower/positions", code, mql_error, response_body);
       return false;
      }
@@ -460,6 +467,37 @@ void EnsureDefaultGoldChart()
      }
   }
 
+// Managed terminals are dedicated to one follower account. A copied MT5
+// template can restore its own saved chart while the startup INI also opens
+// the chart carrying this EA. Keep the EA's chart and close the restored extras.
+void KeepSingleManagedChart()
+  {
+   if(!ManagedMode)
+      return;
+
+   long active_chart = ChartID();
+   long chart_id = ChartFirst();
+   int closed = 0;
+   int failed = 0;
+   while(chart_id >= 0)
+     {
+      long next_chart = ChartNext(chart_id);
+      if(chart_id != active_chart)
+        {
+         if(ChartClose(chart_id))
+            closed++;
+         else
+            failed++;
+        }
+      chart_id = next_chart;
+     }
+   if(closed > 0)
+      Print("[MT5FollowerCopyEA] managed terminal kept its EA chart and closed ", closed,
+            " extra chart(s)");
+   if(failed > 0)
+      Print("[MT5FollowerCopyEA] could not close ", failed, " extra chart(s); error ", GetLastError());
+  }
+
 string DealEntryText(const ENUM_DEAL_ENTRY entry)
   {
    if(entry == DEAL_ENTRY_IN) return "IN";
@@ -544,7 +582,9 @@ bool PostAccountReport(const string payload, string &response_body)
    response_body = CharArrayToString(result, 0, -1, CP_UTF8);
    if(code < 200 || code >= 300)
      {
-      g_account_report_status = StringFormat("report HTTP %d / error %d", code, mql_error);
+      g_account_report_status = mql_error == 4014
+                                ? "WebRequest URL belum diizinkan (4014)"
+                                : StringFormat("report HTTP %d / error %d", code, mql_error);
       LogWebRequestError("POST report", TrimTrailingSlash(ServerURL) + "/api/mt5/follower/report", code, mql_error, response_body);
       return false;
      }
@@ -1312,6 +1352,7 @@ int OnInit()
    // Symbols are matched against the account's own catalog; SymbolSuffix is
    // only an optional tie-breaker (inputs are read-only, so copy it).
    g_symbol_suffix = SymbolSuffix;
+   KeepSingleManagedChart();
    EnsureDefaultGoldChart();
    EventSetMillisecondTimer(PollIntervalMs);
    ReportAccountState();

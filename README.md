@@ -128,7 +128,7 @@ TelegramSignalEA mengirim snapshot master ke Core API; worker managed meneruskan
 2. Compile EA follower dan login probe dengan MetaEditor; file `.ex5` harus tersedia pada lokasi yang dijelaskan di panduan copier:
    - `mt5/experts/MT5FollowerCopyEA.mq5` pada terminal follower template.
    - `mt5/experts/Algentra/MT5LoginProbe.mq5` untuk validasi login managed.
-3. Pastikan `COPIER_WORKER_API_KEY` pada environment Core API dan akun worker sama. Di terminal follower template, izinkan WebRequest ke `http://127.0.0.1:8766`. Dari PowerShell akun worker jalankan installer task:
+3. Pastikan `COPIER_WORKER_API_KEY` pada environment Core API dan akun worker sama. Worker otomatis menambahkan WebRequest `http://127.0.0.1:8766` pada terminal follower setelah startup; template tidak perlu disetel manual. Ini memakai desktop Windows interaktif, yang disediakan oleh Scheduled Task installer. Dari PowerShell akun worker jalankan installer task:
 
    ```powershell
    .\apps\copier-worker\scripts\install_managed_worker_task.ps1 `

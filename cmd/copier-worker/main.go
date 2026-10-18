@@ -76,6 +76,7 @@ type child struct {
 	fingerprint  string
 	cmd          *exec.Cmd
 	done         chan error
+	stopped      chan struct{}
 	log          *os.File
 	heartbeat    string
 	startedAt    time.Time
@@ -423,9 +424,13 @@ func (w *worker) startJob(j job, now time.Time) error {
 		w.feed.Unregister(j.AccountID)
 		return err
 	}
-	c := &child{accountID: j.AccountID, fingerprint: fingerprint(j), cmd: cmd, done: make(chan error, 1), log: logFile, heartbeat: heartbeat, startedAt: now, executor: "mt5_ea", feedToken: token, startupINI: configPath}
+	c := &child{accountID: j.AccountID, fingerprint: fingerprint(j), cmd: cmd, done: make(chan error, 1), stopped: make(chan struct{}), log: logFile, heartbeat: heartbeat, startedAt: now, executor: "mt5_ea", feedToken: token, startupINI: configPath}
 	w.children[j.AccountID] = c
-	go func() { c.done <- cmd.Wait() }()
+	go func() {
+		c.done <- cmd.Wait()
+		close(c.stopped)
+	}()
+	go w.configureManagedWebRequest(c, w.cfg.FeedAddress)
 	_ = w.report(j.AccountID, "STARTING", "")
 	log.Printf("follower managed akun %d (mt5_ea) dimulai pid=%d", j.AccountID, cmd.Process.Pid)
 	go w.removeStartupConfigAfterLaunch(c)
