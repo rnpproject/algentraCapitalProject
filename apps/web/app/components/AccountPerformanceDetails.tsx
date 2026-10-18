@@ -1,79 +1,135 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { apiRequest } from "../lib/api";
-import { formatMoney } from "../lib/format";
+import { formatInteger, formatLots, formatMoney, formatPrice, numberTone, toneClass } from "../lib/format";
 
 type Daily = { date: string; profit: number; currency?: string | null; timezone: string };
 type Deal = { ticket: string; time: string; symbol: string; action: string; entry: string; volume: number; price: number; net_profit: number; currency?: string | null };
 type Details = { balance?: number | null; equity?: number | null; floating_profit?: number | null; margin?: number | null; free_margin?: number | null; currency?: string | null; open_positions?: number; state_updated_at?: string | null; daily_profit: Daily[]; history: Deal[]; history_page: number; history_pages: number; history_total: number };
 
-const wibDate = (date: string) => new Date(`${date}T00:00:00+07:00`).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", weekday: "short", day: "2-digit", month: "short" });
-const wibTime = (date?: string | null) => date ? new Date(date).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : "Belum ada laporan";
+const WIB = "Asia/Jakarta";
+const wibDate = (date: string) => new Date(`${date}T00:00:00+07:00`).toLocaleDateString("id-ID", { timeZone: WIB, weekday: "short", day: "2-digit", month: "short" });
+const wibStamp = (date: string) => new Date(date).toLocaleString("id-ID", { timeZone: WIB, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+const wibFull = (date: string) => new Date(date).toLocaleString("id-ID", { timeZone: WIB });
+const sideTone = (action: string) => (action.toUpperCase() === "BUY" ? "pos" : action.toUpperCase() === "SELL" ? "neg" : "");
 
-export function AccountPerformanceDetails({ accountId, admin = false, compact = false }: { accountId: number; admin?: boolean; compact?: boolean }) {
-  const [open, setOpen] = useState(compact);
+type Props = { accountId: number; admin?: boolean; compact?: boolean; alwaysOpen?: boolean };
+
+/**
+ * compact / alwaysOpen: panel langsung terbuka tanpa tombol dan tanpa bingkai
+ * (compact untuk modal yang sudah punya tombol tutup, alwaysOpen untuk dipasang langsung di halaman).
+ * Tanpa keduanya, komponen memakai satu tombol buka/tutup.
+ */
+export function AccountPerformanceDetails({ accountId, admin = false, compact = false, alwaysOpen = false }: Props) {
+  const fixedOpen = compact || alwaysOpen;
+  const panelId = useId();
+  const [open, setOpen] = useState(fixedOpen);
   const [details, setDetails] = useState<Details | null>(null);
-  const [historyPage, setHistoryPage] = useState(1);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => {
-    if (!compact) return;
-    let alive = true;
-    const path = admin ? `admin/copy-accounts/${accountId}/details` : `mt5/accounts/${accountId}/details`;
+  const requestRef = useRef(0);
+  const endpoint = admin ? `admin/copy-accounts/${accountId}/details` : `mt5/accounts/${accountId}/details`;
+
+  // Satu jalur pemuatan untuk detail awal maupun pindah halaman; respons lama diabaikan.
+  const load = useCallback(async (target: number) => {
+    const id = ++requestRef.current;
     setLoading(true);
-    apiRequest<Details>(`${path}?page=1`).then(data => { if (alive) setDetails(data); }).catch(reason => { if (alive) setError(reason instanceof Error ? reason.message : "Detail akun tidak tersedia."); }).finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, [accountId,admin,compact]);
-  useEffect(() => {
-    if (!open || compact || admin || typeof EventSource === "undefined") return;
-    let alive = true;
-    const stream = new EventSource("/api/core/mt5/stream");
-    stream.addEventListener("mt5-accounts", event => {
-      try {
-        const update = JSON.parse((event as MessageEvent<string>).data) as { accounts?: Array<{ id: number }> };
-        if (!update.accounts?.some(account => account.id === accountId)) return;
-        void apiRequest<Details>(`mt5/accounts/${accountId}/details?page=${historyPage}`).then(data => { if (alive) setDetails(data); }).catch(() => {});
-      } catch { /* Ignore malformed stream events. */ }
-    });
-    return () => { alive = false; stream.close(); };
-  }, [accountId,admin,compact,open,historyPage]);
-  async function loadPage(page: number) {
-    if (page < 1 || (details && page > details.history_pages)) return;
-    setLoading(true); setError("");
+    setError("");
     try {
-      const path = admin ? `admin/copy-accounts/${accountId}/details` : `mt5/accounts/${accountId}/details`;
-      const data = await apiRequest<Details>(`${path}?page=${page}`);
-      setDetails(data); setHistoryPage(data.history_page);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Riwayat transaksi tidak tersedia."); }
-    finally { setLoading(false); }
-  }
-  async function toggle() {
+      const data = await apiRequest<Details>(`${endpoint}?page=${target}`);
+      if (id !== requestRef.current) return;
+      setDetails(data);
+      setPage(data.history_page);
+    } catch (reason) {
+      if (id !== requestRef.current) return;
+      setError(reason instanceof Error ? reason.message : "Detail akun tidak tersedia.");
+    } finally {
+      if (id === requestRef.current) setLoading(false);
+    }
+  }, [endpoint]);
+
+  useEffect(() => {
+    setDetails(null);
+    setPage(1);
+    setError("");
+    if (fixedOpen) { setOpen(true); void load(1); }
+    else setOpen(false);
+    return () => { requestRef.current += 1; };
+  }, [fixedOpen, load]);
+
+  function toggle() {
     const next = !open;
     setOpen(next);
-    if (!next || details || loading) return;
-    setLoading(true); setError("");
-    try {
-      const path = admin ? `admin/copy-accounts/${accountId}/details` : `mt5/accounts/${accountId}/details`;
-      setDetails(await apiRequest<Details>(`${path}?page=${historyPage}`));
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Detail akun tidak tersedia."); }
-    finally { setLoading(false); }
+    if (next && !details && !loading) void load(page);
   }
-  return <section className={compact ? "account-detail-popup" : "account-detail-section"}>
-    <button type="button" className="secondary" aria-expanded={open} onClick={() => void toggle()}>{open ? "Tutup detail" : compact ? "Detail" : "Saldo, profit & riwayat"}</button>
-    {open && <div className="account-detail-content">
-      {loading && <p className="muted">Memuat detail akun…</p>}
-      {error && <p className="status" role="alert">{error}</p>}
+
+  function goTo(target: number) {
+    if (loading || target < 1 || (details && target > details.history_pages)) return;
+    void load(target);
+  }
+
+  const currency = details?.currency;
+  const stats: Array<{ label: string; value: string; tone?: string }> = details ? [
+    { label: "Saldo", value: formatMoney(details.balance, currency) },
+    { label: "Equity", value: formatMoney(details.equity, currency) },
+    { label: "Profit floating", value: formatMoney(details.floating_profit, currency), tone: toneClass(numberTone(details.floating_profit)) },
+    { label: "Margin", value: formatMoney(details.margin, currency) },
+    { label: "Free margin", value: formatMoney(details.free_margin, currency) },
+    { label: "Posisi terbuka", value: formatInteger(details.open_positions ?? 0) },
+  ] : [];
+
+  return <div className={`account-detail ${fixedOpen ? "account-detail--compact" : "account-detail--inline"}`}>
+    {!fixedOpen && <button type="button" className="secondary account-detail__toggle" aria-expanded={open} aria-controls={panelId} onClick={toggle}>
+      {open ? "Tutup detail" : "Saldo, profit & riwayat"}
+    </button>}
+    {open && <div id={panelId} className="account-detail__panel" aria-busy={loading}>
+      {loading && !details && <p className="muted">Memuat detail akun…</p>}
+      {error && <p className="status tone-neg" role="alert">{error}</p>}
       {details && <>
-        <p className="muted">Data terakhir: {wibTime(details.state_updated_at)} WIB</p>
-        <div className="cards account-detail-metrics">
-          {[["Saldo",details.balance],["Equity",details.equity],["Profit floating",details.floating_profit],["Margin",details.margin],["Free margin",details.free_margin],["Posisi terbuka",details.open_positions]].map(([label,value]) => <article className="card" key={String(label)}><span className="eyebrow">{label}</span><b>{label === "Posisi terbuka" ? (value ?? 0) : formatMoney(typeof value === "number" ? value : null,details.currency)}</b></article>)}
+        <p className="account-detail__meta muted">
+          {details.state_updated_at ? `Data terakhir: ${wibFull(details.state_updated_at)} WIB` : "Belum ada laporan dari terminal."}
+        </p>
+        <dl className="account-stats">
+          {stats.map(item => <div key={item.label}><dt>{item.label}</dt><dd className={item.tone}>{item.value}</dd></div>)}
+        </dl>
+        <div>
+          <h3>Profit harian · WIB</h3>
+          {(details.daily_profit ?? []).length === 0 ? <p className="muted">Belum ada profit harian.</p> : <div className="table-wrap day-table-wrap">
+            <table className="day-table">
+              <thead><tr>{details.daily_profit.map(day => <th key={day.date}>{wibDate(day.date)}</th>)}</tr></thead>
+              <tbody><tr>{details.daily_profit.map(day => <td key={day.date} className={toneClass(day.profit >= 0 ? "pos" : "neg")}>{formatMoney(day.profit, day.currency ?? currency)}</td>)}</tr></tbody>
+            </table>
+          </div>}
         </div>
-        <h3>Profit harian · WIB</h3>
-        <div className="cards daily-profit-cards">{(details.daily_profit ?? []).map(day => <article className="card" key={day.date}><span className="eyebrow">{wibDate(day.date)}</span><b className={day.profit >= 0 ? "tone-pos" : "tone-neg"}>{formatMoney(day.profit,day.currency ?? details.currency)}</b></article>)}</div>
-        <h3>Riwayat transaksi MT5 · {details.history_total} transaksi</h3>
-        {details.history.length === 0 ? <p className="muted">Belum ada transaksi yang dilaporkan.</p> : <><div className="table-wrap"><table><thead><tr><th>Waktu (WIB)</th><th>Simbol</th><th>Arah</th><th>Volume</th><th>Harga</th><th>Profit bersih</th></tr></thead><tbody>{details.history.map(deal => <tr key={deal.ticket}><td>{wibTime(deal.time)}</td><td>{deal.symbol}</td><td>{deal.action} · {deal.entry}</td><td>{deal.volume}</td><td>{deal.price}</td><td className={deal.net_profit >= 0 ? "tone-pos" : "tone-neg"}>{formatMoney(deal.net_profit,deal.currency ?? details.currency)}</td></tr>)}</tbody></table></div><div className="toolbar account-history-pagination"><button type="button" className="secondary" disabled={historyPage <= 1 || loading} onClick={() => void loadPage(historyPage - 1)}>Sebelumnya</button><span className="muted">Halaman {historyPage} dari {details.history_pages}</span><button type="button" className="secondary" disabled={historyPage >= details.history_pages || loading} onClick={() => void loadPage(historyPage + 1)}>Berikutnya</button></div></>}
+        <div>
+          <div className="account-detail__heading">
+            <h3>Riwayat transaksi MT5</h3>
+            <span className="muted">{formatInteger(details.history_total)} transaksi</span>
+          </div>
+          {details.history.length === 0 ? <p className="muted">Belum ada transaksi yang dilaporkan.</p> : <>
+            <div className="table-wrap account-history">
+              <table>
+                <thead><tr><th>Waktu (WIB)</th><th>Simbol</th><th>Arah</th><th className="num">Volume</th><th className="num">Harga</th><th className="num">Profit bersih</th></tr></thead>
+                <tbody>{details.history.map((deal, index) => <tr key={`${deal.ticket}-${index}`}>
+                  <td>{wibStamp(deal.time)}</td>
+                  <td>{deal.symbol}</td>
+                  <td><span className={`pill ${toneClass(sideTone(deal.action))}`}>{deal.action}</span> <span className="muted">{deal.entry}</span></td>
+                  <td className="num">{formatLots(deal.volume)}</td>
+                  <td className="num">{formatPrice(deal.price)}</td>
+                  <td className={`num ${toneClass(numberTone(deal.net_profit))}`}>{formatMoney(deal.net_profit, deal.currency ?? currency)}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+            {details.history_pages > 1 && <div className="account-detail__pager">
+              <button type="button" className="secondary" disabled={page <= 1 || loading} onClick={() => goTo(page - 1)}>Sebelumnya</button>
+              <span>Halaman {page} dari {details.history_pages}</span>
+              <button type="button" className="secondary" disabled={page >= details.history_pages || loading} onClick={() => goTo(page + 1)}>Berikutnya</button>
+            </div>}
+          </>}
+        </div>
       </>}
     </div>}
-  </section>;
+  </div>;
 }

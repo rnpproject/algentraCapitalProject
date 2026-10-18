@@ -641,7 +641,6 @@
     .dashboard-page .sc-mt5 .sc-chip::before { width: 6px; height: 6px; margin-right: 6px; }
     .dashboard-page #mt5-live-chip.tone-warn { color: var(--ink); }
     .dashboard-page #mt5-live-chip.tone-neg { color: var(--ink); }
-    .dashboard-page #mt5-live-status { display: none; }
     .dashboard-page .sc-profit-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; color: var(--muted); font-size: 10px; letter-spacing: .08em; }
     .dashboard-page .sc-win-loss { color: var(--muted); font-size: 10px; letter-spacing: 0; }
     .dashboard-page .sc-profit b { display: block; font-size: 32px; line-height: 1.2; font-weight: 750; font-variant-numeric: tabular-nums; }
@@ -829,7 +828,6 @@
       .dashboard-page .sc-chip { min-height: 30px; padding: 4px 11px; font-size: 11px; }
       .dashboard-page .sc-mt5 .sc-chip { min-height: 28px; padding: 0 7px; font-size: 11px; line-height: 1; }
       .dashboard-page #mt5-live-chip { min-width: 104px; min-height: 42px; font-size: 12px; }
-      .dashboard-page #mt5-live-status { min-width: 90px; min-height: 38px; padding: 6px 12px; font-size: 13px; }
       .dashboard-page .sc-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 8px; }
       .dashboard-page .sc-metrics b { white-space: nowrap; overflow-wrap: normal; }
       .dashboard-page .sc-mt5 .sc-profit { display: block; margin-top: 4px; }
@@ -1353,15 +1351,97 @@
   .telegram-page .telegram-groups .alias { min-width: 150px; }
 }
 
-.account-detail-section { margin: 14px 0; }
-.account-detail-content { margin-top: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface, #10212e); }
-.account-detail-content h3 { margin: 18px 0 10px; }
-.account-detail-metrics, .daily-profit-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
-.account-detail-metrics .card, .daily-profit-cards .card { min-width: 0; padding: 12px; }
-.account-detail-metrics .card b, .daily-profit-cards .card h2 { display: block; margin: 7px 0 0; overflow-wrap: anywhere; font-size: 16px; }
 .account-modal-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 20px; background: #0009; }
 .account-modal { position: relative; width: min(980px, 100%); max-height: min(88vh, 900px); overflow: auto; padding: 24px; box-shadow: 0 24px 80px #0008; }
 .account-modal-close { float: right; }
-.account-modal .account-detail-section > button { display: none; }
-.account-modal .account-detail-content { display: block; padding: 0; border: 0; background: transparent; }
 @media (max-width: 600px) { .account-modal-backdrop { padding: 8px; } .account-modal { max-height: 94vh; padding: 16px; } }
+
+/* ===== Polish: komponen bersama (dashboard + detail akun) ===== */
+.day-table-wrap { border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; overscroll-behavior-x: contain; }
+.day-table { width: 100%; font-size: 12px; }
+.day-table th, .day-table td { padding: 6px 10px; text-align: center; white-space: nowrap; }
+.day-table th { font-size: 10px; }
+.day-table td { border-bottom: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ===== Polish: detail akun (tanpa kotak bersarang) ===== */
+.account-detail { min-width: 0; }
+.account-detail__toggle { min-height: 40px; }
+.account-detail__panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel-raised) 35%, transparent); }
+.account-detail--compact .account-detail__panel { margin-top: 0; padding: 0; border: 0; background: transparent; }
+.account-modal .account-detail--compact { clear: both; }
+.account-detail__panel h3 { margin: 0 0 8px; font-size: 14px; }
+.account-detail__panel p { margin: 0; }
+.account-detail__meta { font-size: 12px; }
+.account-detail__heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; margin-bottom: 8px; }
+.account-detail__heading h3 { margin: 0; }
+.account-detail__heading .muted { font-size: 12px; }
+.account-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--line); }
+.account-stats > div { min-width: 0; padding: 9px 12px; background: var(--panel); }
+.account-stats dt { color: var(--muted); font-size: 11px; font-weight: 600; }
+.account-stats dd { margin: 2px 0 0; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.account-history { max-height: 340px; border: 1px solid var(--line); border-radius: 10px; overscroll-behavior-x: contain; }
+.account-history table { min-width: 560px; font-size: 12px; }
+.account-history th { position: sticky; top: 0; z-index: 1; background: var(--panel-raised); }
+.account-history th, .account-history td { padding: 8px 10px; white-space: nowrap; }
+.account-history tr:last-child td { border-bottom: 0; }
+.account-history .num { text-align: right; font-variant-numeric: tabular-nums; }
+.account-detail__pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.account-detail__pager button { min-height: 36px; padding: 4px 14px; }
+@media (max-width: 520px) {
+  .account-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .account-detail__panel { padding: 10px; }
+  .account-history { max-height: 300px; }
+}
+
+/* ===== Polish: dashboard ===== */
+.dashboard-page h3 { margin: 0 0 8px; font-size: 14px; }
+.dashboard-page .heading-aside { align-self: flex-end; }
+.dashboard-page .connection-status { display: inline-flex; align-items: center; min-height: 0; margin: 0; font-size: 12px; }
+.dashboard-page .reg-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 24px; padding: 16px 20px; }
+.dashboard-page .reg-info h2 { margin-bottom: 4px; }
+.dashboard-page .reg-info .section-help, .dashboard-page .reg-info .muted { margin: 0 0 4px; }
+.dashboard-page .reg-actions { display: grid; gap: 4px; justify-items: end; min-width: 0; }
+.dashboard-page .reg-actions .toolbar { margin: 0; padding: 0; }
+.dashboard-page .reg-actions .status { margin: 0; min-height: 0; }
+.dashboard-page .master-daily-profit { margin-top: 14px; }
+.dashboard-page .master-daily-profit .muted { margin: 0; }
+.dashboard-page .mt5-tables { margin-top: 14px; }
+.dashboard-page .mt5-tables > div { min-width: 0; }
+.dashboard-page .trade-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); align-items: center; }
+.dashboard-page .trade-filters input, .dashboard-page .trade-filters select { width: 100%; max-width: none; }
+.dashboard-page .trade-filters button, .dashboard-page .trade-filters a { text-align: center; }
+.dashboard-page td.empty-cell { max-width: none; color: var(--muted); white-space: normal; }
+.dashboard-page .log-table td:last-child { min-width: 220px; max-width: none; white-space: normal; }
+@media (max-width: 1024px) {
+  .dashboard-page .reg-card { grid-template-columns: minmax(0, 1fr); padding: 14px; }
+  .dashboard-page .reg-actions { justify-items: stretch; }
+  .dashboard-page .reg-actions .toolbar > button { flex: 1 1 140px; }
+  .dashboard-page .page-heading { align-items: flex-start; }
+  .dashboard-page .heading-aside { width: 100%; justify-content: flex-start; }
+}
+
+/* ===== Polish: saldo & performa per akun (/account) ===== */
+.account-perf-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.account-perf-item { min-width: 0; }
+.account-perf-item + .account-perf-item { padding-top: 14px; border-top: 1px solid var(--line); }
+.account-perf-item > h3 { margin: 0 0 10px; font-size: 15px; overflow-wrap: anywhere; }
+.account-page .account-perf-list + .grid { margin-top: 14px; }
+
+/* ===== Polish: form kartu akun managed ===== */
+.account-page .managed-form { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 14px; }
+.account-page .managed-form label { display: flex; flex-direction: column; gap: 5px; min-width: 0; color: var(--muted); font-size: 12px; font-weight: 650; }
+.account-page .managed-form label input, .account-page .managed-form label select { min-height: 44px; margin-top: 0; }
+.account-page .managed-form .form-submit { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+.account-page .managed-form .form-submit button { min-height: 44px; padding-inline: 22px; }
+.account-page .grid > .card .managed-form + .toolbar { margin-top: 12px; }
+@media (max-width: 520px) { .account-page .managed-form .form-submit button { width: 100%; } }
+
+/* ===== Polish: admin akun copy trading ===== */
+.dashboard-page .admin-accounts-table td { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-page .admin-accounts-table .num { text-align: right; }
+.dashboard-page .admin-accounts-table .admin-accounts-action { width: 1%; text-align: right; }
+.dashboard-page .admin-accounts-table .admin-accounts-action button { min-height: 34px; padding: 4px 14px; }
+.account-modal h2 { margin: 0 0 4px; padding-right: 84px; overflow-wrap: anywhere; }
+.account-modal__meta { margin: 0 0 14px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.account-modal { margin: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; }
+:root[data-theme="light"] .account-modal { background: var(--panel); border-color: var(--line); }

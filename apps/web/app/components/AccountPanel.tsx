@@ -176,9 +176,6 @@ function EaAccountCard({
   const stateText = `${account.active ? "Aktif" : "Nonaktif"} · Terakhir terhubung: ${
     account.last_seen_at ? wib(account.last_seen_at) : "belum ada koneksi"
   }`;
-  const balanceTimeText = account.state_updated_at
-    ? `Data MT5 diperbarui ${wib(account.state_updated_at)} WIB`
-    : "Hubungkan EA agar saldo dan histori MT5 tersinkron.";
   const connectionText =
     connectionStatus === "ready"
       ? `Siap menyalin pada akun ${modeLabel(account.trade_mode)}: ${
@@ -251,25 +248,6 @@ function EaAccountCard({
     <article className="card">
       <h3>{account.label}</h3>
       <p>{detail}</p>
-      <p className="account-balance">
-        {account.balance == null ? (
-          "Saldo MT5: menunggu laporan EA"
-        ) : (
-          <Metrics
-            items={[
-              ["Saldo", account.balance, account.currency],
-              ["Ekuitas", account.equity, account.currency],
-              [
-                "Floating",
-                account.floating_profit,
-                account.currency,
-                numberTone(account.floating_profit),
-              ],
-            ]}
-          />
-        )}
-      </p>
-      <small className="muted account-balance-time">{balanceTimeText}</small>
       <p className="muted">{stateText}</p>
       <div
         className={`account-state account-state--${connectionStatus}`}
@@ -280,7 +258,6 @@ function EaAccountCard({
         </span>
         <span>{connectionText}</span>
       </div>
-      <AccountPerformanceDetails accountId={account.id} />
       <div className="toolbar">
         <button type="button" className="secondary" onClick={handleEdit}>
           Edit akun
@@ -392,9 +369,6 @@ function ManagedAccountCard({
   const connectionText =
     stateLabels[profile.status] || stateLabels.SETUP_REQUIRED;
 
-  const balanceTimeText = account.state_updated_at
-    ? `Data akun diperbarui ${wib(account.state_updated_at)} WIB`
-    : "Belum menerima laporan saldo dari worker.";
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -479,9 +453,8 @@ function ManagedAccountCard({
       >
         <span>{connectionText}</span>
       </div>
-      <AccountPerformanceDetails accountId={account.id} />
       <form
-        className="form-grid"
+        className="form-grid managed-form"
         onSubmit={handleSubmit}
         onInput={onDirty}
         onChange={onDirty}
@@ -496,7 +469,7 @@ function ManagedAccountCard({
             required
             placeholder={
               profile.configured
-                ? "Masukkan ulang untuk mengganti password tersimpan"
+                ? "Isi ulang untuk mengganti"
                 : "Password trading akun follower"
             }
           />
@@ -578,7 +551,7 @@ function ManagedAccountCard({
             defaultValue={profile.max_open_positions ?? 3}
           />
         </label>
-        <div>
+        <div className="form-submit">
           <button type="submit">
             {profile.configured
               ? "Simpan pengaturan"
@@ -599,25 +572,6 @@ function ManagedAccountCard({
           Hapus akun
         </button>
       </div>
-      <p className="account-balance">
-        {account.balance == null ? (
-          "Saldo follower menunggu laporan worker."
-        ) : (
-          <Metrics
-            items={[
-              ["Saldo", account.balance, account.currency],
-              ["Ekuitas", account.equity, account.currency],
-              [
-                "Floating",
-                account.floating_profit,
-                account.currency,
-                numberTone(account.floating_profit),
-              ],
-            ]}
-          />
-        )}
-      </p>
-      <small className="muted account-balance-time">{balanceTimeText}</small>
     </article>
   );
 }
@@ -854,7 +808,6 @@ export function AccountPanel() {
     );
   };
 
-  const balanceGroups = performance?.balance_groups ?? [];
   const performanceGroups = performance?.performance_groups ?? [];
   const hasEaAccount = accounts.some(
     (account) => account.execution_mode !== "MANAGED"
@@ -1209,45 +1162,21 @@ export function AccountPanel() {
       <section>
         <h2>Saldo dan performa akun</h2>
         <p className="section-help">
-          Worker managed melaporkan saldo, ekuitas, posisi terbuka, dan transaksi
-          follower ke portal. Nilai dengan mata uang berbeda ditampilkan terpisah.
+          Saldo, profit harian, dan riwayat transaksi setiap akun dilaporkan
+          langsung dari MT5.
         </p>
-        <div id="client-balance-groups" className="grid">
-          {balanceGroups.length === 0 ? (
+        <div id="client-balance-groups" className="account-perf-list">
+          {accounts.length === 0 ? (
             <p className="empty-state">
-              Saldo akan tampil setelah EA Copy Trading mengirim laporan dari MT5.
+              Saldo akan tampil setelah akun MT5 ditambahkan dan melapor.
             </p>
           ) : (
-            balanceGroups.map((group) => (
-              <article key={`${group.trade_mode}-${group.currency}`} className="card">
+            accounts.map((account) => (
+              <article key={account.id} className="account-perf-item">
                 <h3>
-                  Saldo {modeLabel(group.trade_mode)} · {group.currency}
+                  {account.label} · {account.login}
                 </h3>
-                <p className="account-balance">
-                  Saldo {formatMoney(group.balance, group.currency)}
-                </p>
-                <p className="muted">
-                  <Metrics
-                    items={[
-                      ["Ekuitas", group.equity, group.currency],
-                      [
-                        "Floating",
-                        group.floating_profit,
-                        group.currency,
-                        numberTone(group.floating_profit),
-                      ],
-                    ]}
-                  />
-                </p>
-                <small className="muted">
-                  {`${formatInteger(group.online_accounts)} dari ${formatInteger(
-                    group.reported_accounts
-                  )} akun melapor · ${
-                    group.updated_at
-                      ? `${wib(group.updated_at)} WIB`
-                      : "belum ada pembaruan"
-                  }`}
-                </small>
+                <AccountPerformanceDetails accountId={account.id} alwaysOpen />
               </article>
             ))
           )}
