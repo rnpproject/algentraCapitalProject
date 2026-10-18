@@ -70,6 +70,12 @@ func (w *worker) applyManagedWebRequest(c *child, url string) error {
 		lastErr = fmt.Errorf("percobaan %d gagal; output=%s; log=%s", attempt,
 			strings.TrimSpace(string(output)), strings.TrimSpace(string(logText)))
 		log.Printf("WebRequest allow-list akun %d: %v", c.accountID, lastErr)
+		if strings.Contains(string(logText), "confirm_control_focused_but_dialog_still_open") ||
+			strings.Contains(string(logText), "confirm_button_not_found_dialog_left_open") {
+			// The script deliberately leaves Options open after a failed confirm.
+			// Do not send another Ctrl+O into that modal dialog on the next retry.
+			return lastErr
+		}
 		if attempt < 5 {
 			select {
 			case <-time.After(20 * time.Second):

@@ -121,7 +121,6 @@ EndIf
 WinActivate($options)
 If WinWaitActive($options, "", 5) = 0 Then
    LogLine("RESULT=FAIL reason=options_dialog_not_active")
-   Send("{ESC}")
    FileClose($gLog)
    Exit 4
 EndIf
@@ -137,19 +136,28 @@ While $checkbox = "" And $tabTry < 12
 WEnd
 If $checkbox = "" Then
    LogLine("RESULT=FAIL reason=webrequest_checkbox_not_found")
-   Send("{ESC}")
    FileClose($gLog)
    Exit 5
 EndIf
 If ControlCommand($options, "", $checkbox, "IsChecked", "") <> 1 Then
    ControlClick($options, "", $checkbox)
-   Sleep(300)
+   Sleep(250)
+   If ControlCommand($options, "", $checkbox, "IsChecked", "") <> 1 Then
+      WinActivate($options)
+      ControlFocus($options, "", $checkbox)
+      ControlSend($options, "", $checkbox, "{SPACE}")
+      Sleep(250)
+   EndIf
+   If ControlCommand($options, "", $checkbox, "IsChecked", "") <> 1 Then
+      LogLine("RESULT=FAIL reason=webrequest_checkbox_did_not_enable")
+      FileClose($gLog)
+      Exit 5
+   EndIf
 EndIf
 
 Local $listPos = ControlGetPos($options, "", "SysListView321")
 If @error Or Not IsArray($listPos) Then
    LogLine("RESULT=FAIL reason=url_list_not_found")
-   Send("{ESC}")
    FileClose($gLog)
    Exit 6
 EndIf
@@ -157,7 +165,6 @@ If Not ListContainsUrl($options, $url) Then
    Local $count = ControlListView($options, "", "SysListView321", "GetItemCount")
    If $count < 1 Then
       LogLine("RESULT=FAIL reason=url_list_empty")
-      Send("{ESC}")
       FileClose($gLog)
       Exit 7
    EndIf
@@ -184,6 +191,19 @@ Local $confirm = FindConfirmButton($options)
 If $confirm <> "" Then
    LogLine("clicking confirm control=" & $confirm & " caption=" & ControlGetText($options, "", $confirm))
    ControlClick($options, "", $confirm)
+   If Not WaitOptionsClosed($options, 1200) Then
+      ; Some MT5 builds only give the custom dialog button focus on the first
+      ; ControlClick. Activate the focused button explicitly, then verify it.
+      WinActivate($options)
+      ControlFocus($options, "", $confirm)
+      ControlSend($options, "", $confirm, "{SPACE}")
+   EndIf
+   If Not WaitOptionsClosed($options, 1200) Then
+      ; Final keyboard fallback with the confirmation button focused.
+      WinActivate($options)
+      ControlFocus($options, "", $confirm)
+      Send("{ENTER}")
+   EndIf
 Else
    For $i = 1 To 25
       Local $control = "Button" & $i
@@ -198,7 +218,7 @@ Else
    Exit 9
 EndIf
 If Not WaitOptionsClosed($options, 3000) Then
-   LogLine("RESULT=FAIL reason=options_dialog_still_open_after_confirm")
+   LogLine("RESULT=FAIL reason=confirm_control_focused_but_dialog_still_open control=" & $confirm)
    FileClose($gLog)
    Exit 9
 EndIf
