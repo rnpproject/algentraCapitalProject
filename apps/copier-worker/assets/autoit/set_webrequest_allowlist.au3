@@ -3,7 +3,7 @@
 Opt("WinTitleMatchMode", 2)
 Opt("SendKeyDelay", 20)
 Opt("SendKeyDownDelay", 5)
-Opt("MouseCoordMode", 2)
+Opt("MouseCoordMode", 1)
 
 Global $gLog = -1
 Global $gMainWindow = 0
@@ -59,9 +59,35 @@ EndFunc
 Func ListContainsUrl($handle, $url)
    Local $count = ControlListView($handle, "", "SysListView321", "GetItemCount")
    For $i = 0 To $count - 1
-      If StringLower(StringStripWS(ControlListView($handle, "", "SysListView321", "GetText", $i, 0), 3)) = StringLower($url) Then Return True
+      Local $existing = NormalizeURL(ControlListView($handle, "", "SysListView321", "GetText", $i, 0))
+      LogLine("allow-list row=" & $i & " url=" & $existing)
+      If $existing = NormalizeURL($url) Then Return True
    Next
    Return False
+EndFunc
+
+Func NormalizeURL($value)
+   $value = StringLower(StringStripWS($value, 3))
+   While StringRight($value, 1) = "/"
+      $value = StringTrimRight($value, 1)
+   WEnd
+   Return $value
+EndFunc
+
+Func ClickControlOnScreen($handle, $control)
+   Local $controlPos = ControlGetPos($handle, "", $control)
+   If @error Or Not IsArray($controlPos) Then Return False
+   ; ControlGetPos is client-relative. Convert the client origin to screen
+   ; coordinates so a real mouse click reaches MT5's custom dialog button.
+   Local $origin = DllStructCreate("long X;long Y")
+   Local $converted = DllCall("user32.dll", "bool", "ClientToScreen", "hwnd", $handle, "struct*", $origin)
+   If @error Or Not IsArray($converted) Or Not $converted[0] Then Return False
+   Local $x = DllStructGetData($origin, "X") + $controlPos[0] + Int($controlPos[2] / 2)
+   Local $y = DllStructGetData($origin, "Y") + $controlPos[1] + Int($controlPos[3] / 2)
+   WinActivate($handle)
+   If WinWaitActive($handle, "", 3) = 0 Then Return False
+   MouseClick("left", $x, $y, 1, 0)
+   Return True
 EndFunc
 
 Func FindConfirmButton($handle)
@@ -190,10 +216,15 @@ EndIf
 Local $confirm = FindConfirmButton($options)
 If $confirm <> "" Then
    LogLine("clicking confirm control=" & $confirm & " caption=" & ControlGetText($options, "", $confirm))
-   ControlClick($options, "", $confirm)
+   If Not ClickControlOnScreen($options, $confirm) Then
+      LogLine("physical confirm click failed; trying control click")
+      ControlClick($options, "", $confirm, "left", 1)
+   EndIf
    If Not WaitOptionsClosed($options, 1200) Then
-      ; Some MT5 builds only give the custom dialog button focus on the first
-      ; ControlClick. Activate the focused button explicitly, then verify it.
+      ; Some terminal builds consume the first click as activation only.
+      ClickControlOnScreen($options, $confirm)
+   EndIf
+   If Not WaitOptionsClosed($options, 1200) Then
       WinActivate($options)
       ControlFocus($options, "", $confirm)
       ControlSend($options, "", $confirm, "{SPACE}")
