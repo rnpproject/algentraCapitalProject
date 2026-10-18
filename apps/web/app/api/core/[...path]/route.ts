@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const ALLOWED_PREFIXES = new Set([
-  "auth", "public", "payments", "mt5", "dashboard", "settings", "parser", "cs", "telegram", "downloads"
+  "auth", "public", "payments", "mt5", "dashboard", "settings", "parser", "cs", "telegram", "downloads", "admin"
 ]);
 const RESPONSE_HOP_HEADERS = new Set([
   "connection", "content-encoding", "content-length", "keep-alive", "transfer-encoding"
@@ -59,6 +59,9 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
   }
   if (!ALLOWED_PREFIXES.has(path[0])) {
     return Response.json({ detail: "Endpoint tidak tersedia melalui BFF" }, { status: 404 });
+  }
+  if (path[0] === "admin" && path[1] !== "copy-accounts") {
+    return Response.json({ detail: "Endpoint admin tidak tersedia melalui BFF" }, { status: 404 });
   }
 
   const origin = process.env.CORE_API_ORIGIN?.replace(/\/+$/, "");

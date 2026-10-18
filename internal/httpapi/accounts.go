@@ -22,6 +22,7 @@ type clientMT5API struct {
 	state            *snapshot.Store
 	pricing          ServicePricing
 	workerConfigured bool
+	copierAPIKey     string
 	appSecret        string
 	updates          *mt5UpdateHub
 }

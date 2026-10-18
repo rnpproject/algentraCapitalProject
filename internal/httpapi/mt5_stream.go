@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"time"
 )
@@ -88,23 +89,36 @@ func (api clientMT5API) accountUpdatesStream(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprint(w, "event: mt5-update\ndata: {\"account_id\":0,\"initial\":true}\n\n")
+	if err := api.writeMT5SnapshotEvent(w, r); err != nil {
+		return
+	}
 	flusher.Flush()
 	keepalive := time.NewTicker(20 * time.Second)
 	defer keepalive.Stop()
+	accountRefresh := time.NewTicker(time.Second)
+	defer accountRefresh.Stop()
+	metaRefresh := time.NewTicker(15 * time.Second)
+	defer metaRefresh.Stop()
+	dirty := false
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case accountID, open := <-updates:
+		case _, open := <-updates:
 			if !open {
 				return
 			}
-			payload, err := json.Marshal(map[string]any{"account_id": accountID})
-			if err != nil {
-				continue
+			dirty = true
+		case <-accountRefresh.C:
+			if dirty {
+				if err := api.writeMT5AccountsEvent(w, r); err != nil {
+					return
+				}
+				flusher.Flush()
+				dirty = false
 			}
-			if _, err := fmt.Fprintf(w, "event: mt5-update\ndata: %s\n\n", payload); err != nil {
+		case <-metaRefresh.C:
+			if err := api.writeMT5MetaEvent(w, r); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -115,4 +129,41 @@ func (api clientMT5API) accountUpdatesStream(w http.ResponseWriter, r *http.Requ
 			flusher.Flush()
 		}
 	}
+}
+
+func captureMT5Handler(handler http.HandlerFunc, r *http.Request) json.RawMessage {
+	recorder := httptest.NewRecorder()
+	handler(recorder, r)
+	if recorder.Code != http.StatusOK || !json.Valid(recorder.Body.Bytes()) {
+		return json.RawMessage(`null`)
+	}
+	return json.RawMessage(append([]byte(nil), recorder.Body.Bytes()...))
+}
+
+func writeMT5SSE(w http.ResponseWriter, event string, payload any) error {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, encoded)
+	return err
+}
+
+func (api clientMT5API) writeMT5SnapshotEvent(w http.ResponseWriter, r *http.Request) error {
+	return writeMT5SSE(w, "mt5-snapshot", map[string]json.RawMessage{
+		"accounts":    captureMT5Handler(api.listAccounts, r),
+		"performance": captureMT5Handler(api.performance, r),
+		"copier":      captureMT5Handler((copierAPI{pool: api.pool, apiKey: api.copierAPIKey}).serviceStatus, r),
+	})
+}
+
+func (api clientMT5API) writeMT5AccountsEvent(w http.ResponseWriter, r *http.Request) error {
+	return writeMT5SSE(w, "mt5-accounts", map[string]json.RawMessage{"accounts": captureMT5Handler(api.listAccounts, r)})
+}
+
+func (api clientMT5API) writeMT5MetaEvent(w http.ResponseWriter, r *http.Request) error {
+	return writeMT5SSE(w, "mt5-meta", map[string]json.RawMessage{
+		"performance": captureMT5Handler(api.performance, r),
+		"copier":      captureMT5Handler((copierAPI{pool: api.pool, apiKey: api.copierAPIKey}).serviceStatus, r),
+	})
 }

@@ -29,10 +29,10 @@ export function AccountPerformanceDetails({ accountId, admin = false, compact = 
     if (!open || compact || admin || typeof EventSource === "undefined") return;
     let alive = true;
     const stream = new EventSource("/api/core/mt5/stream");
-    stream.addEventListener("mt5-update", event => {
+    stream.addEventListener("mt5-accounts", event => {
       try {
-        const update = JSON.parse((event as MessageEvent<string>).data) as { account_id?: number };
-        if (update.account_id !== accountId) return;
+        const update = JSON.parse((event as MessageEvent<string>).data) as { accounts?: Array<{ id: number }> };
+        if (!update.accounts?.some(account => account.id === accountId)) return;
         void apiRequest<Details>(`mt5/accounts/${accountId}/details?page=${historyPage}`).then(data => { if (alive) setDetails(data); }).catch(() => {});
       } catch { /* Ignore malformed stream events. */ }
     });

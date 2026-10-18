@@ -647,7 +647,6 @@ export function AccountPanel() {
   const [tokenBox, setTokenBox] = useState<TokenBox>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
   const managedFormDirty = useRef(false);
-  const loginCheckPending = useRef(false);
   const modeTouched = useRef(false);
 
   const managedWorkerReady = copier?.available === true;
@@ -659,14 +658,6 @@ export function AccountPanel() {
         ? "Worker managed copy offline. Layanan managed belum dapat dipesan atau dimulai."
         : "Layanan managed belum dikonfigurasi di server. Anda tetap dapat memilih Pasang EA sendiri.";
 
-  const refreshAccountList = useCallback(async () => {
-    const accountList = await apiRequest<Account[]>("mt5/accounts");
-    setAccounts(accountList);
-    loginCheckPending.current = accountList.some(
-      (account) => account.managed_copy?.login_status === "CHECKING"
-    );
-  }, []);
-
   const loadAccounts = useCallback(async () => {
     try {
       const [accountList, perfData, copierStatus] = await Promise.all([
@@ -675,9 +666,6 @@ export function AccountPanel() {
         apiRequest<CopierStatus>("mt5/copier/status"),
       ]);
       setAccounts(accountList);
-      loginCheckPending.current = accountList.some(
-        (account) => account.managed_copy?.login_status === "CHECKING"
-      );
       setPerformance(perfData);
       setCopier(copierStatus);
       if (!modeTouched.current) {
@@ -704,42 +692,41 @@ export function AccountPanel() {
     apiRequest<Pricing>("mt5/pricing")
       .then(setPricing)
       .catch(() => {});
-    loadAccounts();
-    let timer: ReturnType<typeof setTimeout>;
-    const pollAccounts = async () => {
-      if (!document.hidden && !managedFormDirty.current) {
-        if (loginCheckPending.current) {
-          try {
-            await refreshAccountList();
-          } catch {
-            // Keep the last known status and retry on the next short poll.
-          }
-        } else {
-          await loadAccounts();
-        }
-      }
-      const fastPoll = !document.hidden && !managedFormDirty.current && loginCheckPending.current;
-      timer = setTimeout(pollAccounts, fastPoll ? 1000 : 30000);
-    };
-    timer = setTimeout(pollAccounts, 1000);
-    return () => clearTimeout(timer);
-  }, [loadAccounts, refreshAccountList]);
-
-  useEffect(() => {
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const stream = new EventSource("/api/core/mt5/stream");
-    const scheduleRefresh = () => {
-      if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => {
-        if (!document.hidden && !managedFormDirty.current) void loadAccounts();
-      }, 40);
+    const applySnapshot = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as { accounts?: Account[]; performance?: Performance; copier?: CopierStatus };
+        if (payload.accounts) setAccounts(payload.accounts);
+        if (payload.performance) setPerformance(payload.performance);
+        if (payload.copier) {
+          setCopier(payload.copier);
+          if (!modeTouched.current) setExecutionMode(payload.copier.available ? "MANAGED" : "EA");
+        }
+      } catch { /* Ignore malformed stream payloads; EventSource reconnects automatically. */ }
     };
-    stream.addEventListener("mt5-update", scheduleRefresh);
+    const applyAccounts = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as { accounts?: Account[] };
+        if (payload.accounts) setAccounts(payload.accounts);
+      } catch { /* Ignore malformed account events. */ }
+    };
+    const applyMeta = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as { performance?: Performance; copier?: CopierStatus };
+        if (payload.performance) setPerformance(payload.performance);
+        if (payload.copier) {
+          setCopier(payload.copier);
+          if (!modeTouched.current) setExecutionMode(payload.copier.available ? "MANAGED" : "EA");
+        }
+      } catch { /* Ignore malformed metadata events. */ }
+    };
+    stream.addEventListener("mt5-snapshot", applySnapshot as EventListener);
+    stream.addEventListener("mt5-accounts", applyAccounts as EventListener);
+    stream.addEventListener("mt5-meta", applyMeta as EventListener);
     return () => {
       stream.close();
-      if (refreshTimer) clearTimeout(refreshTimer);
     };
-  }, [loadAccounts]);
+  }, []);
 
   useEffect(() => {
     const query = serverSearch.trim();
