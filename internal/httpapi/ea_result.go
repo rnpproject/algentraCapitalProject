@@ -18,7 +18,7 @@ type tradeResultRequest struct {
 	Ticket   json.RawMessage `json:"ticket"`
 	Profit   float64         `json:"profit"`
 	Result   string          `json:"result"`
-	ClosedAt *time.Time      `json:"closed_at"`
+	ClosedAt json.RawMessage `json:"closed_at"`
 }
 
 func (api eaSignalAPI) result(w http.ResponseWriter, r *http.Request) {
@@ -33,6 +33,11 @@ func (api eaSignalAPI) result(w http.ResponseWriter, r *http.Request) {
 	ticket, err := parseOptionalTicket(payload.Ticket)
 	if err != nil || ticket == nil || strings.TrimSpace(*ticket) == "" {
 		writeError(w, http.StatusUnprocessableEntity, "Ticket tidak valid")
+		return
+	}
+	closedAt, err := parseTradeResultTime(payload.ClosedAt)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "Waktu penutupan trade tidak valid")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -62,8 +67,8 @@ func (api eaSignalAPI) result(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	closed := time.Now().UTC()
-	if payload.ClosedAt != nil {
-		closed = payload.ClosedAt.UTC()
+	if closedAt != nil {
+		closed = closedAt.UTC()
 	}
 	if _, err := tx.Exec(ctx, `UPDATE trades SET profit=$2, result=$3, closed_at=$4 WHERE id=$1`, tradeID, payload.Profit, payload.Result, closed); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "Trade tidak dapat ditutup")
@@ -112,6 +117,22 @@ func (api eaSignalAPI) result(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": payload.Result, "ticket": *ticket, "duplicate": false})
+}
+
+func parseTradeResultTime(raw json.RawMessage) (*time.Time, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil || strings.TrimSpace(value) == "" {
+		return nil, fmt.Errorf("closed_at must be a timestamp string")
+	}
+	for _, layout := range []string{time.RFC3339Nano, "2006.01.02T15:04:05", "2006-01-02T15:04:05"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return &parsed, nil
+		}
+	}
+	return nil, fmt.Errorf("unsupported closed_at format")
 }
 
 func validTradeResult(p tradeResultRequest) bool {

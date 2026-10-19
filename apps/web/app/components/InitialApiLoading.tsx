@@ -15,7 +15,7 @@ export function InitialApiLoading() {
     const scheduleHide = () => {
       clearTimer();
       if (pending.current > 0) return;
-      timer.current = setTimeout(() => setVisible(false), 350);
+      timer.current = setTimeout(() => setVisible(false), 120);
     };
     const onStart = () => {
       pending.current += 1;
@@ -25,11 +25,14 @@ export function InitialApiLoading() {
       pending.current = Math.max(0, pending.current - 1);
       scheduleHide();
     };
+    // Pengaman: overlay tidak boleh menutup halaman lebih dari 3 detik, seberapa lambat pun API.
+    const failsafe = setTimeout(() => setVisible(false), 3000);
     window.addEventListener("algentra:api-start", onStart);
     window.addEventListener("algentra:api-end", onEnd);
     scheduleHide();
     return () => {
       clearTimer();
+      clearTimeout(failsafe);
       window.removeEventListener("algentra:api-start", onStart);
       window.removeEventListener("algentra:api-end", onEnd);
     };

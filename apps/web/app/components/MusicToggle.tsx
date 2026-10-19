@@ -17,21 +17,6 @@ export function MusicToggle() {
   const [labelOverride, setLabelOverride] = useState<string | null>(null);
   const [titleOverride, setTitleOverride] = useState<string | null>(null);
 
-  // Graceful: sembunyikan toggle bila berkas musik tidak ada (404).
-  useEffect(() => {
-    let cancelled = false;
-    fetch(MUSIC_SRC, { method: "HEAD" })
-      .then((response) => {
-        if (!cancelled && !response.ok) setAvailable(false);
-      })
-      .catch(() => {
-        /* Biarkan error handler <audio> yang bicara. */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   // Sinkronkan state dengan event play/pause/error dari <audio>.
   useEffect(() => {
     const audio = audioRef.current;
@@ -42,10 +27,8 @@ export function MusicToggle() {
       setTitleOverride(null);
     };
     const onPause = () => setPlaying(false);
-    const onError = () => {
-      setLabelOverride("Musik tidak tersedia");
-      setTitleOverride("Berkas musik tidak dapat dimuat");
-    };
+    // Berkas musik 404 / gagal dimuat: sembunyikan toggle (menggantikan HEAD request terpisah).
+    const onError = () => setAvailable(false);
     audio.addEventListener("play", onPlay);
     audio.addEventListener("pause", onPause);
     audio.addEventListener("error", onError);
@@ -104,7 +87,7 @@ export function MusicToggle() {
 
   return (
     <>
-      <audio ref={audioRef} id="site-music" preload="auto" loop>
+      <audio ref={audioRef} id="site-music" preload="none" loop>
         <source src={MUSIC_SRC} type="audio/mpeg" />
       </audio>
       <button

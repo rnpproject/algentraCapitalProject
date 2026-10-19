@@ -158,6 +158,7 @@ export default function PublicPage() {
   useEffect(() => {
     let cancelled = false;
     const checkRegistrationStatus = async () => {
+      if (document.hidden) return;
       try {
         const status = await apiRequest<RegistrationStatus>("public/registration-status");
         if (cancelled) return;

@@ -3,7 +3,7 @@
 import Script from "next/script";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { apiRequest } from "../lib/api";
+import { ApiError, apiRequest } from "../lib/api";
 import {
   formatInteger,
   formatLots,
@@ -237,8 +237,10 @@ export function DashboardPanel() {
     setGeminiModel(typeof model === "string" ? model : "");
   }
 
+  // Satu endpoint yang gagal tidak lagi menjatuhkan seluruh dashboard:
+  // panel lain tetap tampil, dan error dilempar hanya bila SEMUA permintaan gagal.
   async function refresh() {
-    await Promise.all([
+    const results = await Promise.allSettled([
       loadStatsAndSignals(),
       loadMt5Live(),
       loadMasterDailyProfit(),
@@ -247,17 +249,8 @@ export function DashboardPanel() {
       loadTrades(tradePageRef.current),
       loadProfitChart(),
     ]);
-  }
-
-  // apiRequest tidak membawa status HTTP; untuk mendeteksi 401 (belum login admin)
-  // cek status mentah dari endpoint yang sama tanpa mengarang endpoint baru.
-  async function isUnauthorized(): Promise<boolean> {
-    try {
-      const response = await fetch("/api/core/dashboard/stats", { cache: "no-store" });
-      return response.status === 401;
-    } catch {
-      return false;
-    }
+    const failures = results.filter((item): item is PromiseRejectedResult => item.status === "rejected");
+    if (failures.length === results.length) throw failures[0].reason;
   }
 
   useEffect(() => {
@@ -267,7 +260,7 @@ export function DashboardPanel() {
         await refresh();
         if (!cancelled) setConnection("Realtime tersambung melalui SSE.");
       } catch (reason) {
-        if (await isUnauthorized()) {
+        if (reason instanceof ApiError && reason.status === 401) {
           router.replace("/admin/login");
           return;
         }
@@ -281,42 +274,103 @@ export function DashboardPanel() {
         setSettingsMessage(reason instanceof Error ? reason.message : "Gagal memuat settings.");
     });
     const stream = new EventSource("/api/core/dashboard/realtime/stream");
+    // --- Realtime: SSE + refresh detail terpicu perubahan + watchdog fallback ---
+    let lastSseAt = Date.now();
+    let lastSignature = "";
+    let detailBusy = false;
+    let lastDetailAt = 0;
+    const refreshDetails = () => {
+      if (detailBusy || cancelled) return;
+      detailBusy = true;
+      lastDetailAt = Date.now();
+      // MT5 live dipoll terpisah di bawah; jangan diambil dua kali.
+      void Promise.allSettled([loadMasterDailyProfit(), loadGroups(), loadLogs(), loadTrades(tradePageRef.current), loadProfitChart()])
+        .finally(() => { detailBusy = false; });
+    };
+    let detailDebounce: ReturnType<typeof setTimeout> | undefined;
+    const scheduleDetails = () => {
+      clearTimeout(detailDebounce);
+      // Paling cepat 700 ms setelah perubahan, dan minimal 3 dtk antar-refresh agar backend tidak dibanjiri.
+      detailDebounce = setTimeout(refreshDetails, Math.max(700, 3000 - (Date.now() - lastDetailAt)));
+    };
+    const stamp = () => new Date().toLocaleTimeString("en-GB");
+
     stream.addEventListener("dashboard", (event) => {
       try {
         const payload = JSON.parse((event as MessageEvent<string>).data) as {
           stats?: Stats;
           latest_signal_id?: number | null;
         };
-        if (payload.stats) setStats(payload.stats);
-        setConnection("Realtime tersambung melalui SSE.");
+        lastSseAt = Date.now();
+        if (payload.stats) {
+          setStats(payload.stats);
+          // Stats berubah => kemungkinan ada order/profit baru: segarkan panel detail segera.
+          const signature = JSON.stringify(payload.stats);
+          if (lastSignature && signature !== lastSignature && !document.hidden) scheduleDetails();
+          lastSignature = signature;
+        }
+        setConnection(`Realtime tersambung · ${stamp()}`);
         if (payload.latest_signal_id !== undefined) {
           const previousId = latestSignalIdRef.current;
           latestSignalIdRef.current = payload.latest_signal_id;
-          if (previousId !== undefined && previousId !== payload.latest_signal_id) void loadStatsAndSignals();
+          if (previousId !== undefined && previousId !== payload.latest_signal_id) void loadStatsAndSignals().catch(() => {});
         }
       } catch {
         if (!cancelled) setConnection("Data realtime tidak dapat dibaca.");
       }
     });
-    stream.onopen = () => { if (!cancelled) setConnection("Realtime tersambung melalui SSE."); };
+    stream.onopen = () => { lastSseAt = Date.now(); if (!cancelled) setConnection("Realtime tersambung melalui SSE."); };
     stream.onerror = () => { if (!cancelled) setConnection("Menyambungkan ulang realtime…"); };
-    // Refresh data tabel secara berkala; statistik dan sinyal menerima event SSE.
+
+    // Polling berlapis dengan penjaga "sedang berjalan": bila backend lambat, permintaan
+    // tidak menumpuk (dulu tiap 2 dtk menembak lagi walau yang sebelumnya belum selesai).
     const detailTimer = setInterval(() => {
-      if (document.hidden || cancelled) return;
-      void Promise.all([loadMt5Live(), loadMasterDailyProfit(), loadGroups(), loadLogs(), loadTrades(tradePageRef.current), loadProfitChart()]).catch(() => {});
-    }, 15000);
-    // MT5 live: polling tiap 2 detik.
+      if (document.hidden) return;
+      refreshDetails();
+    }, 6000);
+
+    // Watchdog SSE: bila tidak ada event >15 dtk (mis. ditahan proxy/tunnel), jangan diam saja:
+    // beri tanda dan ambil stats+sinyal lewat REST setiap 5 dtk sampai SSE pulih.
+    let watchdogBusy = false;
+    const watchdog = setInterval(() => {
+      if (document.hidden || cancelled || Date.now() - lastSseAt < 15000) return;
+      setConnection("Realtime tertunda — memakai pembaruan berkala…");
+      if (watchdogBusy) return;
+      watchdogBusy = true;
+      loadStatsAndSignals().catch(() => {}).finally(() => { watchdogBusy = false; });
+    }, 5000);
+
+    let mt5Busy = false;
+    let mt5Failures = 0;
+    let mt5NextAt = 0;
     const mt5Timer = setInterval(() => {
-      if (document.hidden || cancelled) return;
-      void loadMt5Live().catch((reason) => {
-        if (!cancelled) setMt5Error(reason instanceof Error ? reason.message : "Gagal memuat MT5.");
-      });
+      if (document.hidden || cancelled || mt5Busy || Date.now() < mt5NextAt) return;
+      mt5Busy = true;
+      loadMt5Live()
+        .then(() => { mt5Failures = 0; })
+        .catch((reason) => {
+          mt5Failures += 1;
+          // Mundur bertahap (2 dtk -> maks. 20 dtk) saat error beruntun.
+          mt5NextAt = Date.now() + Math.min(20000, 2000 * 2 ** Math.min(mt5Failures, 4));
+          if (!cancelled) setMt5Error(reason instanceof Error ? reason.message : "Gagal memuat MT5.");
+        })
+        .finally(() => { mt5Busy = false; });
     }, 2000);
+
+    // Kembali ke tab setelah lama tersembunyi: segarkan sekali, jangan tunggu timer.
+    const onVisible = () => {
+      if (document.hidden || cancelled) return;
+      void refresh().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       stream.close();
       clearInterval(detailTimer);
+      clearInterval(watchdog);
+      clearTimeout(detailDebounce);
       clearInterval(mt5Timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

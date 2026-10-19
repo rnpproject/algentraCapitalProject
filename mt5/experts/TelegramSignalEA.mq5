@@ -1323,6 +1323,7 @@ void ReportClosedPosition(const long position_id, const ulong closing_deal)
    string iso_close_time = TimeToString(close_time, TIME_DATE | TIME_SECONDS);
    StringReplace(iso_close_time, ".", "-");
    StringReplace(iso_close_time, " ", "T");
+    iso_close_time += "+07:00";
    string payload = StringFormat(
       "{\"ticket\":\"%I64d\",\"profit\":%.2f,\"result\":\"%s\",\"closed_at\":\"%s\"}",
       ticket, profit, result, iso_close_time);
