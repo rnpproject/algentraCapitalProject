@@ -27,13 +27,13 @@ Vercel mengakses API melalui HTTPS origin di belakang Cloudflare Tunnel/Access d
    ```
 
    Hasil yang diharapkan adalah `algentra:production:<project-ref>` dan `algentra:revision:0004_account_daily_profit`.
-3. File tersebut membuat role `algentra_api` dan `algentra_backup` sebagai `NOLOGIN`. Aktifkan login untuk role runtime di SQL Editor:
+3. File tersebut membuat role `algentra_api` dan `algentra_backup` sebagai `NOLOGIN`. Aktifkan login sekaligus tetapkan password role runtime di SQL Editor. Ganti placeholder dengan password kuat dan unik sebelum menjalankan:
 
    ```sql
-   ALTER ROLE algentra_api LOGIN;
+   ALTER ROLE algentra_api LOGIN PASSWORD 'GANTI_DENGAN_PASSWORD_KUAT';
    ```
 
-   Jika menyiapkan host backup, jalankan juga `ALTER ROLE algentra_backup LOGIN;`. Dari `psql` yang terhubung sebagai project owner, atur password role yang diaktifkan dengan `\password algentra_api` atau `\password algentra_backup`. Perintah `\password` meminta password secara interaktif; jangan menaruhnya di source, SQL script, atau command history. Gunakan connection string TLS (`sslmode=require` minimal) untuk role runtime; jangan gunakan role `postgres` atau Supabase `service_role` pada aplikasi.
+   Jika menyiapkan host backup, aktifkan role itu dengan cara yang sama dan gunakan password terpisah. Jangan menyimpan password di source code atau file SQL. Gunakan connection string TLS (`sslmode=require` minimal) untuk role runtime; jangan gunakan role `postgres` atau Supabase `service_role` pada aplikasi.
 4. Isi `SUPABASE_PROJECT_REF` di environment Core API dengan ref yang sama. Gunakan `DATABASE_URL` dengan role runtime `algentra_api`. Database production baru tidak mengambil data dari SQLite; importer SQLite tetap hanya alat development dan tidak diperlukan untuk deployment fresh.
 
 > API tidak menjalankan DDL ketika startup. Installer fresh hanya untuk project Supabase baru yang belum memiliki schema `app`; jangan jalankan pada database yang berisi data atau schema lama. Untuk rilis berikutnya, siapkan perubahan schema sebagai SQL upgrade terpisah dan tinjau/backup sebelum diterapkan. Prosedur migrasi database development dan importer SQLite lokal dijelaskan di [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), bukan bagian dari instalasi production fresh.
