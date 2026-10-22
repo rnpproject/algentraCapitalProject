@@ -4,15 +4,15 @@ Panduan ini mencakup Core API Windows Service, Cloudflare Tunnel/Vercel, worker 
 
 ## Windows Server dan Core API
 
-Gunakan Windows Server terkelola, Python 3.12 64-bit, NSSM, Cloudflare Tunnel, koneksi TLS ke Supabase production, dan akun service non-admin. Project production harus sudah memiliki schema/revision yang cocok; service tidak menjalankan DDL atau migrasi.
+Gunakan Windows Server terkelola, executable Go untuk Core API dan managed worker, NSSM, Cloudflare Tunnel, koneksi TLS ke Supabase production, dan akun service non-admin. Project production harus sudah memiliki schema/revision yang cocok; service tidak menjalankan DDL atau migrasi.
 
-1. Letakkan release di path tetap dan pasang dependency:
+1. Letakkan release di path tetap dan buat executable Windows dari root repository:
 
    ```powershell
-   py -3.12 -m venv .venv
-   .\.venv\Scripts\python.exe -m pip install --upgrade pip
-   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-   .\.venv\Scripts\python.exe -m pip install -e .\apps\copier-worker
+   go build -ldflags="-s -w" -o algentra-backend.exe ./cmd/algentra-backend
+   go build -ldflags="-s -w" -o algentra-copier-master.exe ./cmd/copier-master
+   go build -ldflags="-s -w" -o algentra-copier-launcher.exe ./cmd/copier-launcher
+   go build -ldflags="-s -w" -o algentra-copier-worker.exe ./cmd/copier-worker
    ```
 
 2. Buat `D:\AlgentraSecure\core-api.env` di luar repository dan batasi ACL NTFS. Isi variabel production berdasarkan `.env.example`; jangan menyalin `.env.local` development. Jangan isi `MIGRATION_DATABASE_URL` atau `SUPABASE_DEV_PROJECT_REF`. File tersebut berisi plaintext dan hanya boleh dibaca administrator, SYSTEM, serta akun service. Lindungi dan pertahankan `backend\data`.
@@ -75,7 +75,9 @@ Core API tetap berkomunikasi langsung dengan Postgres; browser tidak menerima se
 
 ## Managed copier worker
 
-Worker dijalankan sebagai Scheduled Task interaktif, bukan Windows Service. MT5 memerlukan sesi desktop pengguna; service Session 0 tidak dipakai untuk worker. Siapkan MT5 master yang sudah login, folder signal, terminal template follower bersih berisi `terminal64.exe`, dan Python 3.12 64-bit.
+Worker dijalankan sebagai Scheduled Task interaktif, bukan Windows Service. MT5 memerlukan sesi desktop pengguna; service Session 0 tidak dipakai untuk worker. Siapkan MT5 master yang sudah login, folder signal, terminal template follower bersih berisi `terminal64.exe`, dan binary Go worker beserta EA yang sudah dikompilasi.
+
+Form akun mencari nama broker/server melalui direktori pihak ketiga `mt5.mtapi.io`. Worker mencari ulang server terpilih dan menggunakan alamat akses yang dipublikasikan direktori, dengan `Config/servers.dat` lokal sebagai fallback bila resolver tidak tersedia. Pencarian mengirim nama server publik saja; login dan password tidak dikirim ke layanan pencarian. Nomor login tidak menunjukkan server akun, jadi pelanggan harus memilih server yang cocok dengan detail akun dari brokernya. Untuk memakai resolver lain, set `MT5_BROKER_DIRECTORY_URL` ke endpoint HTTPS yang kompatibel di lingkungan web dan worker.
 
 1. Pastikan `COPIER_WORKER_API_KEY` sama pada environment backend dan akun Windows worker. Nilai key hanya disimpan di secure environment/User/Machine; `worker_api_key_env` pada `config\managed-worker.json` harus berisi nama variabel `COPIER_WORKER_API_KEY`, bukan nilai key. Jangan memuat seluruh file environment Core API ke worker.
 2. Dari PowerShell pada root release jalankan installer dan masukkan key hanya pada prompt tersembunyi:
@@ -83,26 +85,24 @@ Worker dijalankan sebagai Scheduled Task interaktif, bukan Windows Service. MT5 
    ```powershell
    .\apps\copier-worker\scripts\install_managed_worker_task.ps1 `
      -ProjectRoot (Get-Location).Path `
-     -PythonPath (Join-Path (Get-Location).Path '.venv\Scripts\python.exe') `
      -ApiBaseUrl 'https://api.example.com' `
      -TerminalTemplateDir 'D:\MT5Templates\CleanFollower' `
-     -MasterTerminalPath 'C:\Program Files\MetaTrader 5\terminal64.exe' `
      -SignalDirectory 'C:\Algentra\signals'
    ```
 
-   Ganti URL dan path contoh dengan nilai deployment sebenarnya. Installer memvalidasi endpoint/key, menyiapkan dependency dan Scheduled Task, lalu memulai worker. Task berjalan saat akun Windows login; sesudah reboot, login kembali ke akun worker agar MT5 dan task aktif.
+   Ganti URL dan path contoh dengan nilai deployment sebenarnya. Installer memvalidasi endpoint/key, menyiapkan konfigurasi dan Scheduled Task, lalu memulai worker. Task berjalan saat akun Windows login; sesudah reboot, login kembali ke akun worker agar MT5 dan task aktif.
 3. Pantau `logs\managed_worker.log` dan `logs\managed_worker-task-error.log`. API menandai worker online setelah polling job berhasil dan menerima heartbeat. Worker yang online dapat mengeksekusi job managed aktif secara live; uji awal pada akun demo dan jangan mulai task dengan job live yang tidak ditinjau.
 
-Worker membuat terminal MT5 terisolasi, memeriksa kredensial broker, lalu menjalankan copier Python managed—bukan memasang EA MQL5 pada terminal tersebut. Klien harus menyetujui aktivasi live dari portal. Detail tambahan ada di [panduan copier-worker](../apps/copier-worker/README.md#managed-copy-dari-portal-client).
+TelegramSignalEA pada terminal master mengirim snapshot ke Core API. Worker managed meneruskan snapshot ke publisher Go lokal, membuat terminal MT5 follower terisolasi, memeriksa kredensial broker, lalu menjalankan EA follower melalui feed lokal. Mode `telegram_signal` tidak memerlukan MT5MasterPublisherEA pada master. Klien harus menyimpan kredensial/risk dan menyetujui aktivasi live dari portal. Detail tambahan ada di [panduan copier-worker](../apps/copier-worker/README.md#managed-copy-dari-portal-client).
 
 ## Rilis production
 
-Setiap rilis memerlukan maintenance window. Uvicorn berjalan satu proses dan tidak menerapkan migrasi otomatis.
+Setiap rilis memerlukan maintenance window. Core API dijalankan sebagai satu binary Go dan tidak menerapkan migrasi database otomatis.
 
 1. Uji kandidat pada staging/akun demo; jalankan tes sesuai [panduan development](./DEVELOPMENT.md). Tinjau perubahan kode, dependency, dan versi source EA.
 2. Pastikan tidak ada order sedang diproses. Aktifkan kill switch untuk menghentikan klaim signal baru; tinjau akun, simbol, EA, pending order, posisi, dan managed follower.
 3. Buat dan verifikasi backup sesuai [BACKUP.md](./BACKUP.md).
-4. Hentikan Core API service; deploy kode tanpa mengganti file environment, database, `backend\data`, config MT5, state worker, atau folder terminal. Pasang dependency yang diperlukan dan mulai satu service.
+4. Hentikan Core API service; deploy binary Go baru tanpa mengganti file environment, database, `backend\data`, config MT5, state worker, atau folder terminal. Tidak ada runtime Python yang perlu dipasang. Mulai satu service.
 5. Uji `/health` dan `/ready`, lalu login admin dan periksa dashboard, Telegram, EA, tunnel, worker, serta alur portal yang berubah. `/ready` hanya memeriksa database; ia tidak memastikan worker/EA/Telegram sehat.
 6. Untuk EA Telegram, uji terlebih dahulu pada akun demo. Backend tidak mempunyai dry-run untuk order EA tersebut.
 7. Lepas kill switch hanya setelah operator menyetujui trading live. Managed copy harus online, login follower valid, batas risiko diperiksa, dan client menyetujui **Mulai copy trading (live)**.

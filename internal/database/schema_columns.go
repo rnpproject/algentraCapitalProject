@@ -1,0 +1,31 @@
+package database
+
+// requiredColumns is the minimum database contract required by the Go backend.
+var requiredColumns = map[string][]string{
+	"admin_users":                      {"username", "password_hash", "created_at"},
+	"auth_sessions":                    {"session_hash", "user_type", "user_id", "session_data", "created_at", "last_seen_at", "expires_at", "revoked_at"},
+	"client_users":                     {"id", "email", "password_hash", "verified_at", "created_at"},
+	"cs_chat_messages":                 {"id", "conversation_id", "role", "content", "created_at"},
+	"cs_conversations":                 {"id", "client_user_id", "public_visitor_hash", "started_at", "expires_at"},
+	"ea_executions":                    {"id", "signal_id", "leg", "status", "ticket", "lots", "exec_price", "reason", "created_at"},
+	"ea_status":                        {"id", "active", "last_heartbeat", "terminal", "version", "symbol"},
+	"email_verifications":              {"email", "code_hash", "password_hash", "expires_at", "resend_after", "attempts", "send_count", "send_window_started_at", "locked_until", "created_at"},
+	"groups":                           {"chat_id", "name", "alias", "enabled"},
+	"logs":                             {"id", "level", "source", "message", "created_at"},
+	"managed_copy_profiles":            {"account_id", "password_ciphertext", "follower_symbol", "mode_lot", "ratio_lot", "lot_tetap", "max_lot_per_order", "max_lot_total", "max_open_positions", "login_status", "login_message", "active", "status", "status_message", "last_seen_at", "updated_at"},
+	"mt5_account_state":                {"account_id", "balance", "equity", "floating_profit", "margin", "free_margin", "currency", "trade_mode", "allow_live_trading", "terminal_trade_allowed", "expert_trade_allowed", "open_position_ids_json", "history_cursor", "history_cursor_msc", "observed_at"},
+	"mt5_accounts":                     {"id", "owner_id", "label", "server", "login", "plan", "role", "execution_mode", "token_hash", "active", "last_seen_at", "created_at"},
+	"mt5_history_deals":                {"id", "account_id", "deal_ticket", "position_id", "deal_time", "deal_time_msc", "symbol", "action", "entry", "volume", "price", "profit", "commission", "swap", "fee"},
+	"mt5_master_account_state":         {"id", "balance", "equity", "floating_profit", "currency", "trade_mode", "observed_at"},
+	"mt5_master_copy_positions":        {"id", "source_ticket", "symbol", "action", "lots", "entry_price", "sl", "tp", "is_open", "updated_at"},
+	"mt5_master_copy_state":            {"id", "last_snapshot_at"},
+	"mt5_master_equity_candles":        {"id", "account_key", "minute_start", "open_equity", "high_equity", "low_equity", "close_equity", "currency", "observed_at"},
+	"mt5_master_equity_minute_samples": {"id", "sample_minute", "equity", "currency", "observed_at"},
+	"mt5_master_equity_samples":        {"id", "sample_hour", "equity", "currency", "observed_at"},
+	"mt5_master_market_state":          {"id", "quotes_json", "observed_at"},
+	"password_reset_codes":             {"email_hash", "code_hash", "expires_at", "resend_after", "attempts", "send_count", "send_window_started_at", "locked_until", "created_at", "last_activity_at"},
+	"payment_orders":                   {"id", "owner_id", "email", "label", "server", "login", "plan", "execution_mode", "total_idr", "payment_method", "midtrans_order_id", "midtrans_transaction_id", "midtrans_status", "status", "proof_filename", "account_id", "admin_notified_at", "created_at", "updated_at"},
+	"settings":                         {"key", "value"},
+	"signals":                          {"id", "group_id", "group_name", "message_id", "sender_id", "sender_name", "raw_text", "parsed_json", "normalized_text", "confidence", "content_hash", "claimed_at", "status", "created_at"},
+	"trades":                           {"id", "signal_id", "ticket", "symbol", "action", "lots", "entry", "sl", "tp", "exec_price", "profit", "result", "opened_at", "closed_at"},
+}

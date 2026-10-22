@@ -7,12 +7,13 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const ALLOWED_PREFIXES = new Set([
-  "auth", "public", "payments", "mt5", "dashboard", "settings", "parser", "cs", "telegram", "downloads"
+  "auth", "public", "payments", "mt5", "dashboard", "settings", "parser", "cs", "telegram", "downloads", "admin"
 ]);
 const RESPONSE_HOP_HEADERS = new Set([
   "connection", "content-encoding", "content-length", "keep-alive", "transfer-encoding"
 ]);
 const MAX_BODY_BYTES = 6 * 1024 * 1024;
+const UPSTREAM_TIMEOUT_MS = 25_000;
 
 class RequestBodyTooLarge extends Error {}
 
@@ -59,6 +60,9 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
   }
   if (!ALLOWED_PREFIXES.has(path[0])) {
     return Response.json({ detail: "Endpoint tidak tersedia melalui BFF" }, { status: 404 });
+  }
+  if (path[0] === "admin" && path[1] !== "copy-accounts") {
+    return Response.json({ detail: "Endpoint admin tidak tersedia melalui BFF" }, { status: 404 });
   }
 
   const origin = process.env.CORE_API_ORIGIN?.replace(/\/+$/, "");
@@ -127,19 +131,52 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
     new Uint8Array(fetchBody).set(body);
   }
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(new URL(target, origin), {
+  // SSE (…/stream) harus hidup lama; request biasa diberi batas waktu agar tidak menggantung
+  // sampai batas fungsi Vercel. GET idempoten dicoba ulang sekali bila koneksi ke origin gagal
+  // (mis. tunnel Cloudflare sedang reconnect) — itu penyebab utama "error koneksi" sesaat.
+  const isStream = path[path.length - 1] === "stream";
+  const isIdempotent = request.method === "GET" || request.method === "HEAD";
+  const maxAttempts = isIdempotent ? 2 : 1;
+  let upstream: Response | undefined;
+  let timedOut = false;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts && !upstream; attempt += 1) {
+    const timeoutSignal = isStream ? null : AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
+    try {
+      upstream = await fetch(new URL(target, origin), {
+        method: request.method,
+        headers,
+        body: fetchBody,
+        cache: "no-store",
+        redirect: "manual",
+        // Keep SSE as a live stream through the Vercel BFF instead of buffering it.
+        signal: timeoutSignal ? AbortSignal.any([request.signal, timeoutSignal]) : request.signal,
+      });
+    } catch (error) {
+      lastError = error;
+      if (request.signal.aborted) break; // klien sudah pergi, jangan buang tenaga
+      timedOut = timeoutSignal?.aborted === true;
+      if (attempt < maxAttempts) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
+  if (!upstream) {
+    const error = lastError;
+    const cause = error instanceof Error && error.cause instanceof Error
+      ? { name: error.cause.name, message: error.cause.message }
+      : undefined;
+    console.error("Core API proxy fetch failed", {
       method: request.method,
-      headers,
-      body: fetchBody,
-      cache: "no-store",
-      redirect: "manual",
-      // Keep SSE as a live stream through the Vercel BFF instead of buffering it.
-      signal: request.signal,
+      endpoint: `/${path.join("/")}`,
+      origin: apiOrigin.origin,
+      timedOut,
+      error: error instanceof Error ? error.message : String(error),
+      cause,
     });
-  } catch {
-    return Response.json({ detail: "Core API tidak dapat dijangkau" }, { status: 502 });
+    return timedOut
+      ? Response.json({ detail: "Core API terlalu lama merespons" }, { status: 504 })
+      : Response.json({ detail: "Core API tidak dapat dijangkau" }, { status: 502 });
   }
 
   const responseHeaders = new Headers();
@@ -161,7 +198,13 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
       headers: responseHeaders,
     });
   }
-  return new Response(await upstream.arrayBuffer(), {
+  let payload: ArrayBuffer;
+  try {
+    payload = await upstream.arrayBuffer();
+  } catch {
+    return Response.json({ detail: "Core API terlalu lama merespons" }, { status: 504 });
+  }
+  return new Response(payload, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers: responseHeaders

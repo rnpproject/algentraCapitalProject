@@ -3,7 +3,7 @@
 import Script from "next/script";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { apiRequest } from "../lib/api";
+import { ApiError, apiRequest } from "../lib/api";
 import {
   formatInteger,
   formatLots,
@@ -27,7 +27,7 @@ type Mt5Live = {
     currency?: string | null;
     trade_mode?: string | null;
   } | null;
-  positions: Array<{
+  positions?: Array<{
     ticket: string;
     symbol: string;
     action: string;
@@ -35,8 +35,8 @@ type Mt5Live = {
     entry_price: number;
     sl: number;
     tp: number;
-  }>;
-  market_quotes: Array<{ symbol: string; bid: number; ask: number; time_msc: number }>;
+  }> | null;
+  market_quotes?: Array<{ symbol: string; bid: number; ask: number; time_msc: number }> | null;
 };
 type Signal = {
   created_at: string;
@@ -70,12 +70,28 @@ type Trade = {
   profit?: number | null;
   result?: string | null;
 };
+type MasterDailyProfit = { date: string; profit: number; currency?: string | null };
 
 const EMPTY = "—";
 const TRADE_PAGE_SIZE = 10;
 
 const displayTime = (value?: string | null) =>
   value ? new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : EMPTY;
+
+const displayQuoteTime = (value: number | string | null | undefined) => {
+  const milliseconds = Number(value);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return EMPTY;
+  const date = new Date(milliseconds);
+  return Number.isNaN(date.getTime()) ? EMPTY : displayTime(date.toISOString());
+};
+
+const dayLabel = (date: string) =>
+  new Date(`${date}T00:00:00+07:00`).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", weekday: "short", day: "2-digit", month: "short" });
+
+const shortTime = (value?: string | null) =>
+  value
+    ? new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+    : EMPTY;
 
 const truncateSignalText = (value: string, limit = 140) =>
   value.length > limit ? `${value.slice(0, limit).trimEnd()}......` : value;
@@ -113,6 +129,7 @@ export function DashboardPanel() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [live, setLive] = useState<Mt5Live | null>(null);
+  const [masterDailyProfit, setMasterDailyProfit] = useState<MasterDailyProfit[]>([]);
   const [mt5Error, setMt5Error] = useState("");
   const [signals, setSignals] = useState<Signal[]>([]);
   const [groups, setGroups] = useState<GroupStat[]>([]);
@@ -166,6 +183,11 @@ export function DashboardPanel() {
     setMt5Error("");
   }
 
+  async function loadMasterDailyProfit() {
+    const report = await apiRequest<{ daily_profit?: MasterDailyProfit[] }>("public/performance?include_equity_curve=false");
+    setMasterDailyProfit(report.daily_profit ?? []);
+  }
+
   async function loadGroups() {
     const rows = await apiRequest<GroupStat[]>("dashboard/groups/stats");
     setGroups([...rows].sort((a, b) => b.signals_total - a.signals_total).slice(0, 8));
@@ -215,26 +237,20 @@ export function DashboardPanel() {
     setGeminiModel(typeof model === "string" ? model : "");
   }
 
+  // Satu endpoint yang gagal tidak lagi menjatuhkan seluruh dashboard:
+  // panel lain tetap tampil, dan error dilempar hanya bila SEMUA permintaan gagal.
   async function refresh() {
-    await Promise.all([
+    const results = await Promise.allSettled([
       loadStatsAndSignals(),
       loadMt5Live(),
+      loadMasterDailyProfit(),
       loadGroups(),
       loadLogs(),
       loadTrades(tradePageRef.current),
       loadProfitChart(),
     ]);
-  }
-
-  // apiRequest tidak membawa status HTTP; untuk mendeteksi 401 (belum login admin)
-  // cek status mentah dari endpoint yang sama tanpa mengarang endpoint baru.
-  async function isUnauthorized(): Promise<boolean> {
-    try {
-      const response = await fetch("/api/core/dashboard/stats", { cache: "no-store" });
-      return response.status === 401;
-    } catch {
-      return false;
-    }
+    const failures = results.filter((item): item is PromiseRejectedResult => item.status === "rejected");
+    if (failures.length === results.length) throw failures[0].reason;
   }
 
   useEffect(() => {
@@ -244,7 +260,7 @@ export function DashboardPanel() {
         await refresh();
         if (!cancelled) setConnection("Realtime tersambung melalui SSE.");
       } catch (reason) {
-        if (await isUnauthorized()) {
+        if (reason instanceof ApiError && reason.status === 401) {
           router.replace("/admin/login");
           return;
         }
@@ -258,42 +274,103 @@ export function DashboardPanel() {
         setSettingsMessage(reason instanceof Error ? reason.message : "Gagal memuat settings.");
     });
     const stream = new EventSource("/api/core/dashboard/realtime/stream");
+    // --- Realtime: SSE + refresh detail terpicu perubahan + watchdog fallback ---
+    let lastSseAt = Date.now();
+    let lastSignature = "";
+    let detailBusy = false;
+    let lastDetailAt = 0;
+    const refreshDetails = () => {
+      if (detailBusy || cancelled) return;
+      detailBusy = true;
+      lastDetailAt = Date.now();
+      // MT5 live dipoll terpisah di bawah; jangan diambil dua kali.
+      void Promise.allSettled([loadMasterDailyProfit(), loadGroups(), loadLogs(), loadTrades(tradePageRef.current), loadProfitChart()])
+        .finally(() => { detailBusy = false; });
+    };
+    let detailDebounce: ReturnType<typeof setTimeout> | undefined;
+    const scheduleDetails = () => {
+      clearTimeout(detailDebounce);
+      // Paling cepat 700 ms setelah perubahan, dan minimal 3 dtk antar-refresh agar backend tidak dibanjiri.
+      detailDebounce = setTimeout(refreshDetails, Math.max(700, 3000 - (Date.now() - lastDetailAt)));
+    };
+    const stamp = () => new Date().toLocaleTimeString("en-GB");
+
     stream.addEventListener("dashboard", (event) => {
       try {
         const payload = JSON.parse((event as MessageEvent<string>).data) as {
           stats?: Stats;
           latest_signal_id?: number | null;
         };
-        if (payload.stats) setStats(payload.stats);
-        setConnection("Realtime tersambung melalui SSE.");
+        lastSseAt = Date.now();
+        if (payload.stats) {
+          setStats(payload.stats);
+          // Stats berubah => kemungkinan ada order/profit baru: segarkan panel detail segera.
+          const signature = JSON.stringify(payload.stats);
+          if (lastSignature && signature !== lastSignature && !document.hidden) scheduleDetails();
+          lastSignature = signature;
+        }
+        setConnection(`Realtime tersambung · ${stamp()}`);
         if (payload.latest_signal_id !== undefined) {
           const previousId = latestSignalIdRef.current;
           latestSignalIdRef.current = payload.latest_signal_id;
-          if (previousId !== undefined && previousId !== payload.latest_signal_id) void loadStatsAndSignals();
+          if (previousId !== undefined && previousId !== payload.latest_signal_id) void loadStatsAndSignals().catch(() => {});
         }
       } catch {
         if (!cancelled) setConnection("Data realtime tidak dapat dibaca.");
       }
     });
-    stream.onopen = () => { if (!cancelled) setConnection("Realtime tersambung melalui SSE."); };
+    stream.onopen = () => { lastSseAt = Date.now(); if (!cancelled) setConnection("Realtime tersambung melalui SSE."); };
     stream.onerror = () => { if (!cancelled) setConnection("Menyambungkan ulang realtime…"); };
-    // Refresh data tabel secara berkala; statistik dan sinyal menerima event SSE.
+
+    // Polling berlapis dengan penjaga "sedang berjalan": bila backend lambat, permintaan
+    // tidak menumpuk (dulu tiap 2 dtk menembak lagi walau yang sebelumnya belum selesai).
     const detailTimer = setInterval(() => {
-      if (document.hidden || cancelled) return;
-      void Promise.all([loadMt5Live(), loadGroups(), loadLogs(), loadTrades(tradePageRef.current), loadProfitChart()]).catch(() => {});
-    }, 15000);
-    // MT5 live: polling tiap 2 detik.
+      if (document.hidden) return;
+      refreshDetails();
+    }, 6000);
+
+    // Watchdog SSE: bila tidak ada event >15 dtk (mis. ditahan proxy/tunnel), jangan diam saja:
+    // beri tanda dan ambil stats+sinyal lewat REST setiap 5 dtk sampai SSE pulih.
+    let watchdogBusy = false;
+    const watchdog = setInterval(() => {
+      if (document.hidden || cancelled || Date.now() - lastSseAt < 15000) return;
+      setConnection("Realtime tertunda — memakai pembaruan berkala…");
+      if (watchdogBusy) return;
+      watchdogBusy = true;
+      loadStatsAndSignals().catch(() => {}).finally(() => { watchdogBusy = false; });
+    }, 5000);
+
+    let mt5Busy = false;
+    let mt5Failures = 0;
+    let mt5NextAt = 0;
     const mt5Timer = setInterval(() => {
-      if (document.hidden || cancelled) return;
-      void loadMt5Live().catch((reason) => {
-        if (!cancelled) setMt5Error(reason instanceof Error ? reason.message : "Gagal memuat MT5.");
-      });
+      if (document.hidden || cancelled || mt5Busy || Date.now() < mt5NextAt) return;
+      mt5Busy = true;
+      loadMt5Live()
+        .then(() => { mt5Failures = 0; })
+        .catch((reason) => {
+          mt5Failures += 1;
+          // Mundur bertahap (2 dtk -> maks. 20 dtk) saat error beruntun.
+          mt5NextAt = Date.now() + Math.min(20000, 2000 * 2 ** Math.min(mt5Failures, 4));
+          if (!cancelled) setMt5Error(reason instanceof Error ? reason.message : "Gagal memuat MT5.");
+        })
+        .finally(() => { mt5Busy = false; });
     }, 2000);
+
+    // Kembali ke tab setelah lama tersembunyi: segarkan sekali, jangan tunggu timer.
+    const onVisible = () => {
+      if (document.hidden || cancelled) return;
+      void refresh().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       stream.close();
       clearInterval(detailTimer);
+      clearInterval(watchdog);
+      clearTimeout(detailDebounce);
       clearInterval(mt5Timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -386,7 +463,7 @@ export function DashboardPanel() {
       .filter((t) => t.closed_at)
       .sort((a, b) => new Date(a.closed_at as string).getTime() - new Date(b.closed_at as string).getTime());
     let total = 0;
-    const points = closed.map((t) => ({ x: displayTime(t.closed_at), y: (total += Number(t.profit)) }));
+    const points = closed.map((t) => ({ x: shortTime(t.closed_at), y: (total += Number(t.profit)) }));
     const data = {
       labels: points.map((p) => p.x),
       datasets: [
@@ -395,6 +472,8 @@ export function DashboardPanel() {
           data: points.map((p) => p.y),
           borderColor: points.length && points[points.length - 1].y < 0 ? "#ff7b7b" : "#4ade80",
           tension: 0.2,
+          borderWidth: 2,
+          pointRadius: 2,
         },
       ],
     };
@@ -403,10 +482,13 @@ export function DashboardPanel() {
       data,
       options: {
         responsive: true,
+        interaction: { mode: "index", intersect: false },
         scales: {
-          y: { beginAtZero: false, ticks: { callback: (value: unknown) => formatNumber(value as number, 0, 2) } },
+          x: { ticks: { maxTicksLimit: 6, maxRotation: 0, font: { size: 10 } }, grid: { display: false } },
+          y: { beginAtZero: false, ticks: { font: { size: 10 }, callback: (value: unknown) => formatNumber(value as number, 0, 2) } },
         },
         plugins: {
+          legend: { display: false },
           tooltip: {
             callbacks: {
               label: (ctx: { dataset: { label?: string }; parsed: { y: number } }) =>
@@ -505,20 +587,15 @@ export function DashboardPanel() {
     ? (stats?.signal_status_unknown_values as string[])
     : [];
 
-  const liveStatus: { text: string; tone: Tone } = mt5Error
-    ? { text: `GAGAL: ${mt5Error}`, tone: "neg" }
+  const liveChip: { text: string; tone: Tone } = mt5Error
+    ? { text: "GAGAL", tone: "neg" }
     : !live
-      ? { text: "Menghubungkan", tone: "" }
-      : {
-          text: live.online ? "ONLINE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL",
-          tone: statusTone(live.online ? "ONLINE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL"),
-        };
-  const liveChip: { text: string; tone: Tone } = !live
-    ? { text: "LIVE", tone: "pos" }
-    : {
-        text: live.online ? "LIVE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL",
-        tone: statusTone(live.online ? "ONLINE" : live.available ? "DATA BASI" : "MENUNGGU TERMINAL"),
-      };
+      ? { text: "MENGHUBUNGKAN", tone: "warn" }
+      : live.online
+        ? { text: "LIVE", tone: "pos" }
+        : live.available
+          ? { text: "DATA BASI", tone: "warn" }
+          : { text: "MENUNGGU TERMINAL", tone: "warn" };
   const account = live?.account ?? null;
   const mt5Mode = account?.trade_mode ? account.trade_mode.toUpperCase() : "Mode akun";
   const mt5ModeTone: Tone =
@@ -530,6 +607,21 @@ export function DashboardPanel() {
   const mt5Updated = live?.observed_at
     ? `Snapshot terakhir ${displayTime(live.observed_at)}`
     : "Belum menerima snapshot dari MT5.";
+
+  const connectionTone: Tone =
+    connection.startsWith("Gagal") || connection.includes("tidak dapat")
+      ? "neg"
+      : connection.startsWith("Realtime tersambung")
+        ? "pos"
+        : "warn";
+  const eaTitle =
+    typeof stats?.ea_last_heartbeat === "string" && stats.ea_last_heartbeat
+      ? `Heartbeat EA terakhir ${displayTime(stats.ea_last_heartbeat)}`
+      : "Status heartbeat EA";
+  const telegramTitle =
+    typeof stats?.telegram_account === "string" && stats.telegram_account ? stats.telegram_account : "Koneksi akun sumber";
+  const geminiTitle =
+    typeof stats?.gemini_model === "string" && stats.gemini_model ? stats.gemini_model : "Model parser aktif";
 
   const logsExportHref = `/api/core/${queryWithFilters("dashboard/logs/export.csv", {
     level: logLevel,
@@ -553,8 +645,9 @@ export function DashboardPanel() {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const ChartLib = (window as any).Chart;
           if (ChartLib) {
-            ChartLib.defaults.color = "#9bb0c2";
-            ChartLib.defaults.borderColor = "#253c50";
+            const css = getComputedStyle(document.documentElement);
+            ChartLib.defaults.color = css.getPropertyValue("--muted").trim() || "#9bb0c2";
+            ChartLib.defaults.borderColor = css.getPropertyValue("--line").trim() || "#253c50";
             setChartReady(true);
           }
         }}
@@ -568,77 +661,70 @@ export function DashboardPanel() {
               Pantau sinyal, hasil eksekusi, performa trade, dan batas risiko dalam satu tampilan.
             </p>
           </div>
+          <div className="heading-aside">
+            <p id="connection" className={`status sc-dot connection-status ${toneClass(connectionTone)}`} role="status">
+              {connection}
+            </p>
+          </div>
         </div>
 
-        <section id="registration-controls" aria-labelledby="registration-controls-heading">
-          <span className="eyebrow">Public site</span>
-          <h2 id="registration-controls-heading">Pendaftaran client</h2>
-          <p id="registration-state" className="section-help" role="status">
-            {registrationOpen === null
-              ? "Memuat status pendaftaran..."
-              : registrationOpen
-                ? "Pendaftaran terbuka. Form daftar terlihat di situs publik."
-                : "Pendaftaran ditutup. Situs publik menampilkan hitung mundur launching."}
-          </p>
-          <p className="muted">
-            Jika ditutup sebelum launching, pendaftaran akan otomatis terbuka pada 16 Januari 2027 pukul 09.00
-            WIB.
-          </p>
-          <div className="toolbar">
-            <button
-              id="registration-open"
-              type="button"
-              disabled={registrationOpen === true || registrationBusy}
-              aria-busy={registrationBusy}
-              onClick={() => void setRegistrationOpen(true)}
-            >
-              Buka pendaftaran
-            </button>
-            <button
-              id="registration-close"
-              className="secondary"
-              type="button"
-              disabled={registrationOpen === false || registrationBusy}
-              aria-busy={registrationBusy}
-              onClick={() => void setRegistrationOpen(false)}
-            >
-              Tutup pendaftaran
-            </button>
-          </div>
-          {registrationMessage && (
-            <p id="registration-message" className="status" role="status">
-              {registrationMessage}
+        <section id="registration-controls" className="reg-card" aria-labelledby="registration-controls-heading">
+          <div className="reg-info">
+            <span className="eyebrow">Public site</span>
+            <h2 id="registration-controls-heading">Pendaftaran client</h2>
+            <p id="registration-state" className="section-help" role="status">
+              {registrationOpen === null
+                ? "Memuat status pendaftaran..."
+                : registrationOpen
+                  ? "Pendaftaran terbuka. Form daftar terlihat di situs publik."
+                  : "Pendaftaran ditutup. Situs publik menampilkan hitung mundur launching."}
             </p>
-          )}
+            <p className="muted">
+              Jika ditutup sebelum launching, pendaftaran otomatis terbuka pada 16 Januari 2027 pukul 09.00 WIB.
+            </p>
+          </div>
+          <div className="reg-actions">
+            <div className="toolbar">
+              <button
+                id="registration-open"
+                type="button"
+                disabled={registrationOpen === true || registrationBusy}
+                aria-busy={registrationBusy}
+                onClick={() => void setRegistrationOpen(true)}
+              >
+                Buka pendaftaran
+              </button>
+              <button
+                id="registration-close"
+                className="secondary"
+                type="button"
+                disabled={registrationOpen === false || registrationBusy}
+                aria-busy={registrationBusy}
+                onClick={() => void setRegistrationOpen(false)}
+              >
+                Tutup pendaftaran
+              </button>
+            </div>
+            {registrationMessage && (
+              <p id="registration-message" className="status" role="status">
+                {registrationMessage}
+              </p>
+            )}
+          </div>
         </section>
 
         <section className="summary-card" aria-label="Ringkasan operasional">
           <div className="sc-overview">
             <div className="sc-block sc-summary-status">
-              <span id="ea-status" className={`sc-chip sc-dot ${toneClass(eaOnline === undefined ? "pos" : eaOnline ? "pos" : "neg")}`}>
+              <span id="ea-status" title={eaTitle} className={`sc-chip sc-dot ${toneClass(eaOnline === undefined ? "pos" : eaOnline ? "pos" : "neg")}`}>
                 {eaOnline === undefined ? "EA Online" : eaOnline ? "EA Online" : "EA Offline"}
               </span>
-              <span id="telegram-status" className={`sc-chip sc-dot ${toneClass(telegramConnected === undefined ? "" : telegramConnected ? "pos" : "neg")}`}>
+              <span id="telegram-status" title={telegramTitle} className={`sc-chip sc-dot ${toneClass(telegramConnected === undefined ? "" : telegramConnected ? "pos" : "neg")}`}>
                 {telegramConnected === undefined ? "Telegram" : telegramConnected ? "Telegram" : "Telegram Offline"}
               </span>
-              <span id="gemini-status" className={`sc-chip sc-dot ${toneClass(geminiConfigured === undefined ? "" : geminiConfigured ? "pos" : "warn")}`}>
+              <span id="gemini-status" title={geminiTitle} className={`sc-chip sc-dot ${toneClass(geminiConfigured === undefined ? "" : geminiConfigured ? "pos" : "warn")}`}>
                 {geminiConfigured === undefined ? "Gemini" : geminiConfigured ? "Gemini" : "Gemini Belum Siap"}
               </span>
-              <small id="ea-heartbeat" className="muted" hidden>
-                {typeof stats?.ea_last_heartbeat === "string" && stats.ea_last_heartbeat
-                  ? displayTime(stats.ea_last_heartbeat)
-                  : "Status heartbeat EA."}
-              </small>
-              <small id="telegram-account" className="muted" hidden>
-                {typeof stats?.telegram_account === "string" && stats.telegram_account
-                  ? stats.telegram_account
-                  : "Koneksi akun sumber."}
-              </small>
-              <small id="gemini-model" className="muted" hidden>
-                {typeof stats?.gemini_model === "string" && stats.gemini_model
-                  ? stats.gemini_model
-                  : "Model parser aktif."}
-              </small>
             </div>
             <div className="sc-block sc-performance">
               <div className="sc-profit">
@@ -700,8 +786,8 @@ export function DashboardPanel() {
                 <tr>
                   <th scope="row">Diproses</th>
                   <td><b id="signals-processing">{signalInt("signals_processing")}</b></td>
-                  <th scope="row"></th>
-                  <td></td>
+                  <th scope="row">Kedaluwarsa</th>
+                  <td><b id="signals-expired">{signalInt("signals_expired")}</b></td>
                 </tr>
               </tbody>
             </table>
@@ -711,7 +797,7 @@ export function DashboardPanel() {
                 Eksekusi mencakup order yang diterima terminal MT5. Pending mencakup sinyal yang menunggu
                 diklaim. Diproses mencakup sinyal yang sudah diklaim EA dan sedang menunggu hasil. Ditolak
                 mencakup penolakan dan kegagalan. Diabaikan adalah pesan yang bukan sinyal atau tidak lolos
-                aturan.
+                aturan. Kedaluwarsa adalah sinyal yang tidak sempat masuk posisi.
               </p>
             </details>
           </div>
@@ -729,18 +815,20 @@ export function DashboardPanel() {
               <p id="mt5-live-updated" className="section-help">
                 {live ? mt5Updated : "Menunggu snapshot terminal..."}
               </p>
+              {mt5Error && (
+                <p className="status tone-neg" role="alert">
+                  Gagal memuat MT5: {mt5Error}
+                </p>
+              )}
             </div>
-            <strong id="mt5-live-status" className={`sc-dot ${toneClass(liveStatus.tone)}`} role="status">
-              {liveStatus.text}
-            </strong>
           </div>
           <div className="summary-card sc-mt5">
             <div className="sc-block">
               <div className="sc-status sc-summary-status">
                 <span id="mt5-mode" className={`sc-chip sc-dot ${toneClass(mt5ModeTone)}`}>
-                  {account ? mt5Mode : "DEMO"}
+                  {mt5Mode}
                 </span>
-                <span id="mt5-live-chip" className={`sc-chip sc-dot ${toneClass(liveChip.tone)}`}>
+                <span id="mt5-live-chip" className={`sc-chip sc-dot ${toneClass(liveChip.tone)}`} role="status">
                   {liveChip.text}
                 </span>
               </div>
@@ -764,14 +852,41 @@ export function DashboardPanel() {
                   <span>Floating P/L</span>
                 </div>
                 <div>
-                  <b id="mt5-position-count">{formatInteger(live ? live.positions.length : 0)}</b>
+                  <b id="mt5-position-count">{formatInteger(live?.positions?.length ?? 0)}</b>
                   <span>Posisi terbuka</span>
                 </div>
               </div>
             </div>
           </div>
-          <div className="grid">
-            <section>
+          <div className="master-daily-profit">
+            <h3>Profit harian akun master · WIB</h3>
+            {masterDailyProfit.length ? (
+              <div className="table-wrap day-table-wrap">
+                <table className="day-table">
+                  <thead>
+                    <tr>
+                      {masterDailyProfit.map((day) => (
+                        <th key={day.date}>{dayLabel(day.date)}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      {masterDailyProfit.map((day) => (
+                        <td key={day.date} className={toneClass(day.profit >= 0 ? "pos" : "neg")}>
+                          {formatMoney(day.profit, day.currency ?? account?.currency)}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="muted">Belum ada profit tersimpan untuk tujuh hari terakhir.</p>
+            )}
+          </div>
+          <div className="grid mt5-tables">
+            <div>
               <h3>Posisi terminal</h3>
               <div className="table-wrap">
                 <table>
@@ -780,10 +895,10 @@ export function DashboardPanel() {
                       <th>Ticket</th>
                       <th>Simbol</th>
                       <th>Arah</th>
-                      <th>Lot</th>
-                      <th>Entry</th>
-                      <th>SL</th>
-                      <th>TP</th>
+                      <th className="num">Lot</th>
+                      <th className="num">Entry</th>
+                      <th className="num">SL</th>
+                      <th className="num">TP</th>
                     </tr>
                   </thead>
                   <tbody id="mt5-positions-table">
@@ -802,19 +917,24 @@ export function DashboardPanel() {
                         <td className="num">{Number(position.tp) > 0 ? formatPrice(position.tp) : EMPTY}</td>
                       </tr>
                     ))}
+                    {live && !(live.positions ?? []).length && (
+                      <tr>
+                        <td className="empty-cell" colSpan={7}>Tidak ada posisi terbuka.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
-            </section>
-            <section>
+            </div>
+            <div>
               <h3>Harga pasar</h3>
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
                       <th>Simbol</th>
-                      <th>Bid</th>
-                      <th>Ask</th>
+                      <th className="num">Bid</th>
+                      <th className="num">Ask</th>
                       <th>Update</th>
                     </tr>
                   </thead>
@@ -824,13 +944,18 @@ export function DashboardPanel() {
                         <td>{quote.symbol}</td>
                         <td className="num">{formatPrice(quote.bid)}</td>
                         <td className="num">{formatPrice(quote.ask)}</td>
-                        <td>{displayTime(new Date(Number(quote.time_msc)).toISOString())}</td>
+                        <td>{displayQuoteTime(quote.time_msc)}</td>
                       </tr>
                     ))}
+                    {live && !(live.market_quotes ?? []).length && (
+                      <tr>
+                        <td className="empty-cell" colSpan={4}>Belum ada harga pasar.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
-            </section>
+            </div>
           </div>
         </section>
 
@@ -957,7 +1082,7 @@ export function DashboardPanel() {
             </a>
           </div>
           <div className="table-wrap">
-            <table>
+            <table className="log-table">
               <thead>
                 <tr>
                   <th>Waktu</th>
@@ -988,7 +1113,7 @@ export function DashboardPanel() {
             Filter transaksi yang telah dilaporkan EA; tabel menampilkan 10 per halaman (satu query per halaman).
             Unduh CSV untuk data lengkap.
           </p>
-          <div className="toolbar">
+          <div className="toolbar trade-filters">
             <input
               type="date"
               id="date-from"
@@ -1105,8 +1230,7 @@ export function DashboardPanel() {
           <h2>Settings</h2>
           <p className="section-help">
             Memengaruhi validasi sinyal dan guard backend. Trading berjalan live; gunakan kill switch untuk
-            menjeda distribusi sinyal. API key Gemini dan Telegram dikelola lewat environment layanan, tidak
-            dikirim ke browser.
+            menjeda distribusi sinyal. API key Gemini dan Telegram dikelola lewat environment layanan.
           </p>
           <form id="gemini-form" className="settings-block" onSubmit={(event) => void submitGemini(event)}>
             <h3>Parser Gemini</h3>
@@ -1125,9 +1249,11 @@ export function DashboardPanel() {
                 <button type="submit">Simpan model</button>
               </div>
             </div>
-            <p id="gemini-message" className="status">
-              {geminiMessage}
-            </p>
+            {geminiMessage && (
+              <p id="gemini-message" className="status" role="status">
+                {geminiMessage}
+              </p>
+            )}
           </form>
           <form id="settings-form" className="settings-block" onSubmit={(event) => void submitSettings(event)}>
             <h3>Aturan sinyal</h3>
@@ -1214,9 +1340,6 @@ export function DashboardPanel() {
             </div>
           </form>
         </section>
-        <p id="connection" className="status">
-          {connection}
-        </p>
       </main>
     </>
   );

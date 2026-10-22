@@ -20,8 +20,8 @@ if (-not (Test-Path -LiteralPath $NssmPath -PathType Leaf)) { throw "nssm.exe ti
 if (-not (Test-Path -LiteralPath $EnvironmentFile -PathType Leaf)) { throw "Environment file tidak ditemukan: $EnvironmentFile" }
 $ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
 $EnvironmentFile = (Resolve-Path -LiteralPath $EnvironmentFile).Path
-$python = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw "Virtual environment tidak ditemukan: $python" }
+$backend = Join-Path $ProjectRoot 'algentra-backend.exe'
+if (-not (Test-Path -LiteralPath $backend -PathType Leaf)) { throw "Binary Go Core API tidak ditemukan: $backend. Build sebelum memasang service." }
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
     throw "Service $ServiceName sudah terdaftar. Installer tidak menimpa service yang ada; verifikasi dan hapus instalasi parsial sebelum mencoba lagi."
 }
@@ -52,7 +52,7 @@ $parameters = @(
 ) -join ' '
 Set-NssmSetting @($ServiceName, 'AppParameters', $parameters)
 Set-NssmSetting @($ServiceName, 'DisplayName', 'Algentra Capital Core API')
-Set-NssmSetting @($ServiceName, 'Description', 'FastAPI core service; schema must be provisioned before release.')
+Set-NssmSetting @($ServiceName, 'Description', 'Go Core API; schema must be provisioned before release.')
 Set-NssmSetting @($ServiceName, 'AppExit', 'Default', 'Restart')
 Set-NssmSetting @($ServiceName, 'AppRestartDelay', '5000')
 Set-NssmSetting @($ServiceName, 'AppStdout', (Join-Path $logDirectory 'stdout.log'))
@@ -64,14 +64,16 @@ Set-NssmSetting @($ServiceName, 'ObjectName', $serviceAccount, '')
 & sc.exe sidtype $ServiceName unrestricted | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Gagal mengaktifkan service SID.' }
 $readOnlyPaths = @(
-    (Join-Path $ProjectRoot '.venv'),
-    (Join-Path $ProjectRoot 'apps\core-api'),
-    (Join-Path $ProjectRoot 'mt5\experts'),
+	$backend,
     $PSScriptRoot
 )
 foreach ($path in $readOnlyPaths) {
     if (Test-Path -LiteralPath $path) {
-        & icacls.exe $path /grant "${serviceAccount}:(OI)(CI)RX" /T /C | Out-Null
+        if ((Get-Item -LiteralPath $path).PSIsContainer) {
+            & icacls.exe $path /grant "${serviceAccount}:(OI)(CI)RX" /T /C | Out-Null
+        } else {
+            & icacls.exe $path /grant "${serviceAccount}:R" | Out-Null
+        }
         if ($LASTEXITCODE -ne 0) { throw "Gagal memberi hak baca pada $path." }
     }
 }
@@ -90,12 +92,6 @@ $environmentDirectory = Split-Path -Parent $EnvironmentFile
 if ($LASTEXITCODE -ne 0) { throw 'Gagal memberi hak traversal pada direktori environment file.' }
 & icacls.exe $EnvironmentFile /inheritance:r /grant 'SYSTEM:F' 'BUILTIN\Administrators:F' "${serviceAccount}:R" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Gagal membatasi ACL environment file.' }
-$dataDirectory = Join-Path $ProjectRoot 'backend\data'
-New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
-& icacls.exe (Split-Path -Parent $dataDirectory) /grant "${serviceAccount}:(X)" | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Gagal memberi hak traversal pada folder backend.' }
-& icacls.exe $dataDirectory /grant "${serviceAccount}:(OI)(CI)M" /T /C | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Gagal memberi hak tulis pada backend\data.' }
 & icacls.exe $logDirectory /grant "${serviceAccount}:(OI)(CI)M" /T /C | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Gagal memberi hak tulis pada folder log.' }
 

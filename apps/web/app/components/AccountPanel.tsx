@@ -10,6 +10,7 @@ import {
   type Tone,
 } from "../lib/format";
 import { CsChatWidget } from "./CsChatWidget";
+import { AccountPerformanceDetails } from "./AccountPerformanceDetails";
 
 type Plan = {
   name: string;
@@ -105,6 +106,7 @@ type CopierStatus = {
 };
 
 type TokenBox = { title: string; token: string; accountId: number } | null;
+type BrokerServerOption = { name: string; company: string };
 
 type MetricItem = [string, number | null | undefined, (string | null | undefined)?, Tone?];
 
@@ -174,9 +176,6 @@ function EaAccountCard({
   const stateText = `${account.active ? "Aktif" : "Nonaktif"} · Terakhir terhubung: ${
     account.last_seen_at ? wib(account.last_seen_at) : "belum ada koneksi"
   }`;
-  const balanceTimeText = account.state_updated_at
-    ? `Data MT5 diperbarui ${wib(account.state_updated_at)} WIB`
-    : "Hubungkan EA agar saldo dan histori MT5 tersinkron.";
   const connectionText =
     connectionStatus === "ready"
       ? `Siap menyalin pada akun ${modeLabel(account.trade_mode)}: ${
@@ -249,25 +248,6 @@ function EaAccountCard({
     <article className="card">
       <h3>{account.label}</h3>
       <p>{detail}</p>
-      <p className="account-balance">
-        {account.balance == null ? (
-          "Saldo MT5: menunggu laporan EA"
-        ) : (
-          <Metrics
-            items={[
-              ["Saldo", account.balance, account.currency],
-              ["Ekuitas", account.equity, account.currency],
-              [
-                "Floating",
-                account.floating_profit,
-                account.currency,
-                numberTone(account.floating_profit),
-              ],
-            ]}
-          />
-        )}
-      </p>
-      <small className="muted account-balance-time">{balanceTimeText}</small>
       <p className="muted">{stateText}</p>
       <div
         className={`account-state account-state--${connectionStatus}`}
@@ -353,6 +333,7 @@ function ManagedAccountCard({
     CHECKING: "Sedang memeriksa login broker dan kesiapan terminal MT5…",
     VALID: profile.login_message || "Login broker berhasil dan terminal siap.",
     ERROR:
+      profile.login_message ||
       "Pemeriksaan login belum berhasil. Silakan periksa kembali data akun atau coba lagi nanti.",
   };
   const loginMessage =
@@ -388,9 +369,6 @@ function ManagedAccountCard({
   const connectionText =
     stateLabels[profile.status] || stateLabels.SETUP_REQUIRED;
 
-  const balanceTimeText = account.state_updated_at
-    ? `Data akun diperbarui ${wib(account.state_updated_at)} WIB`
-    : "Belum menerima laporan saldo dari worker.";
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -476,7 +454,7 @@ function ManagedAccountCard({
         <span>{connectionText}</span>
       </div>
       <form
-        className="form-grid"
+        className="form-grid managed-form"
         onSubmit={handleSubmit}
         onInput={onDirty}
         onChange={onDirty}
@@ -491,7 +469,7 @@ function ManagedAccountCard({
             required
             placeholder={
               profile.configured
-                ? "Masukkan ulang untuk mengganti password tersimpan"
+                ? "Isi ulang untuk mengganti"
                 : "Password trading akun follower"
             }
           />
@@ -573,7 +551,7 @@ function ManagedAccountCard({
             defaultValue={profile.max_open_positions ?? 3}
           />
         </label>
-        <div>
+        <div className="form-submit">
           <button type="submit">
             {profile.configured
               ? "Simpan pengaturan"
@@ -594,25 +572,6 @@ function ManagedAccountCard({
           Hapus akun
         </button>
       </div>
-      <p className="account-balance">
-        {account.balance == null ? (
-          "Saldo follower menunggu laporan worker."
-        ) : (
-          <Metrics
-            items={[
-              ["Saldo", account.balance, account.currency],
-              ["Ekuitas", account.equity, account.currency],
-              [
-                "Floating",
-                account.floating_profit,
-                account.currency,
-                numberTone(account.floating_profit),
-              ],
-            ]}
-          />
-        )}
-      </p>
-      <small className="muted account-balance-time">{balanceTimeText}</small>
     </article>
   );
 }
@@ -625,8 +584,14 @@ export function AccountPanel() {
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [selectedVps, setSelectedVps] = useState<string | null>(null);
   const [accountMessage, setAccountMessage] = useState("");
-  const [hasPaymentHistory, setHasPaymentHistory] = useState(false);
   const [connectingAccount, setConnectingAccount] = useState(false);
+  const [serverSearch, setServerSearch] = useState("");
+  const [serverOptions, setServerOptions] = useState<BrokerServerOption[]>([]);
+  const [selectedBrokerServer, setSelectedBrokerServer] = useState("");
+  const [manualServerEntry, setManualServerEntry] = useState(false);
+  const [manualServer, setManualServer] = useState("");
+  const [serverSearchBusy, setServerSearchBusy] = useState(false);
+  const [serverSearchMessage, setServerSearchMessage] = useState("");
   const [showAccountForm, setShowAccountForm] = useState(false);
   const [rootUrl, setRootUrl] = useState("");
 
@@ -681,21 +646,91 @@ export function AccountPanel() {
     apiRequest<Pricing>("mt5/pricing")
       .then(setPricing)
       .catch(() => {});
-    apiRequest<Array<{ id: number }>>("payments/orders")
-      .then((orders) => setHasPaymentHistory(orders.length > 0))
-      .catch(() => setHasPaymentHistory(false));
-    loadAccounts();
-    const timer = setInterval(() => {
-      if (!document.hidden && !managedFormDirty.current) loadAccounts();
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [loadAccounts]);
+    const stream = new EventSource("/api/core/mt5/stream");
+    const applySnapshot = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as { accounts?: Account[]; performance?: Performance; copier?: CopierStatus };
+        if (payload.accounts) setAccounts(payload.accounts);
+        if (payload.performance) setPerformance(payload.performance);
+        if (payload.copier) {
+          setCopier(payload.copier);
+          if (!modeTouched.current) setExecutionMode(payload.copier.available ? "MANAGED" : "EA");
+        }
+      } catch { /* Ignore malformed stream payloads; EventSource reconnects automatically. */ }
+    };
+    const applyAccounts = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as { accounts?: Account[] };
+        if (payload.accounts) setAccounts(payload.accounts);
+      } catch { /* Ignore malformed account events. */ }
+    };
+    const applyMeta = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as { performance?: Performance; copier?: CopierStatus };
+        if (payload.performance) setPerformance(payload.performance);
+        if (payload.copier) {
+          setCopier(payload.copier);
+          if (!modeTouched.current) setExecutionMode(payload.copier.available ? "MANAGED" : "EA");
+        }
+      } catch { /* Ignore malformed metadata events. */ }
+    };
+    stream.addEventListener("mt5-snapshot", applySnapshot as EventListener);
+    stream.addEventListener("mt5-accounts", applyAccounts as EventListener);
+    stream.addEventListener("mt5-meta", applyMeta as EventListener);
+    return () => {
+      stream.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    const query = serverSearch.trim();
+    if (query.length < 3) return;
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setServerSearchBusy(true);
+      setServerSearchMessage("");
+      try {
+        const response = await fetch(
+          `/api/mt5/servers?q=${encodeURIComponent(query)}`,
+          { signal: controller.signal }
+        );
+        const payload = (await response.json()) as {
+          servers?: BrokerServerOption[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(payload.error || "Pencarian server gagal.");
+        const options = Array.isArray(payload.servers) ? payload.servers : [];
+        setServerOptions(options);
+        setServerSearchMessage(
+          options.length ? `${options.length} server ditemukan.` : "Server tidak ditemukan. Coba nama broker atau server yang lebih singkat."
+        );
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setServerOptions([]);
+        setServerSearchMessage(
+          error instanceof Error ? error.message : "Pencarian server gagal."
+        );
+      } finally {
+        if (!controller.signal.aborted) setServerSearchBusy(false);
+      }
+    }, 350);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [serverSearch]);
 
   const handleConnectSubmit = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
     const form = event.currentTarget;
+    if (!(manualServerEntry ? manualServer.trim() : selectedBrokerServer)) {
+      setAccountMessage("Pilih server akun dari hasil pencarian atau masukkan nama server yang diberikan broker.");
+      return;
+    }
     setConnectingAccount(true);
     setAccountMessage("");
     const formData = new FormData(form);
@@ -713,6 +748,11 @@ export function AccountPanel() {
         { method: "POST", body: JSON.stringify(payload) }
       );
       form.reset();
+      setServerSearch("");
+      setServerOptions([]);
+      setSelectedBrokerServer("");
+      setManualServer("");
+      setManualServerEntry(false);
       setExecutionMode("EA");
       setSelectedVps(null);
       modeTouched.current = false;
@@ -768,7 +808,6 @@ export function AccountPanel() {
     );
   };
 
-  const balanceGroups = performance?.balance_groups ?? [];
   const performanceGroups = performance?.performance_groups ?? [];
   const hasEaAccount = accounts.some(
     (account) => account.execution_mode !== "MANAGED"
@@ -997,15 +1036,80 @@ export function AccountPanel() {
                 required
               />
             </label>
-            <label>
-              Server broker
+            <div className="broker-server-field">
+              <label htmlFor="broker-server-query">Cari broker atau server MT5</label>
               <input
-                name="server"
-                maxLength={128}
-                placeholder="BrokerName-Live"
-                required
+                id="broker-server-query"
+                type="search"
+                value={serverSearch}
+                maxLength={96}
+                autoComplete="off"
+                placeholder="Contoh: HFM atau HFMarketsGlobal-Live11"
+                aria-describedby="broker-server-help"
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setServerSearch(value);
+                  setServerOptions([]);
+                  setSelectedBrokerServer("");
+                  setServerSearchBusy(value.trim().length >= 3);
+                  setServerSearchMessage(
+                    value.trim().length >= 3
+                      ? "Menyiapkan pencarian…"
+                      : "Ketik minimal 3 karakter untuk mencari server MT5."
+                  );
+                }}
               />
-            </label>
+              {manualServerEntry ? (
+                <>
+                  <label htmlFor="manual-broker-server">Nama server akun</label>
+                  <input
+                    id="manual-broker-server"
+                  name="server"
+                  value={manualServer}
+                  maxLength={128}
+                  required
+                  placeholder="Nama server persis dari broker"
+                  onChange={(event) => setManualServer(event.currentTarget.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <label htmlFor="broker-server-selection">Server akun</label>
+                  <select
+                    id="broker-server-selection"
+                    name="server"
+                    value={selectedBrokerServer}
+                    required
+                    onChange={(event) => setSelectedBrokerServer(event.currentTarget.value)}
+                    aria-describedby="broker-server-help"
+                  >
+                    <option value="">Pilih server akun dari hasil pencarian</option>
+                    {serverOptions.map((option) => (
+                      <option key={`${option.company}:${option.name}`} value={option.name}>
+                        {option.name} — {option.company}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              <span id="broker-server-help" className="field-help" role="status">
+                {serverSearchBusy ? "Mencari direktori server MT5…" : serverSearchMessage || "Pilih server yang tercantum pada detail akun broker Anda."}
+              </span>
+              <span className="field-help">
+                Pencarian hanya mengirim teks broker/server; nomor akun dan password tidak dikirim.
+              </span>
+              <button
+                type="button"
+                className="server-manual-toggle secondary"
+                onClick={() => {
+                  setManualServerEntry((value) => !value);
+                  setManualServer("");
+                  setSelectedBrokerServer("");
+                }}
+              >
+                {manualServerEntry ? "Pilih dari hasil pencarian" : "Nama server tidak ada? Masukkan manual"}
+              </button>
+            </div>
             <label>
               Nomor akun broker
               <input
@@ -1051,20 +1155,6 @@ export function AccountPanel() {
             <button type="button" className="account-action-button account-action-button--secondary" onClick={() => setShowAccountForm(false)}>Tutup formulir</button>
           </div>
         )}
-        {!hasExistingPackage && hasPaymentHistory && (
-          <div className="toolbar account-actions-toolbar">
-            {hasPaymentHistory && (
-              <a className="workspace-tag" href="/transactions">
-                Buka riwayat transaksi dan nota
-              </a>
-            )}
-            {(hasPaymentHistory || accounts.length > 0) && (
-              <a className="workspace-tag" href="#account-form">
-                Hubungkan akun lain
-              </a>
-            )}
-          </div>
-        )}
         </>
         )}
       </section>
@@ -1072,45 +1162,21 @@ export function AccountPanel() {
       <section>
         <h2>Saldo dan performa akun</h2>
         <p className="section-help">
-          Worker managed melaporkan saldo, ekuitas, posisi terbuka, dan transaksi
-          follower ke portal. Nilai dengan mata uang berbeda ditampilkan terpisah.
+          Saldo, profit harian, dan riwayat transaksi setiap akun dilaporkan
+          langsung dari MT5.
         </p>
-        <div id="client-balance-groups" className="grid">
-          {balanceGroups.length === 0 ? (
+        <div id="client-balance-groups" className="account-perf-list">
+          {accounts.length === 0 ? (
             <p className="empty-state">
-              Saldo akan tampil setelah EA Copy Trading mengirim laporan dari MT5.
+              Saldo akan tampil setelah akun MT5 ditambahkan dan melapor.
             </p>
           ) : (
-            balanceGroups.map((group) => (
-              <article key={`${group.trade_mode}-${group.currency}`} className="card">
+            accounts.map((account) => (
+              <article key={account.id} className="account-perf-item">
                 <h3>
-                  Saldo {modeLabel(group.trade_mode)} · {group.currency}
+                  {account.label} · {account.login}
                 </h3>
-                <p className="account-balance">
-                  Saldo {formatMoney(group.balance, group.currency)}
-                </p>
-                <p className="muted">
-                  <Metrics
-                    items={[
-                      ["Ekuitas", group.equity, group.currency],
-                      [
-                        "Floating",
-                        group.floating_profit,
-                        group.currency,
-                        numberTone(group.floating_profit),
-                      ],
-                    ]}
-                  />
-                </p>
-                <small className="muted">
-                  {`${formatInteger(group.online_accounts)} dari ${formatInteger(
-                    group.reported_accounts
-                  )} akun melapor · ${
-                    group.updated_at
-                      ? `${wib(group.updated_at)} WIB`
-                      : "belum ada pembaruan"
-                  }`}
-                </small>
+                <AccountPerformanceDetails accountId={account.id} alwaysOpen />
               </article>
             ))
           )}
@@ -1179,7 +1245,10 @@ export function AccountPanel() {
                     managedFormDirty.current = true;
                   }}
                   onMessage={setAccountMessage}
-                  onReload={loadAccounts}
+                  onReload={() => {
+                    managedFormDirty.current = false;
+                    void loadAccounts();
+                  }}
                 />
               ) : (
                 <EaAccountCard

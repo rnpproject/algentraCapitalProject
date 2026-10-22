@@ -1,210 +1,239 @@
-# Algentra Capital — instalasi production
+# Algentra Capital — Panduan Production
 
-Panduan ini khusus untuk memasang Algentra pada production. Targetnya adalah Core API FastAPI di Windows Server, Supabase PostgreSQL, Cloudflare Tunnel, dan web client di Vercel. Aplikasi tidak menjalankan migrasi schema saat startup; DBA harus menyiapkan schema production yang sesuai sebelum service dirilis.
+Runbook ini memandu instalasi production dari database dan API sampai portal, EA, start/stop, dan update. Simpan rahasia di secret store atau file environment di luar repository. Ganti semua nilai contoh sebelum menjalankan perintah. Uji rilis dan EA lebih dulu pada staging, Midtrans sandbox, dan akun MT5 demo.
 
-Dokumentasi dipisahkan menurut tugas:
+## Arsitektur production
 
-- [Development lokal dan Supabase development](docs/DEVELOPMENT.md)
-- [Backup dan pemulihan database](docs/BACKUP.md)
-- [Windows Service, Cloudflare/Vercel, managed worker, dan rilis](docs/SERVICE.md)
-- [Operasi portal, EA, API, dan customer service](docs/OPERATIONS.md)
+| Komponen | Lokasi/runtime | Fungsi |
+| --- | --- | --- |
+| Portal | Next.js di Vercel, root `apps/web` | Website publik dan portal admin/client |
+| Core API | Go Windows Service, `127.0.0.1:8000` | API, pembayaran, Telegram, Gemini, EA, dan akses PostgreSQL |
+| Database | Supabase PostgreSQL | Data aplikasi; schema final dibuat oleh installer production fresh |
+| Copier | Binary Go dan terminal MT5 pada sesi Windows interaktif | Managed copier dari akun master ke follower |
+| Signal EA | `TelegramSignalEA.mq5` pada terminal master | Mengirim snapshot untuk copier managed dan dapat mengeksekusi sinyal Telegram |
 
-## Prasyarat production
+Vercel mengakses API melalui HTTPS origin di belakang Cloudflare Tunnel/Access dan BFF Next.js. Jangan membuka port 8000 ke internet, mengirim kredensial Supabase ke Vercel/browser, atau menjalankan worker MT5 sebagai Windows Service Session 0. Detail operasi khusus ada di [docs/SERVICE.md](docs/SERVICE.md), fitur/risiko ada di [docs/OPERATIONS.md](docs/OPERATIONS.md), dan copier standalone/managed ada di [apps/copier-worker/README.md](apps/copier-worker/README.md).
 
-- Windows Server terkelola, Python 3.12 64-bit, NSSM, dan akses administrator untuk instalasi.
-- Core API di Windows hanya melayani API JSON; seluruh halaman web disajikan oleh Next.js di Vercel — tidak ada web yang disajikan dari Windows Server.
-- Project Supabase production terpisah dengan TLS dan role runtime `algentra_api`; jangan gunakan Supabase `anon` atau `service_role`.
-- DNS/domain dan named Cloudflare Tunnel menuju Core API lokal di `127.0.0.1:8000`. Jangan buka port API secara langsung ke internet.
-- Schema database production sudah diprovisikan pada revision yang cocok dengan rilis. Ikuti prosedur snapshot schema dan pemeriksaan marker pada [panduan development](docs/DEVELOPMENT.md#menyiapkan-schema-awal-production); jalankan provisioning satu kali sebagai DBA pada database production kosong/awal, bukan pada database aktif.
-- File environment production disimpan di luar repository dan dibatasi dengan ACL NTFS. Jangan menyalin `.env.local` development ke server.
+## 1. Siapkan project Supabase production
 
-## Persiapan release
+1. Buat project Supabase production baru dan catat project ref.
+2. Dari file [fresh production schema](infra/supabase/fresh-production.sql), ganti kedua kemunculan `REPLACE_WITH_SUPABASE_PROJECT_REF` dengan project ref tersebut. Jalankan seluruh file satu kali melalui SQL Editor sebagai role `postgres`. File ini membentuk schema final backend langsung, memberi marker revision `0004_account_daily_profit`, dan menolak berjalan bila schema `app` sudah ada. Setelah berhasil, verifikasi marker sebelum menghubungkan API:
 
-Checkout release yang sudah diuji pada staging, lalu dari PowerShell di root repository pasang dependency:
+   ```sql
+   SELECT shobj_description(oid, 'pg_database') AS database_marker
+   FROM pg_database WHERE datname = current_database();
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m pip install -e .\apps\copier-worker
-```
-
-Buat file environment di luar repository, misalnya `D:\AlgentraSecure\core-api.env`. Atur minimal:
-
-- `APP_SECRET_KEY` acak minimal 32 karakter.
-- `ADMIN_PASSWORD` minimal 12 karakter.
-- `APP_ENV=production` pada environment proses service (bukan hanya di file).
-- `COOKIE_SECURE=true`, `SUPABASE_PROJECT_REF`, dan `DATABASE_URL` role `algentra_api` dengan TLS.
-- `BFF_HMAC_SECRET` acak minimal 32 karakter, sama pada Core API dan Vercel.
-- `EA_API_KEY` bila EA Telegram dipakai.
-
-Jangan isi `MIGRATION_DATABASE_URL` atau `SUPABASE_DEV_PROJECT_REF` pada Core API production. Jangan ganti `APP_SECRET_KEY` tanpa rencana pemulihan password broker managed-copy dan data terenkripsi.
-
-Fitur opsional:
-
-- Pembayaran manual: isi `PAYMENT_MANUAL_INSTRUCTIONS` dengan rekening dan nominal resmi yang sudah diverifikasi; QRIS tetap nonaktif. Review pembayaran memerlukan `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_ADMIN_CHAT_ID`.
-- Managed copy: set `COPIER_WORKER_API_KEY` acak minimal 32 karakter. Nilai yang sama dipasang pada backend dan akun Windows worker; jangan taruh nilainya pada file JSON worker.
-- Gemini/Telegram/SMTP: isi hanya jika fitur terkait dipakai. `GEMINI_API_KEY` dan `GEMINI_CS_API_KEY` harus berbeda. `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` serta token/chat ID bot pembayaran harus diisi berpasangan.
-
-## Pasang service dan aktifkan trafik
-
-Langkah berikut memasang dan menjalankan Core API serta managed copier pada Windows Server. Gunakan PowerShell **Run as Administrator** untuk instalasi Core API. Detail Cloudflare/Vercel, rilis, dan troubleshooting ada di [panduan service production](docs/SERVICE.md).
-
-### 1. Siapkan file environment Core API
-
-Contoh konfigurasi production ada di [core-api.production.env.example](infra/windows/core-api.production.env.example). Salin isinya ke file di luar repo, lalu isi semua nilai required dan hanya nilai optional untuk fitur yang digunakan. Jangan menaruh nilai rahasia nyata pada file contoh:
-
-```powershell
-New-Item -ItemType Directory -Path 'D:\AlgentraSecure' -Force | Out-Null
-icacls.exe 'D:\AlgentraSecure' /inheritance:r /grant 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F'
-New-Item -ItemType File -Path 'D:\AlgentraSecure\core-api.env' -Force | Out-Null
-notepad.exe 'D:\AlgentraSecure\core-api.env'
-```
-
-Gunakan contoh production di atas (bukan `.env.example`, yang khusus development). `start-core-api.ps1` menetapkan `APP_ENV=production` untuk proses service. Jangan isi `MIGRATION_DATABASE_URL` atau `SUPABASE_DEV_PROJECT_REF`, dan jangan menyalin `.env.local` development ke server.
-
-### 2. Pasang dan start Core API Windows Service
-
-Pastikan release sudah memiliki virtual environment dan dependency dari [Persiapan release](#persiapan-release), database production sudah diprovisikan, serta NSSM tersedia. Jalankan installer berikut di PowerShell administrator dari root repository; sesuaikan lokasi `nssm.exe`:
-
-```powershell
-.\infra\windows\install-core-api-service.ps1 `
-  -ProjectRoot (Get-Location).Path `
-  -EnvironmentFile 'D:\AlgentraSecure\core-api.env' `
-  -NssmPath 'C:\Tools\nssm\win64\nssm.exe'
-```
-
-Installer mendaftarkan service `AlgentraCoreApi` dengan akun virtual terbatas, ACL untuk environment/data/log, dan restart otomatis. **Installer belum men-start service.** Setelah instalasi sukses:
-
-```powershell
-Start-Service AlgentraCoreApi
-Get-Service AlgentraCoreApi
-Invoke-WebRequest http://127.0.0.1:8000/health
-Invoke-WebRequest http://127.0.0.1:8000/ready
-```
-
-`/health` menguji proses API dan `/ready` menguji koneksi database. Keduanya harus sukses sebelum trafik publik diarahkan ke origin.
-
-Untuk restart Core API setelah perubahan konfigurasi atau deployment, gunakan PowerShell administrator:
-
-```powershell
-Restart-Service AlgentraCoreApi
-Get-Service AlgentraCoreApi
-Invoke-WebRequest http://127.0.0.1:8000/health
-Invoke-WebRequest http://127.0.0.1:8000/ready
-```
-
-Periksa `/health` dan `/ready` sampai keduanya sukses sebelum mengarahkan trafik kembali ke origin.
-
-### 3. Pasang dan jalankan managed copier (opsional)
-
-Managed copier bukan Windows Service. Installer membuat Scheduled Task interaktif karena MT5 perlu sesi desktop user. Jalankan installer pada akun Windows yang menjalankan MT5; siapkan terminal master yang sudah login, folder sinyal, dan folder template follower bersih yang berisi `terminal64.exe`. Ganti URL dan path contoh dengan nilai server:
-
-```powershell
-.\apps\copier-worker\scripts\install_managed_worker_task.ps1 `
-  -ProjectRoot (Get-Location).Path `
-  -PythonPath (Join-Path (Get-Location).Path '.venv\Scripts\python.exe') `
-  -ApiBaseUrl 'https://api.example.com' `
-  -TerminalTemplateDir 'D:\MT5Templates\CleanFollower' `
-  -MasterTerminalPath 'C:\Program Files\MetaTrader 5\terminal64.exe' `
-  -SignalDirectory 'C:\Algentra\signals'
-```
-
-Masukkan `COPIER_WORKER_API_KEY` yang sama dengan backend hanya pada prompt tersembunyi. Di `apps\copier-worker\config\managed-worker.json`, `worker_api_key_env` harus berisi nama variabel `COPIER_WORKER_API_KEY`, bukan nilai key. Installer menguji koneksi/key lalu mendaftarkan dan menjalankan task.
-
-Task berjalan saat akun Windows tersebut login. Sesudah reboot, login kembali ke akun worker; bila task sudah terdaftar tetapi berhenti, jalankan dan periksa status:
-
-```powershell
-Start-ScheduledTask -TaskName 'Algentra Managed Copy Worker'
-Get-ScheduledTask -TaskName 'Algentra Managed Copy Worker' |
-  Select-Object TaskName, State
-Get-ScheduledTaskInfo -TaskName 'Algentra Managed Copy Worker' |
-  Select-Object LastRunTime, LastTaskResult
-```
-
-Worker online setelah berhasil polling backend. Log aplikasi ada di `logs\managed_worker.log`, error startup awal ada di `logs\managed_worker-task-error.log`. Pastikan tidak ada job live yang tidak ditinjau sebelum menjalankan worker; job managed aktif dapat mengirim order live. Untuk menghentikan task tanpa menghapus instalasinya, gunakan `Stop-ScheduledTask -TaskName 'Algentra Managed Copy Worker'`.
-
-Untuk restart worker tanpa menghapus task, jalankan pada akun Windows worker yang sedang login:
-
-```powershell
-Stop-ScheduledTask -TaskName 'Algentra Managed Copy Worker'
-Start-ScheduledTask -TaskName 'Algentra Managed Copy Worker'
-Get-ScheduledTask -TaskName 'Algentra Managed Copy Worker' |
-  Select-Object TaskName, State
-Get-ScheduledTaskInfo -TaskName 'Algentra Managed Copy Worker' |
-  Select-Object LastRunTime, LastTaskResult
-```
-
-Worker membutuhkan sesi desktop interaktif untuk MT5. Pastikan akun Windows worker sudah login. Job managed yang aktif dapat mengirim order live setelah worker berjalan kembali.
-
-### 4. Urutan restart dan uji managed worker
-
-Gunakan langkah ini pada server Windows ketika status login di portal terus berada di **Sedang memeriksa**. Jalankan PowerShell administrator untuk Core API, dan gunakan akun Windows worker yang login untuk task MT5. Periksa dulu tidak ada job live yang belum ditinjau: worker aktif dapat mengirim order.
-
-1. Hentikan worker agar tidak ada probe atau terminal follower yang aktif:
-
-   ```powershell
-   Stop-ScheduledTask -TaskName 'Algentra Managed Copy Worker' -ErrorAction SilentlyContinue
-   Get-ScheduledTask -TaskName 'Algentra Managed Copy Worker' |
-     Select-Object TaskName, State
+   SELECT obj_description('app'::regnamespace, 'pg_namespace') AS schema_revision;
    ```
 
-2. Hentikan Core API:
+   Hasil yang diharapkan adalah `algentra:production:<project-ref>` dan `algentra:revision:0004_account_daily_profit`.
+3. File tersebut membuat role `algentra_api` dan `algentra_backup` sebagai `NOLOGIN`. Aktifkan login sekaligus tetapkan password role runtime di SQL Editor. Ganti placeholder dengan password kuat dan unik sebelum menjalankan:
 
-   ```powershell
-   Stop-Service AlgentraCoreApi
-   Get-Service AlgentraCoreApi
+   ```sql
+   ALTER ROLE algentra_api LOGIN PASSWORD 'GANTI_DENGAN_PASSWORD_KUAT';
    ```
 
-3. Tutup terminal MT5 follower/MCP dan MetaEditor yang sedang memakai runtime follower, setelah memastikan terminal itu tidak mengelola posisi yang perlu dipantau. Periksa siapa yang memakai port IPC dari pesan error:
+   Jika menyiapkan host backup, aktifkan role itu dengan cara yang sama dan gunakan password terpisah. Jangan menyimpan password di source code atau file SQL. Gunakan connection string TLS (`sslmode=require` minimal) untuk role runtime; jangan gunakan role `postgres` atau Supabase `service_role` pada aplikasi.
+4. Isi `SUPABASE_PROJECT_REF` di environment Core API dengan ref yang sama. Gunakan `DATABASE_URL` dengan role runtime `algentra_api`. Database production baru tidak mengambil data dari SQLite; importer SQLite tetap hanya alat development dan tidak diperlukan untuk deployment fresh.
+
+> API tidak menjalankan DDL ketika startup. Installer fresh hanya untuk project Supabase baru yang belum memiliki schema `app`; jangan jalankan pada database yang berisi data atau schema lama. Untuk rilis berikutnya, siapkan perubahan schema sebagai SQL upgrade terpisah dan tinjau/backup sebelum diterapkan. Prosedur migrasi database development dan importer SQLite lokal dijelaskan di [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), bukan bagian dari instalasi production fresh.
+
+## 2. Build dan pasang Core API di Windows Server
+
+### Build release
+
+Build pada mesin rilis Windows dengan Go versi yang sesuai `go.mod` dan dari commit yang akan dirilis:
+
+```powershell
+$env:CGO_ENABLED = '0'
+go test ./...
+go build -ldflags='-s -w' -o algentra-backend.exe ./cmd/algentra-backend
+go build -ldflags='-s -w' -o algentra-copier-master.exe ./cmd/copier-master
+go build -ldflags='-s -w' -o algentra-copier-launcher.exe ./cmd/copier-launcher
+go build -ldflags='-s -w' -o algentra-copier-worker.exe ./cmd/copier-worker
+```
+
+Alternatifnya, ambil artifact Windows dari CI untuk commit yang sama. Jangan build langsung di folder release aktif. Simpan executable, source EA, checksum/commit, dan catatan versi sebagai satu paket rilis.
+
+### Environment dan service
+
+1. Root project production adalah `D:\Algentra\algentraCapitalProject`. Siapkan Windows Server terkelola, NSSM, dan Cloudflare Tunnel. Salin binary backend ke root project tersebut. Folder `backend\data` adalah data runtime, bukan source code, sehingga tidak tersedia di GitHub dan akan dibuat pada server.
+2. Salin [infra/windows/core-api.production.env.example](infra/windows/core-api.production.env.example) ke `D:\AlgentraSecure\core-api.env`. Isi `SUPABASE_PROJECT_REF`, `DATABASE_URL`, `APP_SECRET_KEY`, password admin, dan `BFF_HMAC_SECRET` acak minimal 32 karakter. Untuk akun otomatis setelah pembayaran, isi `MIDTRANS_SERVER_KEY`, `MIDTRANS_MERCHANT_ID`, set `MIDTRANS_IS_PRODUCTION=true`, dan konfigurasi notifikasi Midtrans ke `https://<api-origin>/api/payments/midtrans/notification`. Untuk managed copier, set `COPIER_WORKER_API_KEY` dan `EA_API_KEY`; salin key worker yang sama ke akun Windows worker dan gunakan key EA pada TelegramSignalEA master. Tambahkan integrasi opsional seperlunya.
+3. Dari PowerShell administrator pada root project, daftarkan service (installer menunjuk binary di `$ProjectRoot`):
 
    ```powershell
-   Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 22346 -ErrorAction SilentlyContinue |
-     Select-Object LocalAddress, LocalPort, State, OwningProcess
+   .\infra\windows\install-core-api-service.ps1 `
+     -ProjectRoot 'D:\Algentra\algentraCapitalProject' `
+     -EnvironmentFile 'D:\AlgentraSecure\core-api.env' `
+     -NssmPath 'C:\Tools\nssm\win64\nssm.exe'
    ```
 
-   Untuk melihat nama proses pemilik PID, gunakan:
+   Installer membuat service `AlgentraCoreApi` dengan restart otomatis dan membatasi ACL file environment. Setelah service terdaftar, buat folder data yang belum ada dan batasi ACL file environment serta data. Jalankan perintah ini dari PowerShell administrator:
 
    ```powershell
-   Get-Process -Id <PID>
+   $envFile = 'D:\AlgentraSecure\core-api.env'
+   $dataDir = 'D:\Algentra\algentraCapitalProject\backend\data'
+   $serviceAccount = 'NT SERVICE\AlgentraCoreApi'
+
+   New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+
+   icacls.exe $envFile /inheritance:r /grant:r `
+     'SYSTEM:F' 'BUILTIN\Administrators:F' "${serviceAccount}:R"
+
+   icacls.exe $dataDir /inheritance:r /grant:r `
+     'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' `
+     "${serviceAccount}:(OI)(CI)M" /T /C
+   icacls.exe $envFile
+   icacls.exe $dataDir
    ```
 
-   Jangan hentikan PID yang belum dikenali. Gunakan port yang persis tertulis pada pesan `bind error` (contoh `22346`); konflik socket lokal itu sendiri tidak menunjukkan password salah atau key worker salah. Jika log tersebut hanya muncul pada MCP MetaTrader, catat proses pemilik port dan jangan menganggapnya otomatis berasal dari managed worker.
-
-4. Pastikan `apps\copier-worker\config\managed-worker.json` menggunakan `api_base_url` Core API yang benar, `worker_api_key_env` bernilai nama variabel `COPIER_WORKER_API_KEY`, dan `terminal_template_dir` menunjuk folder follower bersih berisi `terminal64.exe`. Di `master.json`, pastikan `terminal_path` menunjuk terminal master dan `folder_sinyal` menunjuk folder sinyal yang benar. Jangan gunakan folder terminal master sebagai template follower.
-
-5. Nyalakan Core API dan pastikan API serta database siap:
+   `backend\data` menyimpan session Telegram dan data lokal aplikasi. Pertahankan folder ini pada path tersebut selama update agar datanya persisten. Service di-bind ke `127.0.0.1:8000`.
+4. Pasang Cloudflare Tunnel sebagai service terpisah dengan origin lokal `http://127.0.0.1:8000`; lindungi hostname API dengan Cloudflare Access service token khusus Vercel. Jangan expose port backend secara publik.
+5. Mulai dan periksa API:
 
    ```powershell
    Start-Service AlgentraCoreApi
    Get-Service AlgentraCoreApi
-   Invoke-WebRequest http://127.0.0.1:8000/health
-   Invoke-WebRequest http://127.0.0.1:8000/ready
+   Invoke-RestMethod 'http://127.0.0.1:8000/health'
+   Invoke-RestMethod 'http://127.0.0.1:8000/ready'
    ```
 
-6. Jalankan worker kembali dari akun Windows worker yang login:
+   `/health` memeriksa proses. `/ready` memeriksa koneksi, marker project, revision, serta struktur database.
+
+## 3. Deploy portal Next.js ke Vercel
+
+1. Import repository Git ke Vercel. Set **Root Directory** ke `apps/web`, install command `npm ci`, build command `npm run build`, dan gunakan Node.js 22.
+2. Isi environment server-only di Vercel Preview terlebih dahulu:
+
+   | Variable | Nilai |
+   | --- | --- |
+   | `CORE_API_ORIGIN` | Origin HTTPS API di Cloudflare, tanpa path tambahan |
+   | `BFF_HMAC_SECRET` | Sama persis dengan secret Core API |
+   | `CF_ACCESS_CLIENT_ID` | Service token client ID bila origin dilindungi Cloudflare Access |
+   | `CF_ACCESS_CLIENT_SECRET` | Service token secret yang berpasangan |
+
+   Jangan awali variabel rahasia dengan `NEXT_PUBLIC_`. Vercel/browser tidak perlu `DATABASE_URL` atau Supabase key.
+3. Deploy Preview. Uji login, dashboard, permintaan BFF, upload bukti pembayaran, dan WebSocket/realtime dari domain Preview. Atur origin WebSocket yang benar di `WEBSOCKET_ALLOWED_ORIGINS` backend dan policy Access sesuai arsitektur deployment.
+4. Setelah lulus, set variabel Production, deploy, pasang domain portal, lalu uji kembali. Setiap perubahan environment membutuhkan deployment baru. Jika nama domain portal berubah, perbarui allow-list WebSocket backend dan redeploy API.
+
+## 4. Pasang MT5 dan EA
+
+Gunakan akun demo dahulu. Pasang MT5 pada sesi desktop Windows khusus yang tetap login; terminal MT5, Algo Trading, EA, dan worker harus aktif bersama.
+
+### A. Copier managed dari portal (master memakai TelegramSignalEA)
+
+TelegramSignalEA mengirim snapshot master ke Core API; worker managed meneruskan snapshot tersebut ke publisher Go dan membuat terminal follower dari profil yang dibayar. EA publisher master terpisah tidak diperlukan untuk mode ini. Worker production tetap harus dipasang satu kali dan membutuhkan template MT5 follower yang bersih. Set `EA_API_KEY` dan `COPIER_WORKER_API_KEY` pada backend, lalu gunakan key EA yang sama pada TelegramSignalEA di terminal master.
+
+1. Pasang MT5 master, login ke akun master, compile dan pasang `mt5/experts/TelegramSignalEA.mq5` pada chart. Jika MT5 master berada di host API, set `ServerURL` ke `http://127.0.0.1:8000`; izinkan URL tersebut di WebRequest MT5 dan isi `ApiKey` dengan `EA_API_KEY` backend. Siapkan folder terminal follower bersih berisi `terminal64.exe` dan folder sinyal yang dapat ditulis worker.
+2. Compile EA follower dan login probe dengan MetaEditor; file `.ex5` harus tersedia pada lokasi yang dijelaskan di panduan copier:
+   - `mt5/experts/MT5FollowerCopyEA.mq5` pada terminal follower template.
+   - `mt5/experts/Algentra/MT5LoginProbe.mq5` untuk validasi login managed.
+3. Pastikan `COPIER_WORKER_API_KEY` pada environment Core API dan akun worker sama. Worker otomatis menambahkan WebRequest `http://127.0.0.1:8766` pada terminal follower setelah startup; template tidak perlu disetel manual. Ini memakai desktop Windows interaktif, yang disediakan oleh Scheduled Task installer. Dari PowerShell akun worker jalankan installer task:
 
    ```powershell
-   Start-ScheduledTask -TaskName 'Algentra Managed Copy Worker'
-   Get-ScheduledTask -TaskName 'Algentra Managed Copy Worker' |
-     Select-Object TaskName, State
-   Get-ScheduledTaskInfo -TaskName 'Algentra Managed Copy Worker' |
-     Select-Object LastRunTime, LastTaskResult
+   .\apps\copier-worker\scripts\install_managed_worker_task.ps1 `
+     -ProjectRoot 'D:\Algentra\algentraCapitalProject' `
+     -ApiBaseUrl 'https://api.example.com' `
+     -TerminalTemplateDir 'D:\MT5Templates\CleanFollower' `
+     -SignalDirectory 'D:\Algentra\signals'
    ```
 
-7. Buka `/account` di portal, simpan kredensial broker untuk akun managed, lalu tunggu status keluar dari **Sedang memeriksa**. Probe pertama memberi waktu hingga 150 detik karena MT5 dapat memperbarui file dan mengompilasi ulang program saat pertama berjalan. Copier mendukung akun Hedging dan Netting/Exchange; pada Netting, exposure posisi master digabung per simbol dan SL/TP posisi virtual dipantau oleh worker. Jika status tetap memeriksa, periksa `logs\managed_worker.log` dan `logs\managed_worker-task-error.log`; pastikan `LastTaskResult` bernilai `0` dan worker melaporkan polling backend. Uji validasi login tidak mengirim order. Sebelum live, perbarui/restart worker ke versi ini dan pastikan alur Netting berjalan di akun demo.
+   Task bernama `Algentra Managed Copy Worker`, berjalan saat akun worker login, dan membutuhkan sesi interaktif. Periksa `managed-worker.json`/`master.json` hasil installer, lalu login kembali setelah reboot agar MT5 follower aktif. Source master default `telegram_signal`; installer tidak meminta path terminal master.
+4. User mendaftar, membuat pesanan, dan membayar dengan QRIS. Settlement otomatis membuat akun. User memasukkan kredensial broker follower serta batas lot di portal; worker memeriksa login, lalu user menyetujui aktivasi live. Uji alur dahulu dengan akun demo dan risk limit yang ditetapkan.
 
-### 5. Aktifkan akses publik
+### B. Copier standalone dari posisi MT5 (publisher master + follower EA di host sendiri)
 
-Pasang named Cloudflare Tunnel ke origin `http://127.0.0.1:8000`, lalu konfigurasi Cloudflare Access dan environment Vercel sesuai [panduan service production](docs/SERVICE.md#cloudflare-tunnel-dan-vercel). Jangan membuka port 8000 langsung ke internet.
+1. Buat satu instalasi MT5 portable terpisah untuk setiap follower, login ke akun yang benar lalu tutup terminal. Compile/pasang `MT5FollowerCopyEA.mq5` pada terminal masing-masing.
+2. Siapkan config lokal dari `apps/copier-worker/config/master.example.json`, lalu buat `akun*.json` dan `launcher.json` sesuai [panduan copier](apps/copier-worker/README.md). Tetapkan path terminal unik, folder sinyal yang sama, symbol mapping, mode lot, `dry_run`, dan batas `max_lot_per_order`, `max_posisi_terbuka`, `max_lot_total`.
+3. Pasang `MT5MasterPublisherEA.mq5` pada chart mana pun di terminal MT5 yang login ke **akun master sumber posisi**. EA ini membaca posisi terbuka di akun itu dan mengirim snapshot ke publisher Go lokal; EA tidak membuka order. Compile EA dengan MetaEditor, set `MASTER_PUBLISHER_TOKEN` di environment akun Windows yang menjalankan publisher, lalu isi input `PublisherToken` EA dengan secret yang sama (minimal 32 karakter). Allow-list `http://127.0.0.1:8765` pada terminal master dan `http://127.0.0.1:8766` pada terminal follower.
+4. Mulai dari root release: `apps\copier-worker\scripts\start-all.ps1`. Task opsional saat login dapat dipasang melalui `apps\copier-worker\scripts\install_startup_task.ps1`. Jangan jalankan publisher master kedua bila managed worker atau launcher sudah menjalankannya.
 
-## Checklist sebelum production live
+Pasang EA publisher ini hanya jika ingin menyalin posisi yang dibuka di MT5 master secara langsung (standalone/`master_source: publisher_ea`). Untuk managed copy yang menggunakan sinyal Telegram, pasang `TelegramSignalEA.mq5` di terminal master; `MT5MasterPublisherEA.mq5` tidak dipakai karena worker menerima snapshot dari Core API.
 
-- `/health` dan `/ready` merespons sukses dari origin.
-- Marker project database adalah `algentra:production:<project-ref>` dan revision schema cocok dengan kode release.
-- Service Core API berjalan sebagai akun terbatas; tunnel meneruskan ke localhost dan firewall tidak membuka port 8000.
-- Vercel Preview, Cloudflare Access policy, service token, dan HMAC sudah diuji sebelum domain Production dialihkan.
-- Backup terenkripsi sudah berjalan dan restore sudah diuji pada staging; lihat [panduan backup](docs/BACKUP.md).
-- Fitur trading diuji pada akun demo dahulu. EA Telegram mengirim order live saat diaktifkan; managed worker juga dapat mengirim order live untuk job yang client setujui.
+### C. Telegram Signal EA (mengirim order dari sinyal Telegram)
 
-Jangan cut over ke trading live sebelum database, backup/restore, login, pembayaran, EA/worker, dan prosedur penghentian sudah diverifikasi. Proyek belum divalidasi menyeluruh dengan kredensial production, akun hosting Vercel, atau akun broker live.
+1. Gunakan terminal MT5 khusus pada sesi interaktif, compile `mt5/experts/TelegramSignalEA.mq5`, dan pasang pada chart simbol yang sesuai.
+2. Bila EA berjalan pada Windows host yang sama dengan API, set `ServerURL` ke `http://127.0.0.1:8000`; jika berjalan di host berbeda gunakan origin HTTPS khusus yang dapat dijangkau. Allow-list URL itu pada **Tools → Options → Expert Advisors → Allow WebRequest**. EA ini hanya mengirim `X-API-Key`, jadi hostname di belakang Cloudflare Access yang mewajibkan service-token header tidak dapat dipakai langsung oleh EA; siapkan jalur EA terpisah dengan policy yang sesuai dan verifikasi pembatasan endpoint sebelum mengaktifkan akses.
+3. Isi input `ApiKey` dengan nilai `EA_API_KEY` backend. Atur watchlist, symbol mapping, batas/default SL/TP, volume dan opsi trading; cocokkan pula whitelist grup Telegram pada halaman admin `/telegram-setup`.
+4. Verifikasi pada akun demo dan pantau log Experts/Journal. EA ini dapat mengirim order live dan backend tidak menyediakan dry-run untuk eksekusi EA tersebut. Kill switch menghentikan distribusi signal baru, tetapi tidak menutup posisi terbuka.
+
+### D. Copier EA mandiri milik client
+
+Portal client dapat menyediakan source `MT5FollowerCopyEA.mq5` dan token akun. Client mengunduh/compile `.mq5`, memasang EA pada terminal follower, allow-list origin API pada MT5, memasukkan token dan parameter risiko pada input EA, lalu mengaktifkan Algo Trading. Token hanya ditampilkan saat dibuat/dirotasi dan harus diperlakukan sebagai rahasia. Lihat [docs/OPERATIONS.md](docs/OPERATIONS.md) dan panduan akun copier untuk instruksi yang dilihat client.
+
+## 5. Start, stop, dan status operasional
+
+### Core API Windows Service
+
+```powershell
+Start-Service AlgentraCoreApi
+Stop-Service AlgentraCoreApi
+Restart-Service AlgentraCoreApi
+Get-Service AlgentraCoreApi
+Invoke-RestMethod 'http://127.0.0.1:8000/health'
+Invoke-RestMethod 'http://127.0.0.1:8000/ready'
+```
+
+Log NSSM berada di `<ProjectRoot>\logs\core-api\stdout.log` dan `stderr.log`.
+
+### Managed copier task
+
+```powershell
+Start-ScheduledTask -TaskName 'Algentra Managed Copy Worker'
+Stop-ScheduledTask -TaskName 'Algentra Managed Copy Worker'
+Get-ScheduledTask -TaskName 'Algentra Managed Copy Worker' | Select-Object TaskName, State
+Get-ScheduledTaskInfo -TaskName 'Algentra Managed Copy Worker' | Select-Object LastRunTime, LastTaskResult
+```
+
+Task membutuhkan akun Windows worker login. Periksa `<ProjectRoot>\logs\managed_worker.log`, `managed_worker-task-error.log`, status heartbeat API, dan terminal MT5. Posisi yang sudah terbuka tetap berada pada broker saat task berhenti.
+
+### Copier standalone
+
+Mulai `apps\copier-worker\scripts\start-all.ps1` pada sesi akun worker. Hentikan proses melalui `Ctrl+C` pada konsol yang menjalankannya; jika memakai Task Scheduler, gunakan task yang sudah didaftarkan dan verifikasi semua proses MT5 terkait sebelum stop. Jangan matikan terminal master/follower yang sedang mengelola posisi tanpa memeriksa eksposur di broker.
+
+### Telegram EA dan MT5
+
+EA berjalan di terminal MT5, bukan sebagai Windows Service. Gunakan tombol Algo Trading/Expert Advisor untuk menghentikan eksekusi baru, kemudian kelola posisi dan pending order langsung dari MT5/broker. Menghentikan EA tidak menutup posisi yang sudah terbuka.
+
+## 6. Backup dan update aplikasi/service
+
+### Backup sebelum perubahan
+
+Pastikan backup terenkripsi berhasil dan uji restore pada staging. Ikuti [docs/BACKUP.md](docs/BACKUP.md). Simpan terpisah dari host Windows dan database.
+
+### Update schema
+
+1. Backup database, tinjau SQL upgrade baru, terapkan pada target production melalui operator/DBA, lalu verifikasi schema/revision marker dan data.
+2. Jangan jalankan `migrate-development.ps1` atau `fresh-production.sql` pada production yang sudah berjalan. Deploy API hanya setelah schema kompatibel. Hindari rollback DDL/data tanpa rencana pemulihan.
+
+### Update backend dan copier
+
+1. Pilih commit rilis, jalankan CI, simpan binary dan source EA/versinya. Buat backup, periksa tidak ada order/proses yang sedang diproses, dan aktifkan penghentian signal baru bila diperlukan.
+2. Stage binary baru di folder release terpisah dan verifikasi checksum. Hentikan `Algentra Managed Copy Worker` dan `AlgentraCoreApi`; pastikan operator memahami bahwa MT5/EA mengelola posisi live dan jangan menutup terminal dengan membabi buta.
+3. Ganti file executable dalam release sesuai prosedur cutover, tetapi pertahankan `core-api.env`, `backend\data`, config worker/master, state, folder terminal MT5, dan secret. Jika menggunakan folder versi, update `ProjectRoot`/service secara terencana.
+4. Start Core API, periksa `/health` dan `/ready`, cek login admin dan integrasi. Login pada akun worker, start task managed atau launcher standalone, lalu periksa heartbeat, log, publisher master, dan terminal follower.
+5. Compile/deploy EA baru secara terpisah pada terminal terkait dan verifikasi input/token/URL allow-list. Jangan aktifkan kembali live trading sampai operator mengesahkan smoke test staging/demo dan production checks.
+6. Untuk update portal, deploy commit yang sama ke Vercel Preview, uji BFF dan integrasi API, lalu promote/deploy Production. Environment variable yang berubah memerlukan redeploy.
+
+### Rollback
+
+Hentikan trafik/update yang gagal, pulihkan binary dan frontend versi sebelumnya, lalu cek schema compatibility. Pulihkan database hanya jika diperlukan setelah menghitung transaksi sejak backup; rekonsiliasi order, posisi, dan deal lewat riwayat broker. Prosedur lengkap ada di [docs/SERVICE.md](docs/SERVICE.md) dan [docs/BACKUP.md](docs/BACKUP.md).
+
+## 7. Checklist setelah install/update
+
+- [ ] `/health` sukses dan `/ready` melaporkan database siap.
+- [ ] Vercel memakai API origin yang benar; BFF HMAC dan Cloudflare Access valid; login dan request portal berhasil.
+- [ ] Telegram/Gemini/email/payment sesuai integrasi yang diaktifkan; Midtrans sandbox diuji sebelum production.
+- [ ] Untuk copier managed: TelegramSignalEA mengirim snapshot master; worker meneruskan feed dan follower membaca perubahan posisi.
+- [ ] Terminal follower memakai simbol dan parameter risiko yang benar; status broker/heartbeat sehat.
+- [ ] Uji pertama menggunakan akun demo. Trading live hanya setelah persetujuan operator/client dan review risk limit.
+- [ ] Backup, commit, versi binary/EA, hasil smoke test, dan waktu deployment tercatat.
+
+## Referensi
+
+- [Instalasi service dan Cloudflare/Vercel](docs/SERVICE.md)
+- [Fitur portal, EA, dan batas operasi](docs/OPERATIONS.md)
+- [Copier standalone dan managed](apps/copier-worker/README.md)
+- [Backup dan restore](docs/BACKUP.md)
+- [Prosedur lokal development](docs/DEVELOPMENT.md)
+- [Kontrak OpenAPI dan tipe frontend](packages/contracts/README.md)

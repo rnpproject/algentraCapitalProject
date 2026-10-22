@@ -1,6 +1,5 @@
 param(
     [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path,
-    [string]$PythonPath,
     [string]$ApiBaseUrl,
     [string]$TerminalTemplateDir,
     [string]$MasterTerminalPath,
@@ -8,40 +7,18 @@ param(
 )
 
 $resolvedRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
-$venvPython = Join-Path $resolvedRoot ".venv\Scripts\python.exe"
-if (-not [string]::IsNullOrWhiteSpace($PythonPath)) {
-    if (Test-Path -LiteralPath $PythonPath -PathType Leaf) {
-        $resolvedPython = (Resolve-Path -LiteralPath $PythonPath).Path
-    } else {
-        $pythonCommand = Get-Command -Name $PythonPath -ErrorAction Stop
-        $resolvedPython = $pythonCommand.Source
-    }
-} elseif (Test-Path -LiteralPath $venvPython -PathType Leaf) {
-    $resolvedPython = $venvPython
-} else {
-    $pythonLauncher = Get-Command -Name "py" -ErrorAction SilentlyContinue
-    if (-not $pythonLauncher) {
-        throw "Python 3.12 64-bit dan Python Launcher wajib tersedia untuk membuat virtual environment."
-    }
-    & $pythonLauncher.Source -3.12 -m venv (Join-Path $resolvedRoot ".venv")
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $venvPython -PathType Leaf)) {
-        throw "Gagal membuat .venv dengan Python 3.12."
-    }
-    $resolvedPython = $venvPython
-}
-$runtimeInfo = (& $resolvedPython -c "import platform,sys; print(f'{sys.version_info.major}.{sys.version_info.minor}|{platform.architecture()[0]}')").Trim()
-$runtimeParts = $runtimeInfo -split "\|", 2
-if ($runtimeParts.Count -ne 2 -or [version]$runtimeParts[0] -lt [version]"3.12" -or $runtimeParts[1] -ne "64bit") {
-    throw "Worker membutuhkan Python 3.12 64-bit atau lebih baru; interpreter terpilih melaporkan '$runtimeInfo'."
-}
-$workerScript = Join-Path $resolvedRoot "apps\copier-worker\scripts\run_managed_worker.py"
+$workerBinary = Join-Path $resolvedRoot "algentra-copier-worker.exe"
 $configDirectory = Join-Path $resolvedRoot "apps\copier-worker\config"
 $workerConfigPath = Join-Path $configDirectory "managed-worker.json"
 $workerExamplePath = Join-Path $configDirectory "managed-worker.example.json"
 $masterConfigPath = Join-Path $configDirectory "master.json"
 $masterExamplePath = Join-Path $configDirectory "master.example.json"
-if (-not (Test-Path -LiteralPath $workerScript -PathType Leaf)) {
-    throw "Script managed worker tidak ditemukan: $workerScript"
+if (-not (Test-Path -LiteralPath $workerBinary -PathType Leaf)) {
+	throw "Binary managed worker Go tidak ditemukan: $workerBinary. Build dengan go build -o algentra-copier-worker.exe ./cmd/copier-worker terlebih dahulu."
+}
+$masterPublisher = Join-Path $resolvedRoot "algentra-copier-master.exe"
+if (-not (Test-Path -LiteralPath $masterPublisher -PathType Leaf)) {
+    throw "Binary publisher Go tidak ditemukan: $masterPublisher. Build dengan go build -o algentra-copier-master.exe ./cmd/copier-master terlebih dahulu."
 }
 $createdConfigs = $false
 foreach ($pair in @(
@@ -63,9 +40,6 @@ if ($createdConfigs) {
     if ([string]::IsNullOrWhiteSpace($TerminalTemplateDir)) {
         $TerminalTemplateDir = Read-Host "Path folder template MT5 follower bersih (berisi terminal64.exe)"
     }
-    if ([string]::IsNullOrWhiteSpace($MasterTerminalPath)) {
-        $MasterTerminalPath = Read-Host "Path terminal64.exe MT5 master"
-    }
     if ([string]::IsNullOrWhiteSpace($SignalDirectory)) {
         $SignalDirectory = Read-Host "Path folder signal yang dibaca publisher"
     }
@@ -85,6 +59,8 @@ if (-not [string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
 if (-not [string]::IsNullOrWhiteSpace($TerminalTemplateDir)) {
     $workerConfig.terminal_template_dir = $TerminalTemplateDir
 }
+$workerConfig.execution_mode = "mt5_ea"
+$workerConfig.feed_address = "127.0.0.1:8766"
 $masterConfigValue = [string]$workerConfig.master_config
 if ([string]::IsNullOrWhiteSpace($masterConfigValue)) {
     throw "master_config wajib diisi pada managed-worker.json."
@@ -108,6 +84,10 @@ if (-not [string]::IsNullOrWhiteSpace($MasterTerminalPath)) {
 if (-not [string]::IsNullOrWhiteSpace($SignalDirectory)) {
     $masterConfig.folder_sinyal = $SignalDirectory
 }
+if ([string]::IsNullOrWhiteSpace([string]$masterConfig.folder_sinyal) -or
+    [string]$masterConfig.folder_sinyal -eq "C:/Algentra/signals") {
+    $masterConfig.folder_sinyal = "apps/copier-worker/config/runtime/signals"
+}
 if ($createdConfigs -or
     -not [string]::IsNullOrWhiteSpace($ApiBaseUrl) -or
     -not [string]::IsNullOrWhiteSpace($TerminalTemplateDir)) {
@@ -115,13 +95,9 @@ if ($createdConfigs -or
     $json = ConvertTo-Json -InputObject $workerConfig -Depth 12
     [IO.File]::WriteAllText((Join-Path $configDirectory "managed-worker.json"), $json, $encoding)
 }
-if ($createdConfigs -or
-    -not [string]::IsNullOrWhiteSpace($MasterTerminalPath) -or
-    -not [string]::IsNullOrWhiteSpace($SignalDirectory)) {
-    $encoding = New-Object System.Text.UTF8Encoding($false)
-    $json = ConvertTo-Json -InputObject $masterConfig -Depth 12
-    [IO.File]::WriteAllText((Join-Path $configDirectory "master.json"), $json, $encoding)
-}
+$encoding = New-Object System.Text.UTF8Encoding($false)
+$json = ConvertTo-Json -InputObject $masterConfig -Depth 12
+[IO.File]::WriteAllText((Join-Path $configDirectory "master.json"), $json, $encoding)
 if ([string]::IsNullOrWhiteSpace([string]$workerConfig.api_base_url)) {
     throw "api_base_url wajib diisi pada managed-worker.json."
 }
@@ -131,15 +107,41 @@ if (-not [Uri]::TryCreate([string]$workerConfig.api_base_url, [UriKind]::Absolut
     throw "api_base_url harus berupa URL HTTP(S) yang valid."
 }
 $terminalTemplateDir = [string]$workerConfig.terminal_template_dir
+if (-not [IO.Path]::IsPathRooted($terminalTemplateDir)) {
+    $terminalTemplateDir = Join-Path $configDirectory $terminalTemplateDir
+}
 if (-not (Test-Path -LiteralPath $terminalTemplateDir -PathType Container) -or
     -not (Test-Path -LiteralPath (Join-Path $terminalTemplateDir "terminal64.exe") -PathType Leaf)) {
     throw "terminal_template_dir harus menunjuk folder MT5 follower bersih yang berisi terminal64.exe."
 }
-if (-not (Test-Path -LiteralPath ([string]$masterConfig.terminal_path) -PathType Leaf)) {
+$probeExpertSource = Join-Path $resolvedRoot "mt5\experts\Algentra\MT5LoginProbe.ex5"
+if (-not (Test-Path -LiteralPath $probeExpertSource -PathType Leaf)) {
+    throw "Expert login probe belum dikompilasi: $probeExpertSource. Compile mt5\experts\Algentra\MT5LoginProbe.mq5 dengan MetaEditor."
+}
+$followerExpertSource = Join-Path $resolvedRoot "mt5\experts\MT5FollowerCopyEA.ex5"
+if (-not (Test-Path -LiteralPath $followerExpertSource -PathType Leaf)) {
+    throw "EA follower belum dikompilasi: $followerExpertSource. Compile mt5\experts\MT5FollowerCopyEA.mq5 dengan MetaEditor."
+}
+$followerExpertTarget = Join-Path $terminalTemplateDir "MQL5\Experts\MT5FollowerCopyEA.ex5"
+New-Item -ItemType Directory -Path (Split-Path -Parent $followerExpertTarget) -Force | Out-Null
+Copy-Item -LiteralPath $followerExpertSource -Destination $followerExpertTarget -Force
+$probeExpertTarget = Join-Path $terminalTemplateDir "MQL5\Experts\Algentra\MT5LoginProbe.ex5"
+New-Item -ItemType Directory -Path (Split-Path -Parent $probeExpertTarget) -Force | Out-Null
+Copy-Item -LiteralPath $probeExpertSource -Destination $probeExpertTarget -Force
+if ([string]$workerConfig.master_source -eq "publisher_ea" -and -not (Test-Path -LiteralPath ([string]$masterConfig.terminal_path) -PathType Leaf)) {
     throw "terminal_path pada master.json harus menunjuk terminal64.exe master yang tersedia."
 }
-if (-not (Test-Path -LiteralPath ([string]$masterConfig.folder_sinyal) -PathType Container)) {
-    throw "folder_sinyal pada master.json harus menunjuk folder sinyal yang tersedia."
+$signalPath = [string]$masterConfig.folder_sinyal
+if (-not [IO.Path]::IsPathRooted($signalPath)) {
+    $signalPath = Join-Path $resolvedRoot $signalPath
+}
+New-Item -ItemType Directory -Path $signalPath -Force | Out-Null
+$runtimeDirectory = [string]$workerConfig.runtime_dir
+if (-not [IO.Path]::IsPathRooted($runtimeDirectory)) {
+    $runtimeDirectory = Join-Path $configDirectory $runtimeDirectory
+}
+foreach ($directory in @("terminals", "states", "reports", "heartbeats", "logs")) {
+    New-Item -ItemType Directory -Path (Join-Path $runtimeDirectory $directory) -Force | Out-Null
 }
 $workerKey = [Environment]::GetEnvironmentVariable("COPIER_WORKER_API_KEY", "User")
 if (-not $workerKey) {
@@ -162,6 +164,27 @@ if (-not $workerKey) {
 if ($workerKey.Length -lt 32) {
     throw "COPIER_WORKER_API_KEY minimal 32 karakter."
 }
+$publisherToken = [Environment]::GetEnvironmentVariable("MASTER_PUBLISHER_TOKEN", "User")
+if (-not $publisherToken) {
+    $publisherToken = [Environment]::GetEnvironmentVariable("MASTER_PUBLISHER_TOKEN", "Machine")
+}
+if (-not $publisherToken) {
+    $secureToken = Read-Host "Buat MASTER_PUBLISHER_TOKEN rahasia untuk bridge lokal copier (disimpan pada environment User Windows)" -AsSecureString
+    $tokenPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
+    try {
+        $publisherToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($tokenPointer)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($tokenPointer)
+    }
+    if (-not $publisherToken) {
+        throw "MASTER_PUBLISHER_TOKEN tidak boleh kosong."
+    }
+    [Environment]::SetEnvironmentVariable("MASTER_PUBLISHER_TOKEN", $publisherToken, "User")
+    $env:MASTER_PUBLISHER_TOKEN = $publisherToken
+}
+if ($publisherToken.Length -lt 32) {
+    throw "MASTER_PUBLISHER_TOKEN minimal 32 karakter."
+}
 try {
     $health = Invoke-RestMethod -Uri ($apiUri.AbsoluteUri.TrimEnd("/") + "/health") -TimeoutSec 10 -ErrorAction Stop
 } catch {
@@ -182,16 +205,11 @@ try {
 if ($workerHealth.status -ne "ok") {
     throw "Backend tidak mengonfirmasi key worker."
 }
-& $resolvedPython -m pip install --disable-pip-version-check -e (Join-Path $resolvedRoot "apps\copier-worker")
-if ($LASTEXITCODE -ne 0) {
-    throw "Gagal memasang dependensi copier-worker ke interpreter terpilih."
-}
-
 $taskName = "Algentra Managed Copy Worker"
-$taskLogDirectory = Join-Path $resolvedRoot "logs"
+$taskLogDirectory = Join-Path $runtimeDirectory "logs"
 New-Item -ItemType Directory -Path $taskLogDirectory -Force | Out-Null
 $taskErrorLog = Join-Path $taskLogDirectory "managed_worker-task-error.log"
-$launcherCommand = "`$env:APP_ENV='production'; `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'User'); if (-not `$workerKey) { `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'Machine') }; if (-not `$workerKey) { throw 'COPIER_WORKER_API_KEY tidak tersedia pada environment akun worker.' }; `$env:COPIER_WORKER_API_KEY = `$workerKey; Remove-Variable workerKey; Set-Location -LiteralPath '$resolvedRoot'; & '$resolvedPython' '$workerScript' '$workerConfigPath' 2> '$taskErrorLog'"
+$launcherCommand = "`$env:APP_ENV='production'; `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'User'); if (-not `$workerKey) { `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'Machine') }; if (-not `$workerKey) { throw 'COPIER_WORKER_API_KEY tidak tersedia pada environment akun worker.' }; `$env:COPIER_WORKER_API_KEY = `$workerKey; Remove-Variable workerKey; `$publisherToken = [Environment]::GetEnvironmentVariable('MASTER_PUBLISHER_TOKEN', 'User'); if (-not `$publisherToken) { `$publisherToken = [Environment]::GetEnvironmentVariable('MASTER_PUBLISHER_TOKEN', 'Machine') }; if (-not `$publisherToken) { throw 'MASTER_PUBLISHER_TOKEN tidak tersedia pada environment akun worker.' }; `$env:MASTER_PUBLISHER_TOKEN = `$publisherToken; Remove-Variable publisherToken; Set-Location -LiteralPath '$resolvedRoot'; & '$workerBinary' '$workerConfigPath' 2> '$taskErrorLog'"
 $action = New-ScheduledTaskAction `
     -Execute "powershell.exe" `
     -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"$launcherCommand`"" `

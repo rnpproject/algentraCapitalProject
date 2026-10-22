@@ -329,7 +329,8 @@ h1 "Akun Copy Trading", aside "Password broker tidak ditampilkan kembali setelah
 - `fieldset.plan-picker` "Pilih paket layanan": loop `client_plans` → `.plan-option` per plan:
   nama, `vCPU: …`, `RAM: …`, `Disk: …`, harga `Rp 1.500.000` (format id-ID).
   field-help: "Total mengikuti harga paket… Jangan transfer sebelum melihat instruksi pada pesanan Anda."
-- Input: Nama akun (`label`, max 80), Server broker (`server`, max 128),
+- Input: Nama akun (`label`, max 80), cari broker/server MT5 lalu pilih hasil
+  direktori sebagai `server` (server akun tetap harus cocok dengan detail broker),
   Nomor akun broker (`login`, numeric, pattern `[0-9]+`, custom validity
   "Nomor akun MT5 hanya boleh berisi angka, tanpa spasi.").
 - Submit "Lanjutkan ke pembayaran" → `POST /api/payments/orders`
@@ -443,8 +444,9 @@ h1 "Riwayat transaksi", link `.workspace-tag` "Kembali ke akun MT5" → `/accoun
     (head "Nota pembayaran" + Tutup; body: h2, `.transaction-note` status,
     details, img `.receipt-proof` `src=/api/payments/orders/{id}/proof` atau `.receipt-empty`).
   - PENDING_PAYMENT → "Lanjutkan pembayaran"/"Tutup pembayaran" (expand):
-    `.transaction-note` instruksi (`manualPaymentInstructions`) + "Saya sudah bayar" →
-    `.transaction-proof-form` (file JPG/PNG/WebP ≤5MB) → `POST …/proof` (FormData).
+    jika QRIS tersedia tampilkan `QrisPayment` saja; setelah Midtrans settlement akun dibuat
+    otomatis. Jika QRIS tidak dikonfigurasi, tampilkan instruksi transfer manual dan
+    `.transaction-proof-form` (file JPG/PNG/WebP ≤5MB) → `POST …/proof` untuk review admin.
   - PAYMENT_SUBMITTED → note progres; bila `!notification_sent` → "Kirim ulang notifikasi admin"
     (`POST …/notify`).
   - APPROVED → note + "Buka akun Copy Trading" → `/account`.

@@ -1,6 +1,7 @@
 {
   "terminal_path": "C:/Program Files/MetaTrader 5/terminal64.exe",
-  "folder_sinyal": "C:/Algentra/signals",
+  "folder_sinyal": "apps/copier-worker/config/runtime/signals",
+  "listen_addr": "127.0.0.1:8765",
   "filter_magic": [],
   "filter_simbol": [],
   "abaikan_komentar_mengandung": [],

@@ -1,10 +1,10 @@
 $ErrorActionPreference = 'Stop'
 $WorkerRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ProjectRoot = (Resolve-Path (Join-Path $WorkerRoot '..\..')).Path
-$python = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw "Virtual environment tidak ditemukan: $python" }
-
-$env:PYTHONPATH = (Join-Path $WorkerRoot 'src') + $(if ($env:PYTHONPATH) { [IO.Path]::PathSeparator + $env:PYTHONPATH } else { '' })
-Set-Location -LiteralPath $WorkerRoot
-& $python -m copytrade.launcher config/launcher.json
+$launcher = Join-Path $ProjectRoot 'algentra-copier-launcher.exe'
+if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
+    throw "Binary Go launcher tidak ditemukan: $launcher. Build dari root repo dengan go build -o algentra-copier-launcher.exe ./cmd/copier-launcher."
+}
+Set-Location -LiteralPath $ProjectRoot
+& $launcher (Join-Path $WorkerRoot 'config/launcher.json')
 exit $LASTEXITCODE

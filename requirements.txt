@@ -1,1 +1,0 @@
--r apps/core-api/requirements.txt
