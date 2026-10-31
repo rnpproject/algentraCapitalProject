@@ -85,6 +85,9 @@ func setup(validateOnly bool) error {
 			message = strings.ReplaceAll(message, adminPassword, "[REDACTED]")
 		}
 		message = regexp.MustCompile(`(?i)(postgres(?:ql)?://)[^/@\s]+@`).ReplaceAllString(message, `${1}[REDACTED]@`)
+		if directHost {
+			message += "; bila server/DNS tidak mendukung IPv6, gunakan Session Pooler port 5432 dari Dashboard > Connect"
+		}
 		return fmt.Errorf("koneksi ke Supabase gagal: %s", message)
 	}
 	defer conn.Close(context.Background())

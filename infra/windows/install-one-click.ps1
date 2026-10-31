@@ -442,7 +442,7 @@ if ($reuseEnvironment -and $adminDatabaseUrl) {
 }
 if (-not $reuseEnvironment) {
     if ([string]::IsNullOrWhiteSpace($adminDatabaseUrl)) {
-        $adminDatabaseUrl = Read-SecureText 'DATABASE_ADMIN_URL role postgres, direct/session pooler port 5432, TLS sslmode=require'
+        $adminDatabaseUrl = Read-SecureText 'DATABASE_ADMIN_URL role postgres, Session Pooler port 5432 direkomendasikan untuk jaringan IPv4, TLS sslmode=require'
     }
     if ([string]::IsNullOrWhiteSpace($adminDatabaseUrl)) { throw 'DATABASE_ADMIN_URL wajib diisi untuk menyiapkan schema production.' }
     $installConfiguration.database_admin_url = $adminDatabaseUrl
@@ -630,7 +630,7 @@ if ($reuseEnvironment) {
     if ($projectRef -notmatch '^[a-z0-9]{10,30}$' -or $apiRoleCredential.Length -lt 32 -or $adminPassword.Length -lt 12) {
         throw 'File rahasia sementara installer tidak valid.'
     }
-    if (-not $adminDatabaseUrl) { $adminDatabaseUrl = Read-SecureText 'DATABASE_ADMIN_URL role postgres, direct/session pooler port 5432, TLS sslmode=require' }
+    if (-not $adminDatabaseUrl) { $adminDatabaseUrl = Read-SecureText 'DATABASE_ADMIN_URL role postgres, Session Pooler port 5432 direkomendasikan untuk jaringan IPv4, TLS sslmode=require' }
 }
 
 $adminProjectRef = Get-SupabaseProjectRef $adminDatabaseUrl
