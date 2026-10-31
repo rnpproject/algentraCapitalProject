@@ -79,8 +79,41 @@ function Install-MetaTrader([string] $Destination) {
     throw "Installer MetaTrader gagal (exit $lastExitCode) setelah $attemptLimit percobaan pada $Destination.`nLog: $stdoutLog`n$stderrLog`n$details"
 }
 
+function Initialize-MetaTraderPortableData {
+    $mql5Root = Join-Path $masterRoot 'MQL5'
+    $tradeInclude = Join-Path $mql5Root 'Include\Trade\Trade.mqh'
+    if (Test-Path -LiteralPath $tradeInclude -PathType Leaf) { return $mql5Root }
+
+    $terminalPath = Join-Path $masterRoot 'terminal64.exe'
+    Write-Output 'Menyiapkan data portable MT5 master dan library MQL5 standar...'
+    $terminalProcess = Start-Process -FilePath $terminalPath -ArgumentList '/portable' `
+        -WorkingDirectory $masterRoot -PassThru -WindowStyle Hidden
+    try {
+        for ($attempt = 0; $attempt -lt 90; $attempt++) {
+            if (Test-Path -LiteralPath $tradeInclude -PathType Leaf) { break }
+            $terminalProcess.Refresh()
+            if ($terminalProcess.HasExited) { break }
+            Start-Sleep -Seconds 2
+        }
+    } finally {
+        $terminalProcess.Refresh()
+        if (-not $terminalProcess.HasExited) {
+            try { [void]$terminalProcess.CloseMainWindow(); [void]$terminalProcess.WaitForExit(5000) } catch { }
+            $terminalProcess.Refresh()
+            if (-not $terminalProcess.HasExited) { Stop-Process -Id $terminalProcess.Id -Force -ErrorAction SilentlyContinue }
+        }
+        $terminalProcess.Dispose()
+    }
+
+    if (-not (Test-Path -LiteralPath $tradeInclude -PathType Leaf)) {
+        throw "Library standar MQL5 tidak tersedia setelah inisialisasi terminal portable: $tradeInclude. Pastikan koneksi internet keluar ke server MetaQuotes tersedia, lalu jalankan installer lagi."
+    }
+    return $mql5Root
+}
+
 Install-MetaTrader $masterRoot
 Install-MetaTrader $templateRoot
+$mql5Root = Initialize-MetaTraderPortableData
 $metaEditor = Join-Path $masterRoot 'metaeditor64.exe'
 if (-not (Test-Path -LiteralPath $metaEditor -PathType Leaf)) {
     throw "MetaEditor tidak ditemukan: $metaEditor. Pastikan installer MetaTrader menyelesaikan pemasangan penuh."
@@ -100,19 +133,24 @@ foreach ($expert in $expertDefinitions) {
     New-Item -ItemType Directory -Path (Split-Path -Parent $installedSource) -Force | Out-Null
     Copy-Item -LiteralPath $source -Destination $installedSource -Force
     $binary = [IO.Path]::ChangeExtension($installedSource, '.ex5')
-    $compileLog = "$installedSource.log"
-    Remove-Item -LiteralPath $binary, $compileLog -Force -ErrorAction SilentlyContinue
+    $compileLogs = @([IO.Path]::ChangeExtension($installedSource, '.log'), "$installedSource.log")
+    Remove-Item -LiteralPath $binary -Force -ErrorAction SilentlyContinue
+    foreach ($compileLog in $compileLogs) { Remove-Item -LiteralPath $compileLog -Force -ErrorAction SilentlyContinue }
 
     Write-Output "Compile EA: $([IO.Path]::GetFileName($source))"
-    $arguments = '/compile:"{0}" /log /include:"{1}"' -f $installedSource, (Join-Path $masterRoot 'MQL5')
+    $arguments = '/compile:"{0}" /log /include:"{1}"' -f $installedSource, $mql5Root
     $process = Start-Process -FilePath $metaEditor -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
     $savedLog = Join-Path $LogRoot ([IO.Path]::GetFileNameWithoutExtension($source) + '.log')
-    if (Test-Path -LiteralPath $compileLog -PathType Leaf) {
-        Move-Item -LiteralPath $compileLog -Destination $savedLog -Force
+    if (Test-Path -LiteralPath $savedLog) { Remove-Item -LiteralPath $savedLog -Force }
+    $generatedLog = $compileLogs | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    if ($generatedLog) {
+        Move-Item -LiteralPath $generatedLog -Destination $savedLog -Force
     }
-    if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $binary -PathType Leaf) -or (Get-Item -LiteralPath $binary).Length -eq 0) {
+    $compileDetails = if (Test-Path -LiteralPath $savedLog -PathType Leaf) { Get-Content -LiteralPath $savedLog -Raw } else { '' }
+    $compileHasErrors = $compileDetails -match '(?im)\berror\s+\d+\s*:|^\s*Result:\s*[1-9]\d*\s+errors?'
+    if (-not (Test-Path -LiteralPath $binary -PathType Leaf) -or (Get-Item -LiteralPath $binary).Length -eq 0 -or $compileHasErrors -or -not $compileDetails) {
         $details = if (Test-Path -LiteralPath $savedLog -PathType Leaf) { Get-Content -LiteralPath $savedLog -Raw } else { 'Log MetaEditor tidak tersedia.' }
-        throw "Compile gagal untuk $source. Log: $savedLog`n$details"
+        throw "Compile gagal untuk $source (MetaEditor exit $($process.ExitCode)). Log: $savedLog`n$details"
     }
 
     $projectBinary = Join-Path $ProjectRoot $expert.Compiled
