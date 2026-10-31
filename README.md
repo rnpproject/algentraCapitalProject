@@ -33,6 +33,18 @@ postgresql://algentra_api:<GENERATED_PASSWORD>@db.<PROJECT_REF>.supabase.co:5432
 
 Jangan gunakan password owner untuk koneksi runtime.
 
+### Domain Cloudflare Tunnel tanpa VCC
+
+Cloudflare Tunnel bisa dipakai pada paket Free dan akun Cloudflare Free tidak membutuhkan kartu kredit. Domain khusus tetap perlu didaftarkan, tetapi Anda tidak perlu membayar dengan VCC jika registrar menerima metode lain. Sebagai contoh, [Rumahweb mencantumkan transfer bank, virtual account, e-wallet, QRIS, dan pembayaran minimarket](https://www.rumahweb.com/pembayaran/); biaya dan metode pembayaran domain mengikuti registrar yang dipilih.
+
+1. Daftarkan domain pada registrar, atau gunakan domain yang sudah Anda miliki. Pilih nama untuk portal, misalnya `portal.domainanda.com`.
+2. Buat akun Cloudflare gratis, pilih **Add a site**, masukkan domain utama (`domainanda.com`), lalu pilih paket **Free**. Cloudflare akan memberi dua nameserver.
+3. Buka panel registrar dan ganti nameserver domain ke dua nameserver Cloudflare tersebut. Tunggu sampai status zone/domain di Cloudflare menjadi **Active**. Cloudflare menjelaskan bahwa nameserver perlu diarahkan ke Cloudflare agar Cloudflare menjadi DNS otoritatif untuk zone tersebut ([panduan setup zone](https://developers.cloudflare.com/dns/zone-setups/full-setup/)).
+4. Buat API token melalui **My Profile → API Tokens → Create Token → Create Custom Token**. Beri izin **Account → Cloudflare Tunnel → Edit**, **Zone → DNS → Edit**, dan **Zone → Zone → Read**. Batasi Account ke akun Cloudflare Anda dan Zone ke domain portal saja. Salin token saat dibuat; jangan kirim token ke siapa pun.
+5. Saat wizard bertanya hostname, masukkan `portal.domainanda.com` saja—tanpa `https://`. Installer membuat Tunnel, konfigurasi route ke portal, serta CNAME DNS secara otomatis. Tidak perlu membeli IPv4 atau membuka port masuk; server hanya membuat koneksi keluar ke Cloudflare. Lihat [prasyarat dan izin API Tunnel Cloudflare](https://developers.cloudflare.com/tunnel/get-started/).
+
+Jika belum punya domain, Quick Tunnel gratis dapat memberi URL `trycloudflare.com` sementara tanpa akun/domain, tetapi nama URL berubah saat tunnel dibuat ulang, tidak memiliki jaminan uptime, dan tidak mendukung SSE ([batasan Quick Tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)). Dashboard Algentra memakai SSE untuk pembaruan langsung, jadi installer production tetap menggunakan domain khusus dan Tunnel bernama yang stabil.
+
 Tidak perlu mengedit file `.env` untuk instalasi production. Siapkan nilai berikut; wizard akan meminta semuanya di satu alur dan menyimpan konfigurasi sensitif secara lokal dengan ACL/DPAPI.
 
 | Input wizard | Kapan diperlukan | Catatan |
