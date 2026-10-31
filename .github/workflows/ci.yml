@@ -70,7 +70,7 @@ jobs:
           if [[ -z "$base_sha" || "$base_sha" =~ ^0+$ ]]; then
             base_sha="$(git rev-parse HEAD^)"
           fi
-          mapfile -t go_files < <(git diff --name-only --diff-filter=ACMRT "$base_sha...HEAD" -- '*.go')
+          mapfile -d '' -t go_files < <(git diff --name-only -z --diff-filter=ACMRT "$base_sha...HEAD" -- '*.go')
           if ((${#go_files[@]})); then
             unformatted="$(gofmt -l "${go_files[@]}")"
             if [[ -n "$unformatted" ]]; then
