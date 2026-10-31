@@ -37,6 +37,30 @@ function Set-NssmSetting([string[]] $Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "NSSM gagal mengatur '$($Arguments[1])'." }
 }
 
+function Set-NssmVirtualServiceAccount([string] $AccountName) {
+    # Windows PowerShell 5 can drop an empty native argument when splatting.
+    # NSSM requires an explicit empty password argument for passwordless accounts.
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $NssmPath
+    $startInfo.Arguments = ('set "{0}" ObjectName "{1}" ""' -f $ServiceName, $AccountName)
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) { throw 'nssm.exe tidak dapat dimulai.' }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $output = @($stdoutTask.GetAwaiter().GetResult(), $stderrTask.GetAwaiter().GetResult()) -join "`n"
+        if ($process.ExitCode -ne 0) { throw "NSSM gagal mengatur akun service '$AccountName'. $output" }
+    } finally {
+        $process.Dispose()
+    }
+}
+
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($service) {
     $nativeService = Get-CimInstance -ClassName Win32_Service -Filter "Name='$ServiceName'" -ErrorAction Stop
@@ -52,6 +76,9 @@ if ($service) {
     & $NssmPath install $ServiceName $powershellExe
     if ($LASTEXITCODE -ne 0) { throw 'NSSM gagal mendaftarkan service.' }
 }
+# Enable the service SID before resolving its NT SERVICE\<name> virtual account.
+& sc.exe sidtype $ServiceName unrestricted | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Gagal mengaktifkan service SID.' }
 Set-NssmSetting @($ServiceName, 'Start', 'SERVICE_DISABLED')
 Set-NssmSetting @($ServiceName, 'AppDirectory', $ProjectRoot)
 $parameters = @(
@@ -68,10 +95,7 @@ Set-NssmSetting @($ServiceName, 'AppStdout', (Join-Path $logDirectory 'stdout.lo
 Set-NssmSetting @($ServiceName, 'AppStderr', (Join-Path $logDirectory 'stderr.log'))
 Set-NssmSetting @($ServiceName, 'AppRotateFiles', '1')
 Set-NssmSetting @($ServiceName, 'AppRotateBytes', '10485760')
-Set-NssmSetting @($ServiceName, 'ObjectName', $serviceAccount, '')
-
-& sc.exe sidtype $ServiceName unrestricted | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Gagal mengaktifkan service SID.' }
+Set-NssmVirtualServiceAccount $serviceAccount
 $readOnlyPaths = @(
 	$backend,
     $PSScriptRoot,
