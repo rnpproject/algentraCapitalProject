@@ -17,7 +17,8 @@ foreach ($directory in @($Mt5Root, $DownloadsRoot, $LogRoot)) {
 
 function Install-MetaTrader([string] $Destination) {
     $terminal = Join-Path $Destination 'terminal64.exe'
-    if (Test-Path -LiteralPath $terminal -PathType Leaf) { return }
+    $metaEditor = Join-Path $Destination 'metaeditor64.exe'
+    if ((Test-Path -LiteralPath $terminal -PathType Leaf) -and (Test-Path -LiteralPath $metaEditor -PathType Leaf)) { return }
 
     if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
         Invoke-WebRequest -Uri 'https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe' -OutFile $installerPath
@@ -28,13 +29,54 @@ function Install-MetaTrader([string] $Destination) {
     }
 
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-    Write-Output "Memasang MetaTrader 5 ke $Destination..."
-    $pathArgument = '/path:"' + $Destination + '"'
-    $process = Start-Process -FilePath $installerPath -ArgumentList @('/auto', $pathArgument) -Wait -PassThru -WindowStyle Hidden
-    if ($process.ExitCode -ne 0) { throw "Installer MetaTrader gagal (exit $($process.ExitCode)) pada $Destination." }
-    if (-not (Test-Path -LiteralPath $terminal -PathType Leaf)) {
-        throw "MetaTrader tidak menghasilkan terminal64.exe di $Destination."
+    $attemptLimit = 2
+    $lastExitCode = 'tidak tersedia'
+    for ($attempt = 1; $attempt -le $attemptLimit; $attempt++) {
+        if ($attempt -gt 1) {
+            $refreshPath = Join-Path $DownloadsRoot 'mt5setup-refresh.exe'
+            try {
+                Write-Output 'Mengunduh ulang installer MetaTrader untuk percobaan kedua...'
+                Invoke-WebRequest -Uri 'https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe' -OutFile $refreshPath
+                $refreshSignature = Get-AuthenticodeSignature -FilePath $refreshPath
+                if ($refreshSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+                    throw "Tanda tangan installer unduhan ulang tidak valid: $($refreshSignature.Status)."
+                }
+                Move-Item -LiteralPath $refreshPath -Destination $installerPath -Force
+            } catch {
+                Write-Warning "Unduhan ulang gagal; mencoba kembali dengan installer tersimpan. Detail: $($_.Exception.Message)"
+                if (Test-Path -LiteralPath $refreshPath) { Remove-Item -LiteralPath $refreshPath -Force }
+            }
+        }
+
+        $logBase = Join-Path $LogRoot ("{0}-installer-attempt-{1}" -f (Split-Path -Leaf $Destination), $attempt)
+        $stdoutLog = "$logBase.stdout.log"
+        $stderrLog = "$logBase.stderr.log"
+        foreach ($log in @($stdoutLog, $stderrLog)) {
+            if (Test-Path -LiteralPath $log) { Remove-Item -LiteralPath $log -Force }
+        }
+        Write-Output "Memasang MetaTrader 5 ke $Destination (percobaan $attempt/$attemptLimit)..."
+        $arguments = '/auto /path:"{0}"' -f $Destination
+        $process = Start-Process -FilePath $installerPath -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+        $lastExitCode = $process.ExitCode
+        $terminalReady = (Test-Path -LiteralPath $terminal -PathType Leaf) -and (Get-Item -LiteralPath $terminal).Length -gt 0
+        $editorReady = Test-Path -LiteralPath $metaEditor -PathType Leaf
+        if ($lastExitCode -eq 0 -and $terminalReady -and $editorReady) { return }
+
+        if ($terminalReady -and $editorReady) {
+            Write-Warning "Installer mengembalikan exit $lastExitCode, tetapi terminal64.exe dan metaeditor64.exe tersedia di $Destination; melanjutkan."
+            return
+        }
+
+        if ($attempt -lt $attemptLimit) {
+            Write-Warning "Installer MetaTrader gagal (exit $lastExitCode). Log: $stdoutLog dan $stderrLog. Mencoba ulang otomatis."
+        }
     }
+
+    $stdoutDetails = if (Test-Path -LiteralPath $stdoutLog -PathType Leaf) { (Get-Content -LiteralPath $stdoutLog -Raw).Trim() } else { '' }
+    $stderrDetails = if (Test-Path -LiteralPath $stderrLog -PathType Leaf) { (Get-Content -LiteralPath $stderrLog -Raw).Trim() } else { '' }
+    $details = (@($stdoutDetails, $stderrDetails) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join "`n"
+    if (-not $details) { $details = 'Installer tidak menulis detail ke stdout/stderr; periksa koneksi internet keluar dan log installer Windows.' }
+    throw "Installer MetaTrader gagal (exit $lastExitCode) setelah $attemptLimit percobaan pada $Destination.`nLog: $stdoutLog`n$stderrLog`n$details"
 }
 
 Install-MetaTrader $masterRoot
