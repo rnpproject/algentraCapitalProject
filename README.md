@@ -23,7 +23,15 @@ Contoh `DATABASE_ADMIN_URL` (ganti placeholder dan URL-encode karakter khusus pa
 postgresql://postgres:<URL_ENCODED_PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require
 ```
 
-Untuk **Session pooler**, pilih mode Session pada Dashboard > Connect dan gunakan format host/username yang ditampilkan di sana, port `5432`, serta `sslmode=require`. Pilih ini bila server/jaringan hanya memakai IPv4: host direct `db.<PROJECT_REF>.supabase.co` memerlukan IPv6 (atau add-on IPv4 Supabase). Jangan gunakan Transaction pooler `6543` untuk installer. Jika validasi database gagal, wizard menampilkan detail aman lalu meminta ulang URL tanpa mengulang konfigurasi lain.
+### Session pooler tanpa add-on IPv4
+
+Jika server/jaringan hanya memakai IPv4, lanjutkan tanpa membeli add-on IPv4:
+
+1. Di Supabase, buka project → **Connect** → pilih **Session pooler**.
+2. Salin connection string yang ditampilkan. Pakai host dan username persis dari string itu; format umumnya `postgresql://postgres.<PROJECT_REF>:<PASSWORD>@<POOLER_HOST>:5432/postgres`.
+3. Pastikan URL memakai port `5432` dan `sslmode=require`. Jangan gunakan Transaction pooler port `6543` untuk installer.
+
+Host direct `db.<PROJECT_REF>.supabase.co` memerlukan IPv6 atau add-on IPv4. Jika validasi database gagal, wizard menampilkan detail aman lalu meminta ulang URL tanpa mengulang konfigurasi lain.
 
 URL runtime di bawah hanya contoh format; installer membuat password role `algentra_api` dan nilai `DATABASE_URL` secara otomatis:
 
