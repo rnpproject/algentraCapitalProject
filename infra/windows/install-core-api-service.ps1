@@ -64,8 +64,23 @@ function Set-NssmVirtualServiceAccount([string] $AccountName) {
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($service) {
     $nativeService = Get-CimInstance -ClassName Win32_Service -Filter "Name='$ServiceName'" -ErrorAction Stop
-    $expectedCommand = '(?i)nssm\.exe.*//RS//' + [regex]::Escape($ServiceName) + '(?:\s|$)'
-    if (-not $nativeService -or $nativeService.PathName -notmatch $expectedCommand) {
+    $registeredExecutable = $null
+    if ($nativeService -and $nativeService.PathName -match '^\s*"([^"]+\.exe)"') {
+        $registeredExecutable = $Matches[1]
+    } elseif ($nativeService -and $nativeService.PathName -match '^\s*(.+?\.exe)(?:\s|$)') {
+        $registeredExecutable = $Matches[1]
+    }
+    $nssmParametersPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters"
+    $registeredApplication = (Get-ItemProperty -LiteralPath $nssmParametersPath -Name Application -ErrorAction SilentlyContinue).Application
+    $isExpectedNssm = $false
+    if ($registeredExecutable -and $registeredApplication) {
+        $registeredExecutable = [IO.Path]::GetFullPath($registeredExecutable)
+        $registeredApplication = [IO.Path]::GetFullPath($registeredApplication)
+        $expectedNssmPath = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $NssmPath).Path)
+        $isExpectedNssm = [string]::Equals($registeredExecutable, $expectedNssmPath, [StringComparison]::OrdinalIgnoreCase) -and
+            [string]::Equals($registeredApplication, $powershellExe, [StringComparison]::OrdinalIgnoreCase)
+    }
+    if (-not $isExpectedNssm) {
         throw "Service $ServiceName sudah ada tetapi bukan service NSSM Algentra; installer tidak akan mengubahnya."
     }
     if ($service.Status -ne 'Stopped') {
