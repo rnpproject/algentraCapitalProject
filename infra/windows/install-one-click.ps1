@@ -715,15 +715,85 @@ foreach ($path in @((Join-Path $installRoot 'signals'), (Join-Path $installRoot 
 
 $buildBackend = $existingServices.Count -eq 0 -or -not (Test-Path -LiteralPath $backendBinary -PathType Leaf)
 $buildWeb = $existingServices.Count -eq 0 -or -not (Test-Path -LiteralPath $webBuildId -PathType Leaf) -or -not (Test-Path -LiteralPath $nextCli -PathType Leaf)
+
+function Invoke-LoggedGoBuild([string] $BuildName, [string] $OutputPath, [string] $Package) {
+    $goExecutable = (Get-Command 'go.exe' -ErrorAction Stop).Source
+    $buildLogRoot = Join-Path $installRoot 'logs\build'
+    New-Item -ItemType Directory -Path $buildLogRoot -Force | Out-Null
+    foreach ($parallelism in @(2, 1)) {
+        $logBase = Join-Path $buildLogRoot ("{0}-p{1}" -f $BuildName, $parallelism)
+        $stdoutLog = "$logBase.stdout.log"
+        $stderrLog = "$logBase.stderr.log"
+        foreach ($log in @($stdoutLog, $stderrLog)) {
+            if (Test-Path -LiteralPath $log) { Remove-Item -LiteralPath $log -Force }
+        }
+        if (Test-Path -LiteralPath $OutputPath) { Remove-Item -LiteralPath $OutputPath -Force }
+
+        $process = $null
+        $processStarted = $false
+        try {
+            $startInfo = [Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $goExecutable
+            $startInfo.Arguments = ('build -p={0} -ldflags="-s -w" -o "{1}" {2}' -f $parallelism, $OutputPath, $Package)
+            $startInfo.WorkingDirectory = $ProjectRoot
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $startInfo.RedirectStandardOutput = $true
+            $startInfo.RedirectStandardError = $true
+            $startInfo.EnvironmentVariables['GOMAXPROCS'] = [string]$parallelism
+            $startInfo.EnvironmentVariables['CGO_ENABLED'] = '0'
+            $process = [Diagnostics.Process]::new()
+            $process.StartInfo = $startInfo
+            if (-not $process.Start()) { throw 'go.exe tidak dapat dimulai.' }
+            $processStarted = $true
+            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            $stderrTask = $process.StandardError.ReadToEndAsync()
+            if (-not $process.WaitForExit(1800000)) {
+                $process.Kill()
+                $process.WaitForExit()
+                throw "Build melewati batas waktu 30 menit (parallelism $parallelism)."
+            }
+            $stdoutText = $stdoutTask.GetAwaiter().GetResult()
+            $stderrText = $stderrTask.GetAwaiter().GetResult()
+            [IO.File]::WriteAllText($stdoutLog, $stdoutText, [Text.UTF8Encoding]::new($false))
+            [IO.File]::WriteAllText($stderrLog, $stderrText, [Text.UTF8Encoding]::new($false))
+            $exitCode = $process.ExitCode
+        } catch {
+            $exitCode = 1
+            [IO.File]::WriteAllText($stderrLog, $_.Exception.Message, [Text.UTF8Encoding]::new($false))
+        } finally {
+            if ($process -and $processStarted) {
+                if (-not $process.HasExited) {
+                    $process.Kill()
+                    $process.WaitForExit()
+                }
+                $process.Dispose()
+            }
+        }
+
+        if ($exitCode -eq 0 -and (Test-Path -LiteralPath $OutputPath -PathType Leaf) -and (Get-Item -LiteralPath $OutputPath).Length -gt 0) {
+            Write-Output "$BuildName berhasil dibangun (parallelism $parallelism)."
+            return
+        }
+        if ($parallelism -gt 1) {
+            Write-Warning "$BuildName gagal (exit $exitCode); mencoba ulang dengan parallelism 1. Log: $stdoutLog dan $stderrLog"
+        }
+    }
+
+    $failureDetails = @(
+        "stdout: $stdoutLog`n$(if (Test-Path -LiteralPath $stdoutLog) { Get-Content -LiteralPath $stdoutLog -Raw })",
+        "stderr: $stderrLog`n$(if (Test-Path -LiteralPath $stderrLog) { Get-Content -LiteralPath $stderrLog -Raw })"
+    ) -join "`n"
+    throw "$BuildName gagal setelah dua percobaan. Periksa log di $buildLogRoot.`n$failureDetails"
+}
+
 if (-not $buildBackend -and -not $buildWeb) {
     Write-Output 'Artifact production sudah tersedia; wizard melanjutkan instalasi service yang belum siap.'
 } else {
     Push-Location $ProjectRoot
     try {
         if ($buildBackend) {
-            $env:CGO_ENABLED = '0'
-            & go build -ldflags='-s -w' -o $backendBinary ./cmd/algentra-backend
-            if ($LASTEXITCODE -ne 0) { throw 'Build Core API gagal.' }
+            Invoke-LoggedGoBuild 'core-api' $backendBinary './cmd/algentra-backend'
         }
         if ($buildWeb) {
             Push-Location $webRoot
@@ -743,11 +813,7 @@ foreach ($workerBuild in @(
     @{ Output = 'algentra-copier-worker.exe'; Package = './cmd/copier-worker' },
     @{ Output = 'algentra-mt5-login-probe.exe'; Package = './cmd/mt5-login-probe' }
 )) {
-    Push-Location $ProjectRoot
-    try {
-        & go build -ldflags='-s -w' -o (Join-Path $ProjectRoot $workerBuild.Output) $workerBuild.Package
-        if ($LASTEXITCODE -ne 0) { throw "Build $($workerBuild.Output) gagal." }
-    } finally { Pop-Location }
+    Invoke-LoggedGoBuild ([IO.Path]::GetFileNameWithoutExtension($workerBuild.Output)) (Join-Path $ProjectRoot $workerBuild.Output) $workerBuild.Package
 }
 
 if (-not $reuseEnvironment) {
