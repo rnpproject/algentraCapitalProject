@@ -51,6 +51,7 @@ function Invoke-CloudflareApi([string] $Method, [string] $Path, $Body = $null) {
 }
 
 $state = $null
+$createdByInstaller = $false
 if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
     $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json -ErrorAction Stop
     if ($state.hostname -ne $Hostname -or -not $state.account_id -or -not $state.zone_id -or -not $state.tunnel_id) {
@@ -98,6 +99,7 @@ if (-not $state) {
             tunnel_secret = $tunnelSecret
         }
         $tunnelSecret = $null
+        $createdByInstaller = $true
     }
     if (-not $tunnel.id) { throw 'Cloudflare tidak mengembalikan tunnel ID.' }
     $state = [pscustomobject]@{
@@ -106,6 +108,7 @@ if (-not $state) {
         account_id = $accountId
         tunnel_id = [string]$tunnel.id
         tunnel_name = $tunnelName
+        created_by_installer = $createdByInstaller
     }
     [IO.File]::WriteAllText($StatePath, ($state | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
 }

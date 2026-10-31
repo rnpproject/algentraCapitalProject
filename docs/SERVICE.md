@@ -18,6 +18,10 @@ Installer menghapus environment aplikasi yang diwarisi dari akun/mesin sebelum b
 
 Installer memverifikasi portal lokal dan endpoint HTTPS `/ready` sebelum melaporkan selesai. Jika pemeriksaan gagal, periksa hostname dan konfigurasi Tunnel yang dibuat wizard, status konektor, serta log; environment, schema, dan state Cloudflare yang sudah dibuat akan dipakai kembali.
 
+### Uninstall one-click
+
+Jalankan `uninstall-one-click.cmd` dari folder repository, atau `C:\Algentra\app\uninstall-one-click.cmd` pada server, dengan akun Administrator. Ketik `UNINSTALL` untuk mengonfirmasi penghapusan semua `C:\Algentra`. Proses ini menghapus service `AlgentraCoreApi`, `AlgentraWeb`, `AlgentraCloudflared`, task `Algentra MT5 Master` dan `Algentra Managed Copy Worker`, lalu folder instalasi yang berisi MT5 master/follower, source/build, log, konfigurasi, dan secret. Salin dahulu file lokal yang masih diperlukan. Supabase, domain/nameserver, RDP, serta service/task dan file di luar `C:\Algentra` tidak dihapus. Tunnel/DNS hanya ditawarkan untuk dihapus jika state menandai Tunnel dibuat oleh installer; API token diminta tersembunyi saat cleanup Cloudflare dipilih. Jika token dikosongkan atau cleanup gagal, resource Cloudflare dibiarkan. State lama/adopsi Tunnel tanpa penanda kepemilikan juga dibiarkan.
+
 Service yang dibuat:
 
 - `AlgentraCoreApi`: Go API di `127.0.0.1:8000`.
