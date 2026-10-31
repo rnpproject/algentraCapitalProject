@@ -309,7 +309,18 @@ if (Test-Path -LiteralPath $installConfigurationPath -PathType Leaf) {
         $smtpUsername = (Read-Host 'SMTP username').Trim()
         $smtpPassword = Read-SecureText 'SMTP password/app password'
         $smtpFrom = (Read-Host 'Alamat pengirim email (EMAIL_FROM)').Trim()
-        if (-not $smtpUsername -or -not $smtpPassword -or $smtpFrom -notmatch '^[^\s@]+@[^\s@]+\.[^\s@]+$') { throw 'SMTP username, password, dan alamat pengirim yang valid wajib diisi bersama.' }
+        $smtpFromValid = $false
+        if ($smtpFrom -and $smtpFrom -notmatch '[\r\n\x00]') {
+            try {
+                $smtpAddress = [System.Net.Mail.MailAddress]::new($smtpFrom)
+                $smtpFromValid = $smtpAddress.Address -match '^[^\s@]+@[^\s@]+\.[^\s@]+$'
+            } catch { $smtpFromValid = $false }
+        }
+        if (-not $smtpUsername -or -not $smtpPassword -or -not $smtpFromValid) {
+            throw 'SMTP username/password wajib diisi dan alamat pengirim harus berupa email@domain.com atau Nama Tampilan <email@domain.com>.'
+        }
+        $smtpAddress = $null
+        $smtpFromValid = $null
         $smtpStartTls = (Read-Host 'Gunakan SMTP STARTTLS? [Y/n]').Trim() -notmatch '^(?i:n|no)$'
     }
 
