@@ -654,11 +654,24 @@ if (-not $reuseEnvironment) {
             $env:SUPABASE_PROJECT_REF = $projectRef
             $env:ALGENTRA_API_PASSWORD = $apiRoleCredential
             try {
-                Push-Location $ProjectRoot
-                try {
-                    $validationOutput = @(& go run ./cmd/setup-production-db -validate-only 2>&1 | ForEach-Object { $_.ToString() })
-                    $validationExitCode = $LASTEXITCODE
-                } finally { Pop-Location }
+                $goExecutable = (Get-Command 'go.exe' -ErrorAction Stop).Source
+                $processStartInfo = [Diagnostics.ProcessStartInfo]::new()
+                $processStartInfo.FileName = $goExecutable
+                $processStartInfo.Arguments = 'run ./cmd/setup-production-db -validate-only'
+                $processStartInfo.WorkingDirectory = $ProjectRoot
+                $processStartInfo.UseShellExecute = $false
+                $processStartInfo.CreateNoWindow = $true
+                $processStartInfo.RedirectStandardOutput = $true
+                $processStartInfo.RedirectStandardError = $true
+                $validationProcess = [Diagnostics.Process]::new()
+                $validationProcess.StartInfo = $processStartInfo
+                if (-not $validationProcess.Start()) { throw 'go.exe tidak dapat dimulai.' }
+                $stdoutTask = $validationProcess.StandardOutput.ReadToEndAsync()
+                $stderrTask = $validationProcess.StandardError.ReadToEndAsync()
+                $validationProcess.WaitForExit()
+                $validationExitCode = $validationProcess.ExitCode
+                $validationText = $stdoutTask.GetAwaiter().GetResult() + "`n" + $stderrTask.GetAwaiter().GetResult()
+                $validationOutput = @($validationText -split '\r?\n' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
                 if ($validationExitCode -eq 0) {
                     try {
                         $validation = (($validationOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop)
@@ -670,7 +683,10 @@ if (-not $reuseEnvironment) {
                 } else {
                     $validationFailure = $validationOutput -join "`n"
                 }
+            } catch {
+                $validationFailure = $_.Exception.Message
             } finally {
+                if ($validationProcess) { $validationProcess.Dispose() }
                 Remove-Item Env:DATABASE_ADMIN_URL, Env:SUPABASE_PROJECT_REF, Env:ALGENTRA_API_PASSWORD -ErrorAction SilentlyContinue
                 $validation = $null
             }
