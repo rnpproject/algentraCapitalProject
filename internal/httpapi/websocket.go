@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rnpproject/algentra-backend/internal/ea/snapshot"
 )
 
 func (api dashboardAPI) dashboardWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +43,7 @@ func (api dashboardAPI) dashboardWebSocket(w http.ResponseWriter, r *http.Reques
 			}
 		}
 	}()
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
 		recorder := httptest.NewRecorder()
@@ -71,7 +69,7 @@ func (api dashboardAPI) dashboardWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func publicPerformanceWebSocket(pool *pgxpool.Pool, state *snapshot.Store, allowedOrigins []string) http.HandlerFunc {
+func publicPerformanceWebSocket(performance http.HandlerFunc, allowedOrigins []string) http.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 4096,
@@ -94,7 +92,7 @@ func publicPerformanceWebSocket(pool *pgxpool.Pool, state *snapshot.Store, allow
 				}
 			}
 		}()
-		ticker := time.NewTicker(2 * time.Second)
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		var lastPayload []byte
 		lastHistoryAt := time.Time{}
@@ -108,7 +106,7 @@ func publicPerformanceWebSocket(pool *pgxpool.Pool, state *snapshot.Store, allow
 			}
 			request.URL.RawQuery = query.Encode()
 			recorder := httptest.NewRecorder()
-			publicPerformance(pool, state).ServeHTTP(recorder, request)
+			performance.ServeHTTP(recorder, request)
 			payload := bytes.TrimSpace(recorder.Body.Bytes())
 			if recorder.Code == http.StatusOK {
 				if includeHistory {

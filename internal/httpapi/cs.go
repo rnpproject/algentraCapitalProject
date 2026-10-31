@@ -53,6 +53,7 @@ type customerServiceAPI struct {
 	secret       string
 	cookieSecure bool
 	key, model   string
+	integration  *geminiRuntime
 	timeout      time.Duration
 }
 
@@ -411,8 +412,19 @@ func (api customerServiceAPI) accountContext(ctx context.Context, id int64) ([]m
 }
 
 func (api customerServiceAPI) generateReply(ctx context.Context, mode, message string, history []csMessage, accounts []map[string]any) (string, error) {
-	if api.key == "" {
-		return "", fmt.Errorf("GEMINI_CS_API_KEY belum dikonfigurasi")
+	gemini := storedGeminiSettings{}
+	if api.integration != nil {
+		gemini = api.integration.snapshot()
+	}
+	apiKey, model := gemini.APIKey, gemini.Model
+	if api.key != "" {
+		apiKey = api.key
+	}
+	if model == "" {
+		model = api.model
+	}
+	if apiKey == "" {
+		return "", fmt.Errorf("GEMINI_API_KEY belum dikonfigurasi")
 	}
 	if api.timeout > 0 {
 		var cancel context.CancelFunc
@@ -449,7 +461,7 @@ func (api customerServiceAPI) generateReply(ctx context.Context, mode, message s
 		}
 	}
 	client := &http.Client{Timeout: requestTimeout}
-	endpoint := "https://generativelanguage.googleapis.com/v1beta/models/" + api.model + ":generateContent?key=" + url.QueryEscape(api.key)
+	endpoint := "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + url.QueryEscape(apiKey)
 	for attempt := 0; attempt < 2; attempt++ {
 		request, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(string(data)))
 		if err != nil {

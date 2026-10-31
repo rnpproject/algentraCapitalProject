@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -47,6 +48,10 @@ func SessionMiddleware(pool *pgxpool.Pool, appSecret string, secure bool, next h
 		adminName, clientName = hostAdminCookieName, hostClientCookieName
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isSessionlessRequest(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		state := &sessionState{Values: make(map[string]any)}
 		cookieNames := []struct{ userType, cookie string }{{"admin", adminName}, {"client", clientName}}
 		for _, candidate := range cookieNames {
@@ -80,6 +85,14 @@ func SessionMiddleware(pool *pgxpool.Pool, appSecret string, secure bool, next h
 		}
 		next.ServeHTTP(writer, r)
 	})
+}
+
+func isSessionlessRequest(path string) bool {
+	switch path {
+	case "/health", "/ready", "/musik.mp3", "/ws/public/performance":
+		return true
+	}
+	return strings.HasPrefix(path, "/api/public/") || strings.HasPrefix(path, "/v1/public/")
 }
 
 func loadSession(ctx context.Context, pool *pgxpool.Pool, appSecret, userType, token string) (*sessionState, bool, error) {
@@ -116,9 +129,6 @@ func loadSession(ctx context.Context, pool *pgxpool.Pool, appSecret, userType, t
 			}
 			return nil, false, nil
 		}
-	}
-	if _, err := pool.Exec(ctx, `UPDATE auth_sessions SET last_seen_at = $2 WHERE session_hash = $1`, hash, now); err != nil {
-		return nil, false, err
 	}
 	canonical, err := json.Marshal(values)
 	if err != nil {

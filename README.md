@@ -1,167 +1,104 @@
 # Algentra Capital — Panduan Production
 
-Runbook ini memandu instalasi production dari database dan API sampai portal, EA, start/stop, dan update. Simpan rahasia di secret store atau file environment di luar repository. Ganti semua nilai contoh sebelum menjalankan perintah. Uji rilis dan EA lebih dulu pada staging, Midtrans sandbox, dan akun MT5 demo.
+Portal dan Core API dipasang pada satu Windows Server di `C:\Algentra`. Cloudflare Tunnel menerbitkan portal HTTPS tanpa IPv4 publik atau port masuk; Supabase menyediakan PostgreSQL. MT5 tetap berjalan pada sesi Windows interaktif.
 
 ## Arsitektur production
 
 | Komponen | Lokasi/runtime | Fungsi |
 | --- | --- | --- |
-| Portal | Next.js di Vercel, root `apps/web` | Website publik dan portal admin/client |
+| Portal | Next.js Windows Service, root `apps/web` | Website publik dan portal admin/client |
 | Core API | Go Windows Service, `127.0.0.1:8000` | API, pembayaran, Telegram, Gemini, EA, dan akses PostgreSQL |
-| Database | Supabase PostgreSQL | Data aplikasi; schema final dibuat oleh installer production fresh |
+| HTTPS publik | Cloudflare Tunnel Windows Service | HTTPS publik tanpa IPv4, DNS A/AAAA, atau port masuk |
+| Database | Supabase PostgreSQL | Data aplikasi; schema fresh dibuat oleh installer |
 | Copier | Binary Go dan terminal MT5 pada sesi Windows interaktif | Managed copier dari akun master ke follower |
 | Signal EA | `TelegramSignalEA.mq5` pada terminal master | Mengirim snapshot untuk copier managed dan dapat mengeksekusi sinyal Telegram |
 
-Vercel mengakses API melalui HTTPS origin di belakang Cloudflare Tunnel/Access dan BFF Next.js. Jangan membuka port 8000 ke internet, mengirim kredensial Supabase ke Vercel/browser, atau menjalankan worker MT5 sebagai Windows Service Session 0. Detail operasi khusus ada di [docs/SERVICE.md](docs/SERVICE.md), fitur/risiko ada di [docs/OPERATIONS.md](docs/OPERATIONS.md), dan copier standalone/managed ada di [apps/copier-worker/README.md](apps/copier-worker/README.md).
+Browser dan API berbagi origin; Cloudflare Tunnel meneruskan request ke Next.js lokal, yang merutekan `/api/core/*` ke Go. Jangan buka port 3000/8000 atau RDP 3389 ke internet. Tunnel saat ini hanya menerbitkan portal publik; jangan jalankan worker MT5 sebagai Windows Service Session 0. Detail operasi ada di [docs/SERVICE.md](docs/SERVICE.md), fitur/risiko ada di [docs/OPERATIONS.md](docs/OPERATIONS.md), dan copier standalone/managed ada di [apps/copier-worker/README.md](apps/copier-worker/README.md).
 
-## 1. Siapkan project Supabase production
+## 1. Persiapan sebelum instalasi
 
-1. Buat project Supabase production baru dan catat project ref.
-2. Dari file [fresh production schema](infra/supabase/fresh-production.sql), ganti kedua kemunculan `REPLACE_WITH_SUPABASE_PROJECT_REF` dengan project ref tersebut. Jalankan seluruh file satu kali melalui SQL Editor sebagai role `postgres`. File ini membentuk schema final backend langsung, memberi marker revision `0004_account_daily_profit`, dan menolak berjalan bila schema `app` sudah ada. Setelah berhasil, verifikasi marker sebelum menghubungkan API:
+Contoh `DATABASE_ADMIN_URL` (ganti placeholder dan URL-encode karakter khusus pada password):
 
-   ```sql
-   SELECT shobj_description(oid, 'pg_database') AS database_marker
-   FROM pg_database WHERE datname = current_database();
-
-   SELECT obj_description('app'::regnamespace, 'pg_namespace') AS schema_revision;
-   ```
-
-   Hasil yang diharapkan adalah `algentra:production:<project-ref>` dan `algentra:revision:0004_account_daily_profit`.
-3. File tersebut membuat role `algentra_api` dan `algentra_backup` sebagai `NOLOGIN`. Aktifkan login sekaligus tetapkan password role runtime di SQL Editor. Ganti placeholder dengan password kuat dan unik sebelum menjalankan:
-
-   ```sql
-   ALTER ROLE algentra_api LOGIN PASSWORD 'GANTI_DENGAN_PASSWORD_KUAT';
-   ```
-
-   Jika menyiapkan host backup, aktifkan role itu dengan cara yang sama dan gunakan password terpisah. Jangan menyimpan password di source code atau file SQL. Gunakan connection string TLS (`sslmode=require` minimal) untuk role runtime; jangan gunakan role `postgres` atau Supabase `service_role` pada aplikasi.
-4. Isi `SUPABASE_PROJECT_REF` di environment Core API dengan ref yang sama. Gunakan `DATABASE_URL` dengan role runtime `algentra_api`. Database production baru tidak mengambil data dari SQLite; importer SQLite tetap hanya alat development dan tidak diperlukan untuk deployment fresh.
-
-> API tidak menjalankan DDL ketika startup. Installer fresh hanya untuk project Supabase baru yang belum memiliki schema `app`; jangan jalankan pada database yang berisi data atau schema lama. Untuk rilis berikutnya, siapkan perubahan schema sebagai SQL upgrade terpisah dan tinjau/backup sebelum diterapkan. Prosedur migrasi database development dan importer SQLite lokal dijelaskan di [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), bukan bagian dari instalasi production fresh.
-
-## 2. Build dan pasang Core API di Windows Server
-
-### Build release
-
-Build pada mesin rilis Windows dengan Go versi yang sesuai `go.mod` dan dari commit yang akan dirilis:
-
-```powershell
-$env:CGO_ENABLED = '0'
-go test ./...
-go build -ldflags='-s -w' -o algentra-backend.exe ./cmd/algentra-backend
-go build -ldflags='-s -w' -o algentra-copier-master.exe ./cmd/copier-master
-go build -ldflags='-s -w' -o algentra-copier-launcher.exe ./cmd/copier-launcher
-go build -ldflags='-s -w' -o algentra-copier-worker.exe ./cmd/copier-worker
+```text
+postgresql://postgres:<URL_ENCODED_PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require
 ```
 
-Alternatifnya, ambil artifact Windows dari CI untuk commit yang sama. Jangan build langsung di folder release aktif. Simpan executable, source EA, checksum/commit, dan catatan versi sebagai satu paket rilis.
+Untuk **Session pooler**, pilih mode Session pada Dashboard > Connect dan gunakan format host/username yang ditampilkan di sana, port `5432`, serta `sslmode=require`. Jangan gunakan Transaction pooler port `6543`.
 
-### Environment dan service
+URL runtime di bawah hanya contoh format; installer membuat password role `algentra_api` dan nilai `DATABASE_URL` secara otomatis:
 
-1. Root project production adalah `D:\Algentra\algentraCapitalProject`. Siapkan Windows Server terkelola, NSSM, dan Cloudflare Tunnel. Salin binary backend ke root project tersebut. Folder `backend\data` adalah data runtime, bukan source code, sehingga tidak tersedia di GitHub dan akan dibuat pada server.
-2. Salin [infra/windows/core-api.production.env.example](infra/windows/core-api.production.env.example) ke `D:\AlgentraSecure\core-api.env`. Isi `SUPABASE_PROJECT_REF`, `DATABASE_URL`, `APP_SECRET_KEY`, password admin, dan `BFF_HMAC_SECRET` acak minimal 32 karakter. Untuk akun otomatis setelah pembayaran, isi `MIDTRANS_SERVER_KEY`, `MIDTRANS_MERCHANT_ID`, set `MIDTRANS_IS_PRODUCTION=true`, dan konfigurasi notifikasi Midtrans ke `https://<api-origin>/api/payments/midtrans/notification`. Untuk managed copier, set `COPIER_WORKER_API_KEY` dan `EA_API_KEY`; salin key worker yang sama ke akun Windows worker dan gunakan key EA pada TelegramSignalEA master. Tambahkan integrasi opsional seperlunya.
-3. Dari PowerShell administrator pada root project, daftarkan service (installer menunjuk binary di `$ProjectRoot`):
+```text
+postgresql://algentra_api:<GENERATED_PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require
+```
 
-   ```powershell
-   .\infra\windows\install-core-api-service.ps1 `
-     -ProjectRoot 'D:\Algentra\algentraCapitalProject' `
-     -EnvironmentFile 'D:\AlgentraSecure\core-api.env' `
-     -NssmPath 'C:\Tools\nssm\win64\nssm.exe'
-   ```
+Jangan gunakan password owner untuk koneksi runtime.
 
-   Installer membuat service `AlgentraCoreApi` dengan restart otomatis dan membatasi ACL file environment. Setelah service terdaftar, buat folder data yang belum ada dan batasi ACL file environment serta data. Jalankan perintah ini dari PowerShell administrator:
+Tidak perlu mengedit file `.env` untuk instalasi production. Siapkan nilai berikut; wizard akan meminta semuanya di satu alur dan menyimpan konfigurasi sensitif secara lokal dengan ACL/DPAPI.
 
-   ```powershell
-   $envFile = 'D:\AlgentraSecure\core-api.env'
-   $dataDir = 'D:\Algentra\algentraCapitalProject\backend\data'
-   $serviceAccount = 'NT SERVICE\AlgentraCoreApi'
+| Input wizard | Kapan diperlukan | Catatan |
+| --- | --- | --- |
+| Hostname portal dan Cloudflare API token | Wajib | Domain harus aktif di Cloudflare. Token perlu izin Tunnel Edit dan DNS Edit/Read; Tunnel/DNS dibuat otomatis. Tunnel hanya menerbitkan portal. |
+| URL koneksi owner Supabase | Wajib untuk instalasi baru | Gunakan role `postgres`, koneksi direct atau Session Pooler port 5432, dan `sslmode=require`. Schema dan password role runtime dibuat otomatis. |
+| Login, password, dan server MT5 master | Wajib | Login diuji dengan `MT5LoginProbe`; chart master dan preset EA disiapkan otomatis. Password terenkripsi lokal dan tidak diminta ulang saat repair install. |
+| Gemini API key dan model | Opsional | Model default `gemini-3.5-flash-lite`; dapat dikosongkan lalu diatur dari Settings. |
+| Telegram API ID/hash dan nomor akun sumber | Opsional, untuk sumber sinyal Telegram | Kode OTP/2FA dimasukkan saat wizard menghubungkan akun; OTP dapat diminta lagi bila sesi terputus. |
+| Telegram bot token dan admin chat ID | Opsional, untuk bot notifikasi/review | Tidak diperlukan jika fitur bot pembayaran tidak digunakan. |
+| Midtrans Server Key dan Merchant ID **atau** detail rekening | Pilih salah satu | Midtrans membuat notifikasi pembayaran otomatis. Jika memakai transfer, admin tetap perlu meninjau pembayaran. |
+| SMTP host, port, username, password, dan pengirim | Opsional | Diperlukan untuk verifikasi email dan reset password. Tanpa SMTP, fitur email tidak aktif. |
 
-   New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+Secret aplikasi, password admin awal, password role runtime, cookie sesi, serta API key EA/worker dibuat otomatis. API key EA/worker dapat dilihat di Dashboard > Settings. RDP tetap dikelola oleh setup Anda sendiri. Jika instalasi terhenti, konfigurasi wizard yang terenkripsi memungkinkan proses dilanjutkan; setelah sukses file sementara dihapus.
 
-   icacls.exe $envFile /inheritance:r /grant:r `
-     'SYSTEM:F' 'BUILTIN\Administrators:F' "${serviceAccount}:R"
-
-   icacls.exe $dataDir /inheritance:r /grant:r `
-     'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' `
-     "${serviceAccount}:(OI)(CI)M" /T /C
-   icacls.exe $envFile
-   icacls.exe $dataDir
-   ```
-
-   `backend\data` menyimpan session Telegram dan data lokal aplikasi. Pertahankan folder ini pada path tersebut selama update agar datanya persisten. Service di-bind ke `127.0.0.1:8000`.
-4. Pasang Cloudflare Tunnel sebagai service terpisah dengan origin lokal `http://127.0.0.1:8000`; lindungi hostname API dengan Cloudflare Access service token khusus Vercel. Jangan expose port backend secara publik.
-5. Mulai dan periksa API:
+1. Buat project Supabase baru dan siapkan koneksi role `postgres` project owner dari **Dashboard → Connect**. Installer membuat schema `app`, role runtime `algentra_api`, dan marker schema. Database harus baru dan belum memiliki schema `app`.
+2. Pastikan domain portal aktif pada Cloudflare dan siapkan API token dengan izin **Account: Cloudflare Tunnel Edit** dan **Zone: DNS Edit + Zone Read**. Gunakan Windows Server 2016 atau lebih baru, atau Windows 10/11 64-bit, dengan koneksi internet keluar; IPv4 publik dan port masuk tidak dibutuhkan untuk portal. Installer memasang Go, Node.js, NSSM, cloudflared, dan MetaTrader 5 master serta template follower di `C:\Algentra`; semua cache/build tools berada di lokasi yang sama. Core API, portal, tiga binary copier, helper validasi login MT5, dan empat EA MQL5 dibangun otomatis. RDP tidak disentuh installer ini. [Cloudflare mencantumkan izin token untuk membuat Tunnel dan DNS](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel-api/); [MetaTrader mendukung pemasangan otomatis dengan `/auto` dan `/path`](https://www.metatrader5.com/en/terminal/help/start_advanced/installation).
+3. Dari checkout repository, klik dua kali `install-one-click.cmd`. Setelah installer ini dipublikasikan pada branch `main`, file `.cmd` juga dapat dipakai sendiri: ia akan mengunduh source ke direktori sementara dan menghapusnya sesudah wizard ditutup. Launcher meminta elevasi Administrator dan menjaga jendela wizard tetap terbuka agar password awal dapat disimpan:
 
    ```powershell
-   Start-Service AlgentraCoreApi
-   Get-Service AlgentraCoreApi
-   Invoke-RestMethod 'http://127.0.0.1:8000/health'
-   Invoke-RestMethod 'http://127.0.0.1:8000/ready'
+   .\install-one-click.cmd
    ```
 
-   `/health` memeriksa proses. `/ready` memeriksa koneksi, marker project, revision, serta struktur database.
+   Wizard meminta hostname portal, API token Cloudflare, dan URL owner Supabase. Project ref dibaca otomatis dari URL direct atau Session Pooler pada contoh di atas. Wizard juga meminta Gemini API key (opsional; model default `gemini-3.5-flash-lite`), Telegram API ID/hash dan nomor sumber (opsional), bot token/chat ID (opsional), kredensial akun MT5 master, serta Midtrans/SMTP bila fitur tersebut digunakan. Setelah portal siap, masukkan kode OTP Telegram dan pilih chat ID sumber yang diizinkan. Installer menerapkan [fresh production schema](infra/supabase/fresh-production.sql), membuat Tunnel/DNS, secret database/aplikasi, memasang semua service, menguji login broker dengan `MT5LoginProbe`, lalu mengisi chart master otomatis. Wizard meminta persetujuan terpisah untuk mengizinkan order live; default-nya nonaktif. Installer menolak schema lama yang marker-nya berbeda.
+4. Simpan password admin yang ditampilkan setelah Core API siap. Installer menghapus password bootstrap dari environment setelah hash akun tersimpan di Supabase. Setelah login, buka Dashboard > Settings untuk melihat EA key dan copier worker key bila perlu. Installer sudah memasukkan EA key ke preset master dan memasang key worker ke file rahasia lokal. File environment rahasia berada di `C:\Algentra\secrets\core-api.env`; key tersimpan di folder `C:\Algentra\app\backend\data\integration-secrets`. Setelah selesai, verifikasi `https://portal.example.com`, `/health`, `/ready`, dan login admin.
 
-## 3. Deploy portal Next.js ke Vercel
+Gemini key/model dan Telegram yang Anda masukkan saat instalasi disimpan otomatis di folder rahasia lokal; kredensial Telegram tidak disimpan lagi di file environment. Midtrans, rekening transfer, dan SMTP disimpan di `backend/data/integration-secrets/optional-integrations.json`, sehingga environment production tidak perlu memuat nilai-nilai itu. EA dan worker key tersedia di Dashboard > Settings. Cookie sesi login dibuat per sesi dan tidak perlu dikonfigurasi atau disalin. Kode OTP/2FA Telegram tetap dimasukkan saat wizard memintanya; wizard juga meminta chat ID sumber yang akan diizinkan. Jika Midtrans tidak diisi, wizard meminta detail rekening untuk transfer manual dan pembayaran tetap memerlukan review admin. Jika SMTP tidak diisi, pendaftaran dan reset password lewat email tidak aktif. Jangan menyalin Supabase owner URL ke environment runtime. Untuk update schema production berikutnya, siapkan SQL upgrade terpisah dan backup lebih dulu.
 
-1. Import repository Git ke Vercel. Set **Root Directory** ke `apps/web`, install command `npm ci`, build command `npm run build`, dan gunakan Node.js 22.
-2. Isi environment server-only di Vercel Preview terlebih dahulu:
+Detail service dan pemulihan ada di [docs/SERVICE.md](docs/SERVICE.md), development dan migrasi ada di [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), dan backup/restore ada di [docs/BACKUP.md](docs/BACKUP.md).
 
-   | Variable | Nilai |
-   | --- | --- |
-   | `CORE_API_ORIGIN` | Origin HTTPS API di Cloudflare, tanpa path tambahan |
-   | `BFF_HMAC_SECRET` | Sama persis dengan secret Core API |
-   | `CF_ACCESS_CLIENT_ID` | Service token client ID bila origin dilindungi Cloudflare Access |
-   | `CF_ACCESS_CLIENT_SECRET` | Service token secret yang berpasangan |
+## 2. Pasang MT5 dan EA
 
-   Jangan awali variabel rahasia dengan `NEXT_PUBLIC_`. Vercel/browser tidak perlu `DATABASE_URL` atau Supabase key.
-3. Deploy Preview. Uji login, dashboard, permintaan BFF, upload bukti pembayaran, dan WebSocket/realtime dari domain Preview. Atur origin WebSocket yang benar di `WEBSOCKET_ALLOWED_ORIGINS` backend dan policy Access sesuai arsitektur deployment.
-4. Setelah lulus, set variabel Production, deploy, pasang domain portal, lalu uji kembali. Setiap perubahan environment membutuhkan deployment baru. Jika nama domain portal berubah, perbarui allow-list WebSocket backend dan redeploy API.
-
-## 4. Pasang MT5 dan EA
-
-Gunakan akun demo dahulu. Pasang MT5 pada sesi desktop Windows khusus yang tetap login; terminal MT5, Algo Trading, EA, dan worker harus aktif bersama.
+Gunakan akun demo dahulu. Installer membuat MT5 master di `C:\Algentra\mt5\master`, template follower bersih di `C:\Algentra\mt5\follower-template`, mengompilasi EA, memvalidasi login master dengan `MT5LoginProbe`, lalu membuka chart XAUUSD M1 dengan `TelegramSignalEA`. Scheduled Task menjalankan MT5 pada sesi desktop akun Windows saat login.
 
 ### A. Copier managed dari portal (master memakai TelegramSignalEA)
 
-TelegramSignalEA mengirim snapshot master ke Core API; worker managed meneruskan snapshot tersebut ke publisher Go dan membuat terminal follower dari profil yang dibayar. EA publisher master terpisah tidak diperlukan untuk mode ini. Worker production tetap harus dipasang satu kali dan membutuhkan template MT5 follower yang bersih. Set `EA_API_KEY` dan `COPIER_WORKER_API_KEY` pada backend, lalu gunakan key EA yang sama pada TelegramSignalEA di terminal master.
+TelegramSignalEA mengirim snapshot master ke Core API; worker managed meneruskan snapshot tersebut ke publisher Go dan membuat terminal follower dari profil yang dibayar. EA publisher master terpisah tidak diperlukan untuk mode ini. One-click installer memasang scheduled task worker, template MT5 follower, EA master, dan key worker secara otomatis. API key EA dimasukkan ke preset TelegramSignalEA oleh installer; key tetap dapat dilihat di Dashboard > Settings.
 
-1. Pasang MT5 master, login ke akun master, compile dan pasang `mt5/experts/TelegramSignalEA.mq5` pada chart. Jika MT5 master berada di host API, set `ServerURL` ke `http://127.0.0.1:8000`; izinkan URL tersebut di WebRequest MT5 dan isi `ApiKey` dengan `EA_API_KEY` backend. Siapkan folder terminal follower bersih berisi `terminal64.exe` dan folder sinyal yang dapat ditulis worker.
-2. Compile EA follower dan login probe dengan MetaEditor; file `.ex5` harus tersedia pada lokasi yang dijelaskan di panduan copier:
-   - `mt5/experts/MT5FollowerCopyEA.mq5` pada terminal follower template.
-   - `mt5/experts/Algentra/MT5LoginProbe.mq5` untuk validasi login managed.
-3. Pastikan `COPIER_WORKER_API_KEY` pada environment Core API dan akun worker sama. Worker otomatis menambahkan WebRequest `http://127.0.0.1:8766` pada terminal follower setelah startup; template tidak perlu disetel manual. Ini memakai desktop Windows interaktif, yang disediakan oleh Scheduled Task installer. Dari PowerShell akun worker jalankan installer task:
-
-   ```powershell
-   .\apps\copier-worker\scripts\install_managed_worker_task.ps1 `
-     -ProjectRoot 'D:\Algentra\algentraCapitalProject' `
-     -ApiBaseUrl 'https://api.example.com' `
-     -TerminalTemplateDir 'D:\MT5Templates\CleanFollower' `
-     -SignalDirectory 'D:\Algentra\signals'
-   ```
-
-   Task bernama `Algentra Managed Copy Worker`, berjalan saat akun worker login, dan membutuhkan sesi interaktif. Periksa `managed-worker.json`/`master.json` hasil installer, lalu login kembali setelah reboot agar MT5 follower aktif. Source master default `telegram_signal`; installer tidak meminta path terminal master.
+1. Wizard meminta nomor login, password, dan server broker akun master, lalu menjalankan `MT5LoginProbe` untuk memvalidasi login dan memilih chart emas M1. Terminal master dijadwalkan berjalan saat akun Windows masuk. EA memakai Core API lokal dan key yang sudah dibuat installer. Installer juga menyiapkan template follower bersih dan folder sinyal di `C:\Algentra`.
+2. Keempat EA dikompilasi otomatis ke `.ex5` oleh installer; tidak perlu membuka MetaEditor untuk memasangnya pada host ini. File juga disalin ke folder aplikasi:
+   - `mt5/experts/MT5FollowerCopyEA.ex5` pada terminal follower template.
+   - `mt5/experts/Algentra/MT5LoginProbe.ex5` untuk validasi login managed.
+3. Worker otomatis menambahkan WebRequest `http://127.0.0.1:8766` pada terminal follower setelah startup; template tidak perlu disetel manual. Task `Algentra Managed Copy Worker` dibuat dan mulai oleh one-click installer. Task memakai sesi Windows interaktif; setelah reboot, login ke Windows agar MT5 follower aktif. Source master default `telegram_signal`; installer tidak meminta path terminal master. Copier worker API key dapat disalin dari Dashboard > Settings.
 4. User mendaftar, membuat pesanan, dan membayar dengan QRIS. Settlement otomatis membuat akun. User memasukkan kredensial broker follower serta batas lot di portal; worker memeriksa login, lalu user menyetujui aktivasi live. Uji alur dahulu dengan akun demo dan risk limit yang ditetapkan.
 
 ### B. Copier standalone dari posisi MT5 (publisher master + follower EA di host sendiri)
 
-1. Buat satu instalasi MT5 portable terpisah untuk setiap follower, login ke akun yang benar lalu tutup terminal. Compile/pasang `MT5FollowerCopyEA.mq5` pada terminal masing-masing.
+1. Buat satu instalasi MT5 portable terpisah untuk setiap follower di bawah `C:\Algentra\mt5\followers`, login ke akun yang benar lalu tutup terminal. Salin `MT5FollowerCopyEA.ex5` yang sudah disiapkan installer ke folder data MT5 masing-masing. MetaEditor hanya diperlukan jika ingin mengubah source EA.
 2. Siapkan config lokal dari `apps/copier-worker/config/master.example.json`, lalu buat `akun*.json` dan `launcher.json` sesuai [panduan copier](apps/copier-worker/README.md). Tetapkan path terminal unik, folder sinyal yang sama, symbol mapping, mode lot, `dry_run`, dan batas `max_lot_per_order`, `max_posisi_terbuka`, `max_lot_total`.
-3. Pasang `MT5MasterPublisherEA.mq5` pada chart mana pun di terminal MT5 yang login ke **akun master sumber posisi**. EA ini membaca posisi terbuka di akun itu dan mengirim snapshot ke publisher Go lokal; EA tidak membuka order. Compile EA dengan MetaEditor, set `MASTER_PUBLISHER_TOKEN` di environment akun Windows yang menjalankan publisher, lalu isi input `PublisherToken` EA dengan secret yang sama (minimal 32 karakter). Allow-list `http://127.0.0.1:8765` pada terminal master dan `http://127.0.0.1:8766` pada terminal follower.
+3. Pasang `C:\Algentra\app\mt5\experts\MT5MasterPublisherEA.ex5` pada chart di terminal master yang login ke **akun master sumber posisi**. EA ini membaca posisi terbuka dan mengirim snapshot ke publisher Go lokal; EA tidak membuka order. Compile EA sudah dilakukan installer. Jika memakai `install_startup_task.ps1`, token publisher dibuat atau dimigrasikan ke file rahasia lokal dan ditampilkan untuk diisi pada input `PublisherToken`; token tidak disimpan permanen di environment Windows. Allow-list `http://127.0.0.1:8765` pada terminal master dan `http://127.0.0.1:8766` pada terminal follower.
 4. Mulai dari root release: `apps\copier-worker\scripts\start-all.ps1`. Task opsional saat login dapat dipasang melalui `apps\copier-worker\scripts\install_startup_task.ps1`. Jangan jalankan publisher master kedua bila managed worker atau launcher sudah menjalankannya.
 
 Pasang EA publisher ini hanya jika ingin menyalin posisi yang dibuka di MT5 master secara langsung (standalone/`master_source: publisher_ea`). Untuk managed copy yang menggunakan sinyal Telegram, pasang `TelegramSignalEA.mq5` di terminal master; `MT5MasterPublisherEA.mq5` tidak dipakai karena worker menerima snapshot dari Core API.
 
 ### C. Telegram Signal EA (mengirim order dari sinyal Telegram)
 
-1. Gunakan terminal MT5 khusus pada sesi interaktif, compile `mt5/experts/TelegramSignalEA.mq5`, dan pasang pada chart simbol yang sesuai.
-2. Bila EA berjalan pada Windows host yang sama dengan API, set `ServerURL` ke `http://127.0.0.1:8000`; jika berjalan di host berbeda gunakan origin HTTPS khusus yang dapat dijangkau. Allow-list URL itu pada **Tools → Options → Expert Advisors → Allow WebRequest**. EA ini hanya mengirim `X-API-Key`, jadi hostname di belakang Cloudflare Access yang mewajibkan service-token header tidak dapat dipakai langsung oleh EA; siapkan jalur EA terpisah dengan policy yang sesuai dan verifikasi pembatasan endpoint sebelum mengaktifkan akses.
+1. Gunakan terminal MT5 khusus pada sesi interaktif dan pasang `TelegramSignalEA.ex5` yang sudah dikompilasi installer pada chart simbol yang sesuai.
+2. Bila EA berjalan pada Windows host yang sama dengan API, set `ServerURL` ke `http://127.0.0.1:8000`; jika berjalan di host berbeda gunakan origin HTTPS khusus yang dapat dijangkau. Allow-list URL itu pada **Tools → Options → Expert Advisors → Allow WebRequest**. Batasi akses jaringan ke hostname API melalui firewall/reverse proxy dan pertahankan `X-API-Key` EA yang kuat.
 3. Isi input `ApiKey` dengan nilai `EA_API_KEY` backend. Atur watchlist, symbol mapping, batas/default SL/TP, volume dan opsi trading; cocokkan pula whitelist grup Telegram pada halaman admin `/telegram-setup`.
 4. Verifikasi pada akun demo dan pantau log Experts/Journal. EA ini dapat mengirim order live dan backend tidak menyediakan dry-run untuk eksekusi EA tersebut. Kill switch menghentikan distribusi signal baru, tetapi tidak menutup posisi terbuka.
 
 ### D. Copier EA mandiri milik client
 
-Portal client dapat menyediakan source `MT5FollowerCopyEA.mq5` dan token akun. Client mengunduh/compile `.mq5`, memasang EA pada terminal follower, allow-list origin API pada MT5, memasukkan token dan parameter risiko pada input EA, lalu mengaktifkan Algo Trading. Token hanya ditampilkan saat dibuat/dirotasi dan harus diperlakukan sebagai rahasia. Lihat [docs/OPERATIONS.md](docs/OPERATIONS.md) dan panduan akun copier untuk instruksi yang dilihat client.
+Portal client menyediakan EA `MT5FollowerCopyEA.ex5` yang dikompilasi installer, serta source `.mq5` sebagai pilihan. Client menyalin `.ex5` ke folder `MQL5/Experts`, allow-list origin API pada MT5, memasukkan token dan parameter risiko pada input EA, lalu mengaktifkan Algo Trading. Tidak perlu memasang MetaEditor atau compile EA pada terminal client. Token hanya ditampilkan saat dibuat/dirotasi dan harus diperlakukan sebagai rahasia. Lihat [docs/OPERATIONS.md](docs/OPERATIONS.md) dan panduan akun copier untuk instruksi yang dilihat client.
 
-## 5. Start, stop, dan status operasional
+## 3. Start, stop, dan status operasional
 
 ### Core API Windows Service
 
@@ -195,7 +132,7 @@ Mulai `apps\copier-worker\scripts\start-all.ps1` pada sesi akun worker. Hentikan
 
 EA berjalan di terminal MT5, bukan sebagai Windows Service. Gunakan tombol Algo Trading/Expert Advisor untuk menghentikan eksekusi baru, kemudian kelola posisi dan pending order langsung dari MT5/broker. Menghentikan EA tidak menutup posisi yang sudah terbuka.
 
-## 6. Backup dan update aplikasi/service
+## 4. Backup dan update aplikasi/service
 
 ### Backup sebelum perubahan
 
@@ -213,16 +150,16 @@ Pastikan backup terenkripsi berhasil dan uji restore pada staging. Ikuti [docs/B
 3. Ganti file executable dalam release sesuai prosedur cutover, tetapi pertahankan `core-api.env`, `backend\data`, config worker/master, state, folder terminal MT5, dan secret. Jika menggunakan folder versi, update `ProjectRoot`/service secara terencana.
 4. Start Core API, periksa `/health` dan `/ready`, cek login admin dan integrasi. Login pada akun worker, start task managed atau launcher standalone, lalu periksa heartbeat, log, publisher master, dan terminal follower.
 5. Compile/deploy EA baru secara terpisah pada terminal terkait dan verifikasi input/token/URL allow-list. Jangan aktifkan kembali live trading sampai operator mengesahkan smoke test staging/demo dan production checks.
-6. Untuk update portal, deploy commit yang sama ke Vercel Preview, uji BFF dan integrasi API, lalu promote/deploy Production. Environment variable yang berubah memerlukan redeploy.
+6. Untuk update portal, jalankan `npm ci` dan `npm run build` di `apps/web`, lalu restart service `AlgentraWeb` setelah build berhasil.
 
 ### Rollback
 
 Hentikan trafik/update yang gagal, pulihkan binary dan frontend versi sebelumnya, lalu cek schema compatibility. Pulihkan database hanya jika diperlukan setelah menghitung transaksi sejak backup; rekonsiliasi order, posisi, dan deal lewat riwayat broker. Prosedur lengkap ada di [docs/SERVICE.md](docs/SERVICE.md) dan [docs/BACKUP.md](docs/BACKUP.md).
 
-## 7. Checklist setelah install/update
+## 5. Checklist setelah install/update
 
 - [ ] `/health` sukses dan `/ready` melaporkan database siap.
-- [ ] Vercel memakai API origin yang benar; BFF HMAC dan Cloudflare Access valid; login dan request portal berhasil.
+- [ ] Portal `AlgentraWeb`, API `AlgentraCoreApi`, dan `AlgentraCloudflared` berjalan; login dan request portal berhasil.
 - [ ] Telegram/Gemini/email/payment sesuai integrasi yang diaktifkan; Midtrans sandbox diuji sebelum production.
 - [ ] Untuk copier managed: TelegramSignalEA mengirim snapshot master; worker meneruskan feed dan follower membaca perubahan posisi.
 - [ ] Terminal follower memakai simbol dan parameter risiko yang benar; status broker/heartbeat sehat.
@@ -231,7 +168,7 @@ Hentikan trafik/update yang gagal, pulihkan binary dan frontend versi sebelumnya
 
 ## Referensi
 
-- [Instalasi service dan Cloudflare/Vercel](docs/SERVICE.md)
+- [Instalasi service dan HTTPS](docs/SERVICE.md)
 - [Fitur portal, EA, dan batas operasi](docs/OPERATIONS.md)
 - [Copier standalone dan managed](apps/copier-worker/README.md)
 - [Backup dan restore](docs/BACKUP.md)

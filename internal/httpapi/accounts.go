@@ -25,9 +25,11 @@ type clientMT5API struct {
 	copierAPIKey     string
 	appSecret        string
 	updates          *mt5UpdateHub
+	performanceCache *responseCache
 }
 
 func (api clientMT5API) register(mux *http.ServeMux) {
+	api.performanceCache = newResponseCache()
 	for _, prefix := range []string{"/api/mt5", "/v1/mt5"} {
 		mux.HandleFunc("GET "+prefix+"/accounts", api.listAccounts)
 		mux.HandleFunc("GET "+prefix+"/accounts/{account_id}/details", api.accountDetails)

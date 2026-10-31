@@ -20,7 +20,7 @@ Riwayat chat tersimpan agar ALGENTRA tetap nyambung saat pelanggan membuka ulang
 
 Chat tidak pernah menampilkan token EA atau API key. Jika klien kehilangan token, arahkan untuk membuat atau merotasi token lewat Portal Klien; token mentah hanya ditampilkan satu kali saat tindakan itu berhasil.
 
-Chat memakai Gemini dengan kredensial **`GEMINI_CS_API_KEY` yang berbeda dari key parser sinyal**. Jika chat menampilkan pesan belum tersedia, integrasi CS belum dikonfigurasi atau layanan Gemini sedang gagal; jangan menyuruh pelanggan mengirim key Gemini mereka.
+Chat dan parser memakai key/model Gemini yang sama, yang dikonfigurasi melalui dashboard admin. Jika chat menampilkan pesan belum tersedia, integrasi Gemini belum dikonfigurasi atau layanan Gemini sedang gagal; jangan menyuruh pelanggan mengirim key Gemini mereka.
 
 ## Halaman dan alamat
 
@@ -34,7 +34,7 @@ Alamat portal yang dicantumkan pada proyek saat ini: [https://algentracapital.my
 - **Masuk:** `/login`.
 - **Lupa kata sandi:** `/forgot-password`.
 - **Portal akun MT5:** `/account` setelah masuk.
-- **Unduh source EA Copy Trading:** tersedia dari bagian pemasangan EA di `/account` setelah masuk; compile source `.mq5` dengan MetaEditor sebelum dipasang.
+- **Unduh EA Copy Trading:** binary `.ex5` siap pasang dan source `.mq5` tersedia dari bagian pemasangan EA di `/account` setelah masuk. Client tidak perlu compile jika memakai binary.
 
 Situs juga menyediakan pilihan tema terang/gelap dan tombol musik latar.
 
@@ -99,8 +99,8 @@ Jangan memasukkan atau mengirim kata sandi broker kepada customer service.
 
 ### C. Memasang EA Copy Trading
 
-1. Unduh source **MT5FollowerCopyEA.mq5** dari portal klien.
-2. Di MT5 pilih **File → Open Data Folder**, buka `MQL5/Experts`, lalu salin source `.mq5` ke folder tersebut. Buka file itu dengan MetaEditor dan tekan **F7** untuk compile.
+1. Unduh binary **MT5FollowerCopyEA.ex5** dari portal klien.
+2. Di MT5 pilih **File → Open Data Folder**, buka `MQL5/Experts`, lalu salin file `.ex5` ke folder tersebut. Source `.mq5` tersedia jika ingin mengubah EA atau compile ulang.
 3. Pilih **Tools → Options → Expert Advisors**. Aktifkan **Allow WebRequest for listed URL**, lalu tambahkan alamat portal yang dipakai pelanggan (alamat default proyek: `https://algentracapital.my.id`).
 4. Dari **Navigator → Expert Advisors**, pasang EA Copy Trading pada chart.
 5. Isi `AccountToken` dengan token akun terkait. Pastikan `ServerURL` sama dengan alamat yang diizinkan di WebRequest.

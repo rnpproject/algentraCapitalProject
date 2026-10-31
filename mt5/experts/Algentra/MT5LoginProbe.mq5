@@ -41,12 +41,13 @@ void WriteStatusToFile(const string file_name,
    g_status_write_error_logged = false;
    string safe_message = EscapeJSON(message);
    string server = EscapeJSON(AccountInfoString(ACCOUNT_SERVER));
-   FileWriteString(file, StringFormat("{\"ready\":%s,\"valid\":%s,\"message\":\"%s\",\"login\":%I64d,\"server\":\"%s\"}",
+   FileWriteString(file, StringFormat("{\"ready\":%s,\"valid\":%s,\"message\":\"%s\",\"login\":%I64d,\"server\":\"%s\",\"symbol\":\"%s\"}",
                                       ready ? "true" : "false",
                                       valid ? "true" : "false",
                                       safe_message,
                                       AccountInfoInteger(ACCOUNT_LOGIN),
-                                      server));
+                                      server,
+                                      EscapeJSON(_Symbol)));
    FileFlush(file);
    FileClose(file);
   }
@@ -55,12 +56,13 @@ void WriteStatus(const bool ready, const bool valid, const string message)
   {
    string safe_message = EscapeJSON(message);
    string server = EscapeJSON(AccountInfoString(ACCOUNT_SERVER));
-   string payload = StringFormat("{\"ready\":%s,\"valid\":%s,\"message\":\"%s\",\"login\":%I64d,\"server\":\"%s\"}",
+   string payload = StringFormat("{\"ready\":%s,\"valid\":%s,\"message\":\"%s\",\"login\":%I64d,\"server\":\"%s\",\"symbol\":\"%s\"}",
                                   ready ? "true" : "false",
                                   valid ? "true" : "false",
                                   safe_message,
                                   AccountInfoInteger(ACCOUNT_LOGIN),
-                                  server);
+                                  server,
+                                  EscapeJSON(_Symbol));
    // Give the worker a log-based fallback if terminal file access is blocked.
    if(payload != g_last_status_log)
      {
@@ -204,6 +206,11 @@ void OnDeinit(const int reason)
 void OnTimer()
   {
    EnsureDefaultGoldChart();
+   if(!g_gold_chart_ready)
+     {
+      WriteStatus(false, false, "Menunggu chart XAUUSD M1 yang tersedia pada broker.");
+      return;
+     }
    if(!TerminalInfoInteger(TERMINAL_CONNECTED) || AccountInfoInteger(ACCOUNT_LOGIN) <= 0)
      {
       WriteStatus(false, false, "Menunggu koneksi broker MT5.");

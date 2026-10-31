@@ -1,46 +1,50 @@
 # Deploy dan operasi service production
 
-Panduan ini mencakup Core API Windows Service, Cloudflare Tunnel/Vercel, worker managed copy, smoke test rilis, dan jeda darurat. Persiapan database production dan konfigurasi utama ada di [README](../README.md); development ada di [DEVELOPMENT.md](./DEVELOPMENT.md), backup/restore ada di [BACKUP.md](./BACKUP.md).
+Panduan ini mencakup installer Windows satu kali, Core API/portal/Cloudflare Tunnel services, worker managed copy, smoke check rilis, dan jeda darurat. Persiapan ada di [README](../README.md); development ada di [DEVELOPMENT.md](./DEVELOPMENT.md), backup/restore ada di [BACKUP.md](./BACKUP.md).
 
 ## Windows Server dan Core API
 
-Gunakan Windows Server terkelola, executable Go untuk Core API dan managed worker, NSSM, Cloudflare Tunnel, koneksi TLS ke Supabase production, dan akun service non-admin. Project production harus sudah memiliki schema/revision yang cocok; service tidak menjalankan DDL atau migrasi.
+Installer utama memasang Go, Node.js, NSSM, cloudflared, dan dua terminal MetaTrader 5 di `C:\Algentra`; mengompilasi EA MQL5, membangun Core API, portal, serta tiga binary copier; membuat schema fresh di Supabase; mendaftarkan tiga service aplikasi dan managed copier task. Semua dependency, compiler, cache, source, template MT5, dan output build berada di C:. Installer memvalidasi login broker dengan MT5LoginProbe, lalu mengisi chart master dan preset EA otomatis; MT5 berjalan pada sesi desktop interaktif akun Windows dan task dijalankan saat akun itu login. Siapkan project Supabase kosong, domain aktif di Cloudflare, dan API token Cloudflare dengan izin **Account: Cloudflare Tunnel Edit** dan **Zone: DNS Edit + Zone Read**. Wizard membuat Tunnel remote-managed, route ke `http://127.0.0.1:3000`, dan record DNS CNAME secara otomatis; tidak perlu membuat Tunnel di dashboard lebih dahulu. Server hanya perlu koneksi keluar; bila firewall jaringan membatasi egress, izinkan TCP dan UDP port `7844` ke Cloudflare Tunnel. RDP dikelola terpisah dan tidak diubah installer portal. Klik dua kali launcher dari checkout repository; setelah installer dipublikasikan ke branch `main`, file `.cmd` tunggal juga dapat mengunduh source sementara. Launcher meminta elevasi Administrator:
 
-1. Letakkan release di path tetap dan buat executable Windows dari root repository:
+API yang dipakai adalah [create tunnel](https://developers.cloudflare.com/api/resources/zero_trust/subresources/tunnels/subresources/cloudflared/methods/create/), [set tunnel ingress configuration](https://developers.cloudflare.com/api/resources/zero_trust/subresources/tunnels/subresources/cloudflared/subresources/configurations/methods/update/), serta [create DNS record](https://developers.cloudflare.com/api/resources/dns/subresources/records/). Token API dienkripsi DPAPI sementara agar wizard dapat dilanjutkan setelah gagal, lalu dihapus setelah Tunnel berhasil dibuat; token connector Tunnel yang dibuat Cloudflare disimpan pada file ACL terbatas untuk Windows service.
 
-   ```powershell
-   go build -ldflags="-s -w" -o algentra-backend.exe ./cmd/algentra-backend
-   go build -ldflags="-s -w" -o algentra-copier-master.exe ./cmd/copier-master
-   go build -ldflags="-s -w" -o algentra-copier-launcher.exe ./cmd/copier-launcher
-   go build -ldflags="-s -w" -o algentra-copier-worker.exe ./cmd/copier-worker
-   ```
+```powershell
+.\install-one-click.cmd
+```
 
-2. Buat `D:\AlgentraSecure\core-api.env` di luar repository dan batasi ACL NTFS. Isi variabel production berdasarkan `.env.example`; jangan menyalin `.env.local` development. Jangan isi `MIGRATION_DATABASE_URL` atau `SUPABASE_DEV_PROJECT_REF`. File tersebut berisi plaintext dan hanya boleh dibaca administrator, SYSTEM, serta akun service. Lindungi dan pertahankan `backend\data`.
-3. Pasang Core API melalui PowerShell administrator:
+Installer meminta hostname publik, API token Cloudflare, dan `DATABASE_ADMIN_URL` role `postgres` lewat prompt tersembunyi. Pilih URL Supabase langsung atau session pooler port 5432; transaction pooler port 6543 tidak cocok dengan koneksi persisten `pgxpool`. Project ref dibaca otomatis dari URL direct atau Session Pooler Supabase yang didukung. Sebelum build aplikasi atau membuat schema, installer memeriksa koneksi Supabase, project ref, dan marker schema tanpa mengubah database. Wizard membuat role runtime password acak dan token Tunnel, menyimpan kredensial server di `C:\Algentra\secrets` dengan ACL terbatas, lalu menampilkan password admin awal setelah Core API siap. Password bootstrap dihapus dari environment setelah hash akun tersimpan di database. Core API membuat application secret, EA API key, dan copier worker key otomatis pada folder rahasia lokal; dua API key terlihat pada Dashboard > Settings. Gemini cukup memakai API key dan model; wizard meminta keduanya dan menyimpan pengaturan di `gemini.json`. Midtrans, rekening transfer, dan SMTP disimpan di `optional-integrations.json`; URL notifikasi Midtrans dibentuk otomatis dari hostname portal. File integrasi hanya dapat dibaca admin sistem dan Core API. Task worker dibuat otomatis; key runtime disimpan pada file terpisah ber-ACL terbatas untuk sesi Windows interaktif dan hanya dimasukkan ke environment proses saat worker berjalan. Jangan jalankan installer ini pada database yang sudah memiliki schema `app`.
 
-   ```powershell
-   .\infra\windows\install-core-api-service.ps1 `
-     -EnvironmentFile 'D:\AlgentraSecure\core-api.env' `
-     -NssmPath 'C:\Tools\nssm\win64\nssm.exe'
-   ```
+Installer menghapus environment aplikasi yang diwarisi dari akun/mesin sebelum build. Saat upgrade, file `.env` Next.js yang dikenali dipindahkan ke folder backup ber-ACL terbatas di `C:\Algentra\secrets\web-env-backup-*`; file tersebut tidak dipakai service production.
 
-   Service `AlgentraCoreApi` memakai akun virtual terbatas `NT SERVICE\AlgentraCoreApi`, bind ke `127.0.0.1:8000`, berjalan satu worker tanpa reload, dan mengatur restart otomatis. Core API hanya melayani API JSON/SSE (`/api/*`, `/v1/*`), `/health`, `/ready`, `/downloads/*`, dan endpoint WebSocket kompatibilitas — ia tidak menyajikan halaman web apa pun; seluruh web disajikan oleh Next.js di Vercel. Setelah konfigurasi siap:
+Installer memverifikasi portal lokal dan endpoint HTTPS `/ready` sebelum melaporkan selesai. Jika pemeriksaan gagal, periksa hostname dan konfigurasi Tunnel yang dibuat wizard, status konektor, serta log; environment, schema, dan state Cloudflare yang sudah dibuat akan dipakai kembali.
 
-   ```powershell
-   Start-Service AlgentraCoreApi
-   Invoke-WebRequest http://127.0.0.1:8000/health
-   Invoke-WebRequest http://127.0.0.1:8000/ready
-   ```
+Service yang dibuat:
 
-   Jangan jalankan development launcher atau backend kedua pada production.
+- `AlgentraCoreApi`: Go API di `127.0.0.1:8000`.
+- `AlgentraWeb`: Next.js di `127.0.0.1:3000`.
+- `AlgentraCloudflared`: tunnel keluar menuju hostname publik Cloudflare.
+
+Data Telegram lokal berada di `backend\data`; installer memberi API service hak tulis. Sesudah instalasi, cek status dan health:
+
+```powershell
+Get-Service AlgentraCoreApi, AlgentraWeb, AlgentraCloudflared
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod http://127.0.0.1:8000/ready
+Invoke-WebRequest https://portal.example.com
+```
 
 ### Start, stop, dan cek service
 
-Jalankan Core API setelah pemasangan atau reboot:
+Mulai, hentikan, atau periksa layanan portal:
 
 ```powershell
 Start-Service AlgentraCoreApi
-Get-Service AlgentraCoreApi
+Start-Service AlgentraWeb
+Start-Service AlgentraCloudflared
+Get-Service AlgentraCoreApi, AlgentraWeb, AlgentraCloudflared
+Stop-Service AlgentraCloudflared
+Stop-Service AlgentraWeb
+Stop-Service AlgentraCoreApi
 Invoke-WebRequest http://127.0.0.1:8000/health
 Invoke-WebRequest http://127.0.0.1:8000/ready
 ```
@@ -57,21 +61,13 @@ Get-ScheduledTaskInfo -TaskName 'Algentra Managed Copy Worker' |
 Stop-ScheduledTask -TaskName 'Algentra Managed Copy Worker'
 ```
 
-Task berjalan pada sesi interaktif akun Windows yang mendaftarkannya; login ke akun worker setelah reboot. `Start-ScheduledTask` tidak memasang task—jalankan installer managed worker lebih dulu. Worker dapat mengirim order live untuk profil aktif, sehingga pastikan demo atau tidak ada job live yang belum ditinjau sebelum start.
+Task berjalan pada sesi interaktif akun Windows yang mendaftarkannya; login ke akun worker setelah reboot. `Start-ScheduledTask` tidak memasang taskâ€”jalankan installer managed worker lebih dulu. Worker dapat mengirim order live untuk profil aktif, sehingga pastikan demo atau tidak ada job live yang belum ditinjau sebelum start.
 
-## Cloudflare Tunnel dan Vercel
+## Routing portal/API
 
-Pasang named Cloudflare Tunnel sebagai service/task terpisah dengan ingress ke `http://127.0.0.1:8000`. Tunnel ini hanya mengekspos Core API (bukan web); jangan buka port 8000 ke internet atau bind backend ke interface publik. Aktifkan TLS/HSTS di Cloudflare.
+Cloudflare Tunnel mengirim hostname publik ke Next.js lokal (`http://127.0.0.1:3000`); Next rewrite meneruskan `/api/core/*` ke Go `/v1/*` dan API kompatibilitas `/api/*` ke Go, setelah route pencarian broker Next.js. Health/readiness juga diteruskan ke Go. Port 3000/8000 hanya bind loopback; tidak ada port masuk aplikasi yang dibuka di firewall.
 
-Web disajikan sepenuhnya dan hanya oleh Next.js di Vercel (`apps/web`); tidak ada web kedua di Windows Server.
-
-Pada Vercel:
-
-1. Import repository dan set **Root Directory** ke `apps/web`; gunakan `npm ci` dan `npm run build`.
-2. Set environment server-only `CORE_API_ORIGIN` ke origin HTTPS Core API di belakang Cloudflare Access, `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` ke service token khusus Vercel, dan `BFF_HMAC_SECRET` sama persis dengan secret pada Core API.
-3. Deploy Preview dahulu. Uji policy Access, login, dashboard, dan request API; baru deploy Production dan pasang domain. Setiap perubahan environment memerlukan deployment baru.
-
-Core API tetap berkomunikasi langsung dengan Postgres; browser tidak menerima secret atau mengakses Supabase.
+Installer portal tidak mengubah Remote Desktop, aturan firewall RDP, atau konfigurasi akses jarak jauh Windows.
 
 ## Managed copier worker
 
@@ -79,14 +75,14 @@ Worker dijalankan sebagai Scheduled Task interaktif, bukan Windows Service. MT5 
 
 Form akun mencari nama broker/server melalui direktori pihak ketiga `mt5.mtapi.io`. Worker mencari ulang server terpilih dan menggunakan alamat akses yang dipublikasikan direktori, dengan `Config/servers.dat` lokal sebagai fallback bila resolver tidak tersedia. Pencarian mengirim nama server publik saja; login dan password tidak dikirim ke layanan pencarian. Nomor login tidak menunjukkan server akun, jadi pelanggan harus memilih server yang cocok dengan detail akun dari brokernya. Untuk memakai resolver lain, set `MT5_BROKER_DIRECTORY_URL` ke endpoint HTTPS yang kompatibel di lingkungan web dan worker.
 
-1. Pastikan `COPIER_WORKER_API_KEY` sama pada environment backend dan akun Windows worker. Nilai key hanya disimpan di secure environment/User/Machine; `worker_api_key_env` pada `config\managed-worker.json` harus berisi nama variabel `COPIER_WORKER_API_KEY`, bukan nilai key. Jangan memuat seluruh file environment Core API ke worker.
-2. Dari PowerShell pada root release jalankan installer dan masukkan key hanya pada prompt tersembunyi:
+1. Pada instalasi one-click, key worker dibuat di `backend\data\integration-secrets\copier-worker.json`, ditampilkan pada Dashboard > Settings, dan disimpan installer pada file rahasia lokal untuk akun task. `worker_api_key_env` pada `config\managed-worker.json` hanya berisi nama variabel `COPIER_WORKER_API_KEY`, bukan nilai key. Jangan memuat seluruh file environment Core API ke worker.
+2. One-click installer membuat task worker otomatis. Untuk host worker Windows terpisah, jalankan installer task setelah menyiapkan binary dan terminal MT5:
 
    ```powershell
    .\apps\copier-worker\scripts\install_managed_worker_task.ps1 `
      -ProjectRoot (Get-Location).Path `
-     -ApiBaseUrl 'https://api.example.com' `
-     -TerminalTemplateDir 'D:\MT5Templates\CleanFollower' `
+     -ApiBaseUrl 'https://portal.example.com' `
+     -TerminalTemplateDir 'C:\Algentra\mt5\follower-template' `
      -SignalDirectory 'C:\Algentra\signals'
    ```
 
@@ -103,7 +99,7 @@ Setiap rilis memerlukan maintenance window. Core API dijalankan sebagai satu bin
 2. Pastikan tidak ada order sedang diproses. Aktifkan kill switch untuk menghentikan klaim signal baru; tinjau akun, simbol, EA, pending order, posisi, dan managed follower.
 3. Buat dan verifikasi backup sesuai [BACKUP.md](./BACKUP.md).
 4. Hentikan Core API service; deploy binary Go baru tanpa mengganti file environment, database, `backend\data`, config MT5, state worker, atau folder terminal. Tidak ada runtime Python yang perlu dipasang. Mulai satu service.
-5. Uji `/health` dan `/ready`, lalu login admin dan periksa dashboard, Telegram, EA, tunnel, worker, serta alur portal yang berubah. `/ready` hanya memeriksa database; ia tidak memastikan worker/EA/Telegram sehat.
+5. Uji `/health` dan `/ready`, lalu login admin dan periksa dashboard, Telegram, EA, Cloudflare Tunnel, worker, serta alur portal yang berubah. `/ready` hanya memeriksa database; ia tidak memastikan worker/EA/Telegram sehat.
 6. Untuk EA Telegram, uji terlebih dahulu pada akun demo. Backend tidak mempunyai dry-run untuk order EA tersebut.
 7. Lepas kill switch hanya setelah operator menyetujui trading live. Managed copy harus online, login follower valid, batas risiko diperiksa, dan client menyetujui **Mulai copy trading (live)**.
 
@@ -111,6 +107,6 @@ Setiap rilis memerlukan maintenance window. Core API dijalankan sebagai satu bin
 
 Kill switch menghentikan distribusi signal baru ke EA Telegram, tetapi tidak menutup posisi/pending order dan tidak menjeda managed copy. Menjeda profil managed menghentikan salinan berikutnya, tetapi posisi follower yang sudah terbuka tetap ada. Kelola eksposur langsung dari MT5/broker.
 
-Jika smoke test gagal, aktifkan kill switch dan hentikan service/worker terkait. Pulihkan kode rilis sebelumnya, uji kembali origin/dashboard/tunnel/terminal, lalu pulihkan database hanya jika diperlukan dan setelah menilai transaksi pasca-backup. Rekonsiliasi order, deal, posisi, dan pending order dengan riwayat broker sebelum membuka trafik lagi.
+Jika smoke test gagal, aktifkan kill switch dan hentikan service/worker terkait. Pulihkan kode rilis sebelumnya, uji kembali Tunnel/dashboard/terminal, lalu pulihkan database hanya jika diperlukan dan setelah menilai transaksi pasca-backup. Rekonsiliasi order, deal, posisi, dan pending order dengan riwayat broker sebelum membuka trafik lagi.
 
-Untuk Cloudflare 502, periksa `/health` pada origin terlebih dahulu. Jika `/health` berhasil tetapi `/ready` HTTP 503, periksa `DATABASE_URL`, ACL akun service, koneksi Supabase, dan kapasitas database. Jika keduanya berhasil, periksa status/log `cloudflared`, DNS hostname, dan ingress. Pastikan pasangan Telegram bot terisi bersama-sama. Rotasi log NSSM Core API adalah 10 MB per file; pantau kapasitas log dan Task Scheduler worker. Alert terpusat belum disediakan repo.
+Untuk 502, periksa `https://portal.example.com/health`, status `AlgentraCloudflared`, dan log di `C:\Algentra\app\logs\cloudflared`. Pastikan konfigurasi Tunnel mengarah ke `http://127.0.0.1:3000`. Jika `/health` berhasil tetapi `/ready` HTTP 503, periksa `DATABASE_URL`, ACL akun service, koneksi Supabase, dan kapasitas database. Jika API siap tetapi halaman tidak merespons, periksa `AlgentraWeb` serta koneksi keluar server. Pastikan pasangan Telegram bot terisi bersama-sama. Pantau rotasi log NSSM dan Task Scheduler worker. Alert terpusat belum disediakan repo.

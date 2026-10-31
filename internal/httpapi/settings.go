@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -17,10 +15,10 @@ import (
 )
 
 type settingsAPI struct {
-	pool         *pgxpool.Pool
-	appEnv       string
-	geminiAPIKey string
-	geminiModel  string
+	pool               *pgxpool.Pool
+	integration        *geminiRuntime
+	eaAPIKey           string
+	copierWorkerAPIKey string
 }
 
 var symbolNamePattern = regexp.MustCompile(`^[A-Za-z0-9._]{1,32}$`)
@@ -35,6 +33,7 @@ func (api settingsAPI) register(mux *http.ServeMux) {
 }
 
 func (api settingsAPI) read(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if _, ok := requireAdmin(ctx, api.pool, w, r); !ok {
@@ -72,8 +71,11 @@ func (api settingsAPI) read(w http.ResponseWriter, r *http.Request) {
 	}
 	values["entry_mode"] = defaultValue(values["entry_mode"], "PARTIAL")
 	values["registration_open"] = open
-	values["gemini_configured"] = api.geminiAPIKey != ""
-	values["gemini_model"] = api.currentGeminiModel()
+	gemini := api.integration.snapshot()
+	values["gemini_configured"] = gemini.APIKey != ""
+	values["gemini_model"] = gemini.Model
+	values["ea_api_key"] = api.eaAPIKey
+	values["copier_worker_api_key"] = api.copierWorkerAPIKey
 	writeJSON(w, http.StatusOK, values)
 }
 
@@ -241,7 +243,7 @@ func (api settingsAPI) updateGemini(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "Isi api_key atau model")
 		return
 	}
-	if payload.APIKey != nil && (len([]rune(*payload.APIKey)) < 20 || len([]rune(*payload.APIKey)) > 1024) {
+	if payload.APIKey != nil && strings.TrimSpace(*payload.APIKey) != "" && (len([]rune(strings.TrimSpace(*payload.APIKey))) < 20 || len([]rune(strings.TrimSpace(*payload.APIKey))) > 1024) {
 		writeError(w, http.StatusUnprocessableEntity, "API key Gemini tidak valid")
 		return
 	}
@@ -249,77 +251,10 @@ func (api settingsAPI) updateGemini(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "Nama model Gemini tidak valid")
 		return
 	}
-	if payload.APIKey != nil {
-		writeError(w, http.StatusConflict, "Atur GEMINI_API_KEY di environment layanan, lalu mulai ulang aplikasi.")
+	if err := api.integration.update(payload.APIKey, payload.Model); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "Pengaturan Gemini tidak dapat disimpan")
 		return
 	}
-	if api.appEnv != "development" {
-		writeError(w, http.StatusConflict, "Ubah GEMINI_MODEL pada environment Windows Service, lalu mulai ulang aplikasi.")
-		return
-	}
-	model := *payload.Model
-	path := os.Getenv("ALGENTRA_ENV_FILE")
-	if path == "" {
-		path = ".env.local"
-	}
-	if _, err := os.Stat(path); err != nil {
-		writeError(w, http.StatusConflict, "Model Gemini hanya dapat diubah bila file .env.local tersedia")
-		return
-	}
-	if err := setEnvFileValue(path, "GEMINI_MODEL", model); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "Model Gemini tidak dapat disimpan")
-		return
-	}
-	if err := os.Setenv("GEMINI_MODEL", model); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "Model Gemini tidak dapat diterapkan")
-		return
-	}
-	resultModel := api.currentGeminiModel()
-	writeJSON(w, http.StatusOK, map[string]any{"gemini_configured": api.geminiAPIKey != "", "gemini_model": resultModel})
-}
-
-func (api settingsAPI) currentGeminiModel() string {
-	if current := strings.TrimSpace(os.Getenv("GEMINI_MODEL")); current != "" {
-		return current
-	}
-	return api.geminiModel
-}
-
-func setEnvFileValue(path, key, value string) error {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	lines := strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
-	updated := false
-	for index, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		name, _, found := strings.Cut(trimmed, "=")
-		if found && strings.TrimSpace(strings.TrimPrefix(name, "export ")) == key {
-			lines[index] = key + `="` + strings.ReplaceAll(value, `"`, `\"`) + `"`
-			updated = true
-			break
-		}
-	}
-	if !updated {
-		lines = append(lines, key+`="`+strings.ReplaceAll(value, `"`, `\"`)+`"`)
-	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	name := temporary.Name()
-	defer os.Remove(name)
-	if _, err := temporary.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
+	gemini := api.integration.snapshot()
+	writeJSON(w, http.StatusOK, map[string]any{"gemini_configured": gemini.APIKey != "", "gemini_model": gemini.Model})
 }

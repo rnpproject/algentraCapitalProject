@@ -24,6 +24,7 @@ var revisions = []migration{
 	{"0002_rls_and_token_redaction", "internal/database/migrations/0002_rls_and_token_redaction.sql"},
 	{"0003_midtrans_qris", "internal/database/migrations/0003_midtrans_qris.sql"},
 	{"0004_account_daily_profit", "internal/database/migrations/0004_account_daily_profit.sql"},
+	{"0005_equity_candle_indexes", "internal/database/migrations/0005_equity_candle_indexes.sql"},
 }
 
 func main() {

@@ -529,7 +529,7 @@ export interface paths {
         };
         /**
          * Realtime Stream
-         * @description Stream dashboard snapshots to browsers through the Vercel BFF.
+         * @description Stream dashboard snapshots to browsers through the same-origin Next.js proxy and Cloudflare Tunnel.
          */
         get: operations["realtime_stream_api_realtime_stream_get"];
         put?: never;
@@ -685,7 +685,7 @@ export interface paths {
         };
         /**
          * Realtime Stream
-         * @description Stream dashboard snapshots to browsers through the Vercel BFF.
+         * @description Stream dashboard snapshots to browsers through the same-origin Next.js proxy and Cloudflare Tunnel.
          */
         get: operations["realtime_stream_v1_dashboard_realtime_stream_get"];
         put?: never;

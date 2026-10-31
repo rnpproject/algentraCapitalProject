@@ -568,6 +568,15 @@ func (api clientMT5API) performance(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if api.performanceCache == nil {
+		api.performanceCache = newResponseCache()
+	}
+	api.performanceCache.serve("client-performance:"+strconv.FormatInt(owner, 10), 15*time.Second, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		api.writePerformanceSnapshot(w, r, ctx, owner)
+	}), w, r)
+}
+
+func (api clientMT5API) writePerformanceSnapshot(w http.ResponseWriter, r *http.Request, ctx context.Context, owner int64) {
 	rows, err := api.pool.Query(ctx, `SELECT id FROM mt5_accounts WHERE owner_id=$1 ORDER BY id`, owner)
 	if err != nil {
 		writeError(w, 503, "Performa akun tidak tersedia")
@@ -603,12 +612,6 @@ type perfState struct {
 	observed, lastSeen        sql.NullTime
 	active                    bool
 	open                      map[string]bool
-}
-type perfDeal struct {
-	account, position, entry, symbol, action     string
-	timeMS                                       int64
-	time                                         time.Time
-	volume, price, profit, commission, swap, fee float64
 }
 
 func (api clientMT5API) performancePayload(ctx context.Context, ids []int64) (map[string]any, error) {
@@ -673,25 +676,31 @@ func (api clientMT5API) performancePayload(ctx context.Context, ids []int64) (ma
 		return nil, err
 	}
 	stateRows.Close()
-	dealRows, err := api.pool.Query(ctx, `SELECT account_id,position_id,entry,deal_time_msc,deal_time,symbol,action,volume,price,profit,commission,swap,fee FROM mt5_history_deals WHERE account_id=ANY($1) ORDER BY deal_time_msc ASC,id ASC`, ids)
+	dealRows, err := api.pool.Query(ctx, `
+		SELECT account_id, position_id, SUM(profit+commission+swap+fee),
+		       MAX(deal_time) FILTER (WHERE entry IN ('OUT','OUT_BY','INOUT'))
+		FROM mt5_history_deals
+		WHERE account_id=ANY($1)
+		GROUP BY account_id,position_id
+		HAVING COUNT(*) FILTER (WHERE entry IN ('OUT','OUT_BY','INOUT')) > 0
+	`, ids)
 	if err != nil {
 		return nil, err
 	}
-	positions := map[string][]perfDeal{}
-	positionOrder := make([]string, 0)
+	type closedPosition struct {
+		accountID int64
+		position  string
+		net       float64
+		closedAt  time.Time
+	}
+	positions := make([]closedPosition, 0)
 	for dealRows.Next() {
-		var d perfDeal
-		var accountID int64
-		if err = dealRows.Scan(&accountID, &d.position, &d.entry, &d.timeMS, &d.time, &d.symbol, &d.action, &d.volume, &d.price, &d.profit, &d.commission, &d.swap, &d.fee); err != nil {
+		var position closedPosition
+		if err = dealRows.Scan(&position.accountID, &position.position, &position.net, &position.closedAt); err != nil {
 			dealRows.Close()
 			return nil, err
 		}
-		d.account = strconv.FormatInt(accountID, 10)
-		key := d.account + "\x00" + d.position
-		if _, exists := positions[key]; !exists {
-			positionOrder = append(positionOrder, key)
-		}
-		positions[key] = append(positions[key], d)
+		positions = append(positions, position)
 	}
 	if err = dealRows.Err(); err != nil {
 		dealRows.Close()
@@ -707,32 +716,12 @@ func (api clientMT5API) performancePayload(ctx context.Context, ids []int64) (ma
 		daily                    map[string]daily
 	}
 	aggs := map[string]*aggregate{}
-	for _, positionKey := range positionOrder {
-		ds := positions[positionKey]
-		if len(ds) == 0 {
+	for _, position := range positions {
+		st := states[strconv.FormatInt(position.accountID, 10)]
+		if st == nil || st.open[position.position] {
 			continue
 		}
-		st := states[ds[0].account]
-		if st == nil || st.open[ds[0].position] {
-			continue
-		}
-		var closedAt *time.Time
-		var latestClosingMS int64
-		net := 0.0
-		for _, d := range ds {
-			net += d.profit + d.commission + d.swap + d.fee
-			if d.entry == "OUT" || d.entry == "OUT_BY" || d.entry == "INOUT" {
-				if closedAt == nil || d.timeMS > latestClosingMS {
-					stamp := d.time
-					closedAt = &stamp
-					latestClosingMS = d.timeMS
-				}
-			}
-		}
-		if closedAt == nil {
-			continue
-		}
-		stamp := closedAt.In(wib)
+		stamp := position.closedAt.In(wib)
 		key := st.mode + "\x00" + st.currency
 		a := aggs[key]
 		if a == nil {
@@ -740,17 +729,17 @@ func (api clientMT5API) performancePayload(ctx context.Context, ids []int64) (ma
 			aggs[key] = a
 		}
 		a.closed++
-		a.pnl += net
-		if net > 0 {
+		a.pnl += position.net
+		if position.net > 0 {
 			a.wins++
-		} else if net < 0 {
+		} else if position.net < 0 {
 			a.losses++
 		} else {
 			a.be++
 		}
 		day := stamp.Format("2006-01-02")
 		d := a.daily[day]
-		d.pnl += net
+		d.pnl += position.net
 		a.daily[day] = d
 		if a.last == nil || stamp.After(*a.last) {
 			v := stamp

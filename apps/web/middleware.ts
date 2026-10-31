@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
  *  - hasil probe di-cache singkat per instance;
  *  - fail-open: timeout / error jaringan TIDAK dianggap down. Halaman tetap dirender dan
  *    panggilan API sendiri yang melaporkan error. Pemeliharaan hanya tampil bila Core API
- *    benar-benar menjawab dengan status 5xx (mis. 502/503/530 dari tunnel/proxy).
+ *    benar-benar menjawab dengan status 5xx dari Core API/proxy.
  */
 
 const API_UNAVAILABLE_MESSAGE = "Layanan sedang dalam pemeliharaan. Coba lagi beberapa saat lagi.";
@@ -103,14 +103,8 @@ async function probe(): Promise<Health> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {
-    const origin = process.env.CORE_API_ORIGIN ?? "http://127.0.0.1:8000";
+    const origin = "http://127.0.0.1:8000";
     const headers = new Headers({ accept: "application/json" });
-    const accessId = process.env.CF_ACCESS_CLIENT_ID;
-    const accessSecret = process.env.CF_ACCESS_CLIENT_SECRET;
-    if (accessId && accessSecret) {
-      headers.set("cf-access-client-id", accessId);
-      headers.set("cf-access-client-secret", accessSecret);
-    }
     const response = await fetch(new URL("/health", origin), {
       method: "GET",
       headers,
@@ -126,8 +120,7 @@ async function probe(): Promise<Health> {
         expires: Date.now() + DOWN_TTL_MS,
       };
     }
-    // 2xx/3xx/4xx = Core API menjawab. 4xx (mis. Cloudflare Access / rute /health dibatasi)
-    // bukan alasan menutup situs; proxy /api/core melaporkan masalah auth sendiri.
+    // 2xx/3xx/4xx means the Core API answered; the proxy reports auth errors.
     return { down: false, status: response.status, detail: "", expires: Date.now() + UP_TTL_MS };
   } catch (error) {
     // Timeout / error jaringan: ambigu -> fail-open.

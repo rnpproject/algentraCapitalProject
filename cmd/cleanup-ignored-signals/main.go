@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/rnpproject/algentra-backend/internal/config"
 	_ "modernc.org/sqlite"
 )
 
@@ -133,6 +134,11 @@ func openDatabase(ctx context.Context) (*sql.DB, error) {
 			}
 			if projectRef == "" {
 				return nil, errors.New("SUPABASE_DEV_PROJECT_REF wajib diisi untuk koneksi development PostgreSQL")
+			}
+		} else if projectRef == "" {
+			projectRef = config.SupabaseProjectRefFromURL(u.String())
+			if projectRef == "" {
+				return nil, errors.New("DATABASE_URL tidak mengidentifikasi project Supabase production")
 			}
 		}
 		identity := strings.ToLower(u.Hostname() + " " + u.User.Username())

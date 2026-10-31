@@ -160,6 +160,10 @@ export function DashboardPanel() {
   const [allowUpdates, setAllowUpdates] = useState(false);
   const [killSwitch, setKillSwitch] = useState(false);
   const [geminiModel, setGeminiModel] = useState("");
+  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [eaApiKey, setEaApiKey] = useState("");
+  const [copierWorkerApiKey, setCopierWorkerApiKey] = useState("");
+  const [eaKeyMessage, setEaKeyMessage] = useState("");
   const [chartReady, setChartReady] = useState(false);
   const tradePageRef = useRef(0);
   const groupChartRef = useRef<{ destroy: () => void } | null>(null);
@@ -235,6 +239,8 @@ export function DashboardPanel() {
     setKillSwitch((data.kill_switch as boolean | undefined) ?? false);
     const model = data.gemini_model;
     setGeminiModel(typeof model === "string" ? model : "");
+    setEaApiKey(typeof data.ea_api_key === "string" ? data.ea_api_key : "");
+    setCopierWorkerApiKey(typeof data.copier_worker_api_key === "string" ? data.copier_worker_api_key : "");
   }
 
   // Satu endpoint yang gagal tidak lagi menjatuhkan seluruh dashboard:
@@ -327,9 +333,9 @@ export function DashboardPanel() {
     const detailTimer = setInterval(() => {
       if (document.hidden) return;
       refreshDetails();
-    }, 6000);
+    }, 30000);
 
-    // Watchdog SSE: bila tidak ada event >15 dtk (mis. ditahan proxy/tunnel), jangan diam saja:
+    // Watchdog SSE: bila tidak ada event >15 dtk, jangan diam saja:
     // beri tanda dan ambil stats+sinyal lewat REST setiap 5 dtk sampai SSE pulih.
     let watchdogBusy = false;
     const watchdog = setInterval(() => {
@@ -546,16 +552,37 @@ export function DashboardPanel() {
     event.preventDefault();
     setGeminiMessage("");
     try {
+      const payload: { model: string; api_key?: string } = { model: geminiModel.trim() };
+      if (geminiApiKey.trim()) payload.api_key = geminiApiKey.trim();
       const result = await apiRequest<{ gemini_model?: string; gemini_configured?: boolean }>(
         "settings/gemini-config",
-        { method: "PUT", body: JSON.stringify({ model: geminiModel.trim() }) }
+        { method: "PUT", body: JSON.stringify(payload) }
       );
+      setGeminiApiKey("");
       setGeminiMessage(
         `Tersimpan. Model: ${result.gemini_model ?? EMPTY}; API key ${result.gemini_configured ? "terpasang" : "belum ada"}.`
       );
       await loadStatsAndSignals();
     } catch (reason) {
       setGeminiMessage(`Gagal: ${reason instanceof Error ? reason.message : "unknown"}`);
+    }
+  }
+
+  async function copyEaApiKey() {
+    try {
+      await navigator.clipboard.writeText(eaApiKey);
+      setEaKeyMessage("EA API key disalin.");
+    } catch {
+      setEaKeyMessage("Clipboard tidak tersedia. Salin key secara manual.");
+    }
+  }
+
+  async function copyCopierWorkerApiKey() {
+    try {
+      await navigator.clipboard.writeText(copierWorkerApiKey);
+      setEaKeyMessage("Worker API key disalin.");
+    } catch {
+      setEaKeyMessage("Clipboard tidak tersedia. Salin key secara manual.");
     }
   }
 
@@ -1230,23 +1257,35 @@ export function DashboardPanel() {
           <h2>Settings</h2>
           <p className="section-help">
             Memengaruhi validasi sinyal dan guard backend. Trading berjalan live; gunakan kill switch untuk
-            menjeda distribusi sinyal. API key Gemini dan Telegram dikelola lewat environment layanan.
+            menjeda distribusi sinyal. Key Gemini disimpan lokal di server dan diterapkan tanpa restart.
           </p>
           <form id="gemini-form" className="settings-block" onSubmit={(event) => void submitGemini(event)}>
             <h3>Parser Gemini</h3>
             <div className="settings-row">
               <label>
+                API key Gemini
+                <small className="field-help">Kosongkan untuk mempertahankan key tersimpan. Key tidak dikirim kembali ke browser.</small>
+                <input
+                  id="gemini-api-key-input"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder={geminiConfigured ? "Key sudah tersimpan; isi untuk mengganti" : "Tempel API key Gemini"}
+                  value={geminiApiKey}
+                  onChange={(event) => setGeminiApiKey(event.target.value)}
+                />
+              </label>
+              <label>
                 Model
                 <small className="field-help">ID model yang menangani klasifikasi dan ekstraksi signal.</small>
                 <input
                   id="gemini-model-input"
-                  placeholder="gemini-3.8-flash"
+                  placeholder="gemini-3.5-flash-lite"
                   value={geminiModel}
                   onChange={(event) => setGeminiModel(event.target.value)}
                 />
               </label>
               <div className="settings-action">
-                <button type="submit">Simpan model</button>
+                <button type="submit">Simpan Gemini</button>
               </div>
             </div>
             {geminiMessage && (
@@ -1255,6 +1294,35 @@ export function DashboardPanel() {
               </p>
             )}
           </form>
+          <div className="settings-block">
+            <h3>EA API key</h3>
+            <p className="field-help">Installer one-click sudah memasukkan key ini ke preset TelegramSignalEA pada terminal master. Salin key jika memasang EA di terminal atau host lain.</p>
+            <div className="toolbar">
+              <a className="workspace-tag ea-download-button" href="/api/core/downloads/TelegramSignalEA.ex5">
+                Unduh TelegramSignalEA siap pasang (.ex5)
+              </a>
+              <a className="workspace-tag ea-download-button" href="/api/core/downloads/TelegramSignalEA.mq5">
+                Unduh source (.mq5)
+              </a>
+            </div>
+            <div className="settings-row">
+              <code className="status" style={{ overflowWrap: "anywhere" }}>{eaApiKey || "Key belum dibuat"}</code>
+              <button type="button" disabled={!eaApiKey} onClick={() => void copyEaApiKey()}>
+                Salin key EA
+              </button>
+            </div>
+            {eaKeyMessage && <p className="status" role="status">{eaKeyMessage}</p>}
+          </div>
+          <div className="settings-block">
+            <h3>Managed copier worker API key</h3>
+            <p className="field-help">Key ini dibuat otomatis. Installer copier menggunakannya untuk mengautentikasi worker managed pada backend.</p>
+            <div className="settings-row">
+              <code className="status" style={{ overflowWrap: "anywhere" }}>{copierWorkerApiKey || "Key belum dibuat"}</code>
+              <button type="button" disabled={!copierWorkerApiKey} onClick={() => void copyCopierWorkerApiKey()}>
+                Salin key worker
+              </button>
+            </div>
+          </div>
           <form id="settings-form" className="settings-block" onSubmit={(event) => void submitSettings(event)}>
             <h3>Aturan sinyal</h3>
             <div className="settings-grid">

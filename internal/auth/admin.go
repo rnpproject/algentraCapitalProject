@@ -22,6 +22,12 @@ func EnsureAdmin(ctx context.Context, pool *pgxpool.Pool, username, password str
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("baca akun admin: %w", err)
 	}
+	if password == "" {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("password bootstrap admin wajib diisi untuk membuat akun admin pertama")
+		}
+		return nil
+	}
 	if err == nil && VerifyAdminPassword(password, existing) {
 		return nil
 	}

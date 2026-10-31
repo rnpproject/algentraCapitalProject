@@ -1,5 +1,5 @@
 /**
- * Klien API browser -> BFF (/api/core/*).
+ * Klien browser mengakses Core API lewat same-origin route /api/core/*.
  *
  * Perbaikan dibanding versi lama:
  *  - timeout per request (sebelumnya bisa menggantung selamanya -> UI "loading" terus);

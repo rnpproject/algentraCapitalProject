@@ -5,8 +5,8 @@ Panduan ini untuk lingkungan lokal/development saja. Gunakan project Supabase de
 ## Menyiapkan backend lokal
 
 1. Gunakan Go 1.25 atau lebih baru.
-2. Salin `.env.example` menjadi `.env.local`. Ganti `APP_SECRET_KEY` dengan nilai acak minimal 32 karakter dan `ADMIN_PASSWORD` dengan password minimal 12 karakter. Isi `EA_API_KEY` bila menguji EA.
-3. Isi `DATABASE_URL` dengan role runtime `algentra_api`, `MIGRATION_DATABASE_URL` dengan role `algentra_migrator`, dan `SUPABASE_DEV_PROJECT_REF` dengan project ref yang sama. Ambil detail koneksi dari Supabase **Dashboard → Connect**; URL project `https://<project-ref>.supabase.co` bukan connection string PostgreSQL. Kedua URL harus menuju database development yang sama dan mewajibkan TLS (`sslmode=require`). Jangan masukkan Supabase `anon` atau `service_role` key.
+2. Salin `.env.example` menjadi `.env.local`. Isi `DATABASE_URL` dan project ref Supabase development. Application secret dibuat otomatis dan disimpan di `backend/data/integration-secrets`; pada database baru password admin acak dicetak sekali oleh backend. `COOKIE_SECURE` otomatis nonaktif pada development lokal. EA API key dan copier worker key dibuat otomatis dan tersedia pada Dashboard > Settings.
+3. Isi `DATABASE_URL` dengan role runtime `algentra_api`. Project ref development dibaca dari hostname Supabase atau username session pooler; isi `SUPABASE_DEV_PROJECT_REF` hanya jika ref tidak dapat dideteksi otomatis. `MIGRATION_DATABASE_URL` dengan role `algentra_migrator` hanya diperlukan untuk menjalankan migrasi development. Ambil detail koneksi dari Supabase **Dashboard → Connect**; URL project `https://<project-ref>.supabase.co` bukan connection string PostgreSQL. Pakai direct connection atau session pooler pada port 5432 untuk kedua URL, dan wajibkan TLS (`sslmode=require`). Transaction pooler port 6543 tidak didukung oleh runtime persisten ini. Jangan masukkan Supabase `anon` atau `service_role` key.
 4. Bootstrap project Supabase development satu kali sesuai bagian berikut.
 5. Jalankan migrasi eksplisit lalu backend:
 
@@ -16,8 +16,8 @@ Panduan ini untuk lingkungan lokal/development saja. Gunakan project Supabase de
    ```
 
    Runner migrasi Go memeriksa project ref dan marker database, lalu memakai role migrator untuk menerapkan revision schema. Backend Go bind ke `127.0.0.1:8000` dan tidak menjalankan migrasi otomatis saat start.
-7. Buka web development di `http://localhost:3000` (lihat "Web lokal dan tunnel uji" di bawah; admin di `/admin/login`). Client mendaftar di `/register`, memverifikasi email, lalu masuk melalui `/login`. Backend di `127.0.0.1:8000` hanya melayani API JSON, bukan halaman web. Untuk pembayaran development, gunakan detail uji dan isi `PAYMENT_MANUAL_INSTRUCTIONS`; jangan memasukkan rekening production ke lingkungan uji.
-8. Integrasi opsional: `GEMINI_API_KEY` untuk parser, key berbeda `GEMINI_CS_API_KEY` untuk chat, `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` untuk koneksi Telegram, serta `TELEGRAM_BOT_TOKEN`/`TELEGRAM_ADMIN_CHAT_ID` untuk review pembayaran. Isi pasangan Telegram bot bersama-sama; bot pembayaran memakai long polling dan hanya boleh dijalankan oleh satu backend.
+7. Buka web development di `http://localhost:3000` (lihat "Web lokal" di bawah; admin di `/admin/login`). Client mendaftar di `/register`, memverifikasi email, lalu masuk melalui `/login`. Backend di `127.0.0.1:8000` hanya melayani API JSON, bukan halaman web. Untuk pembayaran development, gunakan detail uji dan isi `PAYMENT_MANUAL_INSTRUCTIONS`; jangan memasukkan rekening production ke lingkungan uji.
+8. Integrasi opsional: `GEMINI_API_KEY` dan `GEMINI_MODEL` dipakai parser dan chat customer-service. Pada production, key/model juga dapat disimpan melalui dashboard admin tanpa restart; perubahan disimpan lokal di `backend/data/integration-secrets/gemini.json` pada folder ber-ACL khusus. `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` mengaktifkan koneksi Telegram, sedangkan `TELEGRAM_BOT_TOKEN`/`TELEGRAM_ADMIN_CHAT_ID` mengaktifkan review pembayaran. Isi pasangan Telegram bot bersama-sama; bot pembayaran memakai long polling dan hanya boleh dijalankan oleh satu backend.
 
 ## Bootstrap Supabase development
 
@@ -65,9 +65,9 @@ go run ./cmd/import-sqlite-to-supabase
 
 Secara default sumbernya `backend/data/app.db`; path lain dapat diberikan sebagai argumen. Importer Go memeriksa marker project dan revision schema dengan role migrator, lalu memakai role runtime untuk membaca dan menulis data. Importer membandingkan checksum tabel, melewati data yang sama, menambah baris yang belum ada, dan membatalkan transaksi bila hasilnya tidak cocok. Kolom legacy token ciphertext sengaja tidak diimpor.
 
-## Web lokal dan tunnel uji
+## Web lokal
 
-Web berada di `apps/web` dan disajikan sepenuhnya oleh Next.js — backend hanya melayani API JSON. Salin `apps/web/.env.example`, set `CORE_API_ORIGIN=http://127.0.0.1:8000`, dan gunakan `BFF_HMAC_SECRET` yang sama dengan backend development. Jalankan:
+Web berada di `apps/web`; Next.js development rewrites `/api/core/*` langsung ke Core API lokal. Tidak perlu origin API atau secret proxy terpisah. Jalankan backend development lebih dulu, lalu:
 
 ```powershell
 Set-Location apps\web
@@ -75,13 +75,7 @@ npm ci
 npm run dev
 ```
 
-Untuk akses HTTPS sementara, jalankan backend development lalu dari terminal lain:
-
-```powershell
-cloudflared tunnel --url http://127.0.0.1:8000
-```
-
-Quick Tunnel memakai URL sementara dan hanya untuk development. Jangan buka port backend ke internet.
+Portal development berjalan di `http://localhost:3000` dan memakai rewrite lokal ke Core API `http://127.0.0.1:8000`. Untuk preview eksternal sementara, gunakan Cloudflare Quick Tunnel; jangan membuka port API 8000 ke internet.
 
 ## Validasi backend Go
 

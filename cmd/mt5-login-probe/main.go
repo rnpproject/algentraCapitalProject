@@ -23,6 +23,7 @@ type request struct {
 type result struct {
 	Valid   bool   `json:"valid"`
 	Message string `json:"message"`
+	Symbol  string `json:"symbol"`
 }
 
 type status struct {
@@ -31,6 +32,7 @@ type status struct {
 	Message string `json:"message"`
 	Login   int64  `json:"login"`
 	Server  string `json:"server"`
+	Symbol  string `json:"symbol"`
 }
 
 func main() {
@@ -109,6 +111,7 @@ func run(out *result) error {
 			return false, err
 		}
 		out.Valid, out.Message = report.Valid, report.Message
+		out.Symbol = report.Symbol
 		if report.Login != req.Login || !strings.EqualFold(report.Server, req.Server) {
 			out.Valid = false
 			out.Message = "Terminal terhubung ke akun atau server yang berbeda dari data yang dimasukkan."

@@ -1,18 +1,27 @@
 param(
-    [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path,
+    [string]$ProjectRoot = $(if (Test-Path -LiteralPath "C:\Algentra\app" -PathType Container) { "C:\Algentra\app" } else { (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path }),
     [string]$ApiBaseUrl,
-    [string]$TerminalTemplateDir,
+    [string]$TerminalTemplateDir = $(if (Test-Path -LiteralPath "C:\Algentra\mt5\follower-template" -PathType Container) { "C:\Algentra\mt5\follower-template" } else { "" }),
     [string]$MasterTerminalPath,
-    [string]$SignalDirectory
+    [string]$SignalDirectory = "C:\Algentra\signals",
+    [string]$RuntimeDirectory
 )
 
 $resolvedRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
+$originalWorkerKey = [Environment]::GetEnvironmentVariable("COPIER_WORKER_API_KEY", "Process")
+$originalPublisherToken = [Environment]::GetEnvironmentVariable("MASTER_PUBLISHER_TOKEN", "Process")
 $workerBinary = Join-Path $resolvedRoot "algentra-copier-worker.exe"
 $configDirectory = Join-Path $resolvedRoot "apps\copier-worker\config"
 $workerConfigPath = Join-Path $configDirectory "managed-worker.json"
 $workerExamplePath = Join-Path $configDirectory "managed-worker.example.json"
 $masterConfigPath = Join-Path $configDirectory "master.json"
 $masterExamplePath = Join-Path $configDirectory "master.example.json"
+if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
+    $portalUrlFile = Join-Path $resolvedRoot "portal-url.txt"
+    if (Test-Path -LiteralPath $portalUrlFile -PathType Leaf) {
+        $ApiBaseUrl = (Get-Content -LiteralPath $portalUrlFile -Raw).Trim()
+    }
+}
 if (-not (Test-Path -LiteralPath $workerBinary -PathType Leaf)) {
 	throw "Binary managed worker Go tidak ditemukan: $workerBinary. Build dengan go build -o algentra-copier-worker.exe ./cmd/copier-worker terlebih dahulu."
 }
@@ -59,6 +68,12 @@ if (-not [string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
 if (-not [string]::IsNullOrWhiteSpace($TerminalTemplateDir)) {
     $workerConfig.terminal_template_dir = $TerminalTemplateDir
 }
+if (-not [string]::IsNullOrWhiteSpace($RuntimeDirectory)) {
+    if (-not [IO.Path]::IsPathRooted($RuntimeDirectory)) {
+        throw "RuntimeDirectory harus berupa path absolut: $RuntimeDirectory"
+    }
+    $workerConfig.runtime_dir = [IO.Path]::GetFullPath($RuntimeDirectory)
+}
 $workerConfig.execution_mode = "mt5_ea"
 $workerConfig.feed_address = "127.0.0.1:8766"
 $masterConfigValue = [string]$workerConfig.master_config
@@ -84,13 +99,13 @@ if (-not [string]::IsNullOrWhiteSpace($MasterTerminalPath)) {
 if (-not [string]::IsNullOrWhiteSpace($SignalDirectory)) {
     $masterConfig.folder_sinyal = $SignalDirectory
 }
-if ([string]::IsNullOrWhiteSpace([string]$masterConfig.folder_sinyal) -or
-    [string]$masterConfig.folder_sinyal -eq "C:/Algentra/signals") {
-    $masterConfig.folder_sinyal = "apps/copier-worker/config/runtime/signals"
+if ([string]::IsNullOrWhiteSpace([string]$masterConfig.folder_sinyal)) {
+    $masterConfig.folder_sinyal = "C:/Algentra/signals"
 }
 if ($createdConfigs -or
     -not [string]::IsNullOrWhiteSpace($ApiBaseUrl) -or
-    -not [string]::IsNullOrWhiteSpace($TerminalTemplateDir)) {
+    -not [string]::IsNullOrWhiteSpace($TerminalTemplateDir) -or
+    -not [string]::IsNullOrWhiteSpace($RuntimeDirectory)) {
     $encoding = New-Object System.Text.UTF8Encoding($false)
     $json = ConvertTo-Json -InputObject $workerConfig -Depth 12
     [IO.File]::WriteAllText((Join-Path $configDirectory "managed-worker.json"), $json, $encoding)
@@ -116,11 +131,11 @@ if (-not (Test-Path -LiteralPath $terminalTemplateDir -PathType Container) -or
 }
 $probeExpertSource = Join-Path $resolvedRoot "mt5\experts\Algentra\MT5LoginProbe.ex5"
 if (-not (Test-Path -LiteralPath $probeExpertSource -PathType Leaf)) {
-    throw "Expert login probe belum dikompilasi: $probeExpertSource. Compile mt5\experts\Algentra\MT5LoginProbe.mq5 dengan MetaEditor."
+    throw "Expert login probe tidak ditemukan: $probeExpertSource. Jalankan installer one-click agar EA dikompilasi otomatis."
 }
 $followerExpertSource = Join-Path $resolvedRoot "mt5\experts\MT5FollowerCopyEA.ex5"
 if (-not (Test-Path -LiteralPath $followerExpertSource -PathType Leaf)) {
-    throw "EA follower belum dikompilasi: $followerExpertSource. Compile mt5\experts\MT5FollowerCopyEA.mq5 dengan MetaEditor."
+    throw "EA follower tidak ditemukan: $followerExpertSource. Jalankan installer one-click agar EA dikompilasi otomatis."
 }
 $followerExpertTarget = Join-Path $terminalTemplateDir "MQL5\Experts\MT5FollowerCopyEA.ex5"
 New-Item -ItemType Directory -Path (Split-Path -Parent $followerExpertTarget) -Force | Out-Null
@@ -136,6 +151,7 @@ if (-not [IO.Path]::IsPathRooted($signalPath)) {
     $signalPath = Join-Path $resolvedRoot $signalPath
 }
 New-Item -ItemType Directory -Path $signalPath -Force | Out-Null
+$workerAccount = if ($env:USERDOMAIN) { "$env:USERDOMAIN\$env:USERNAME" } else { $env:USERNAME }
 $runtimeDirectory = [string]$workerConfig.runtime_dir
 if (-not [IO.Path]::IsPathRooted($runtimeDirectory)) {
     $runtimeDirectory = Join-Path $configDirectory $runtimeDirectory
@@ -143,12 +159,50 @@ if (-not [IO.Path]::IsPathRooted($runtimeDirectory)) {
 foreach ($directory in @("terminals", "states", "reports", "heartbeats", "logs")) {
     New-Item -ItemType Directory -Path (Join-Path $runtimeDirectory $directory) -Force | Out-Null
 }
+$workerTempDirectory = Join-Path $runtimeDirectory "temp"
+New-Item -ItemType Directory -Path $workerTempDirectory -Force | Out-Null
+foreach ($directoryPath in @($runtimeDirectory, $signalPath)) {
+    & icacls.exe $directoryPath /grant "${workerAccount}:(OI)(CI)M" /T /C | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Gagal memberi hak tulis managed worker pada $directoryPath." }
+}
+foreach ($readOnlyPath in @($configDirectory, $PSScriptRoot, $terminalTemplateDir)) {
+    if (Test-Path -LiteralPath $readOnlyPath -PathType Container) {
+        & icacls.exe $readOnlyPath /grant "${workerAccount}:(OI)(CI)RX" /T /C | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Gagal memberi hak baca managed worker pada $readOnlyPath." }
+    }
+}
+foreach ($accessPath in @($workerBinary, $PSScriptRoot, $terminalTemplateDir, $signalPath, $runtimeDirectory)) {
+    $directoryPath = if (Test-Path -LiteralPath $accessPath -PathType Container) { $accessPath } else { Split-Path -Parent $accessPath }
+    while ($directoryPath) {
+        & icacls.exe $directoryPath /grant "${workerAccount}:(X)" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Gagal memberi hak traversal managed worker pada $directoryPath." }
+        $parentPath = Split-Path -Parent $directoryPath
+        if (-not $parentPath -or $parentPath -eq $directoryPath) { break }
+        $directoryPath = $parentPath
+    }
+}
+& icacls.exe $workerTempDirectory /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' "${workerAccount}:(OI)(CI)M" /T /C | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Gagal mengunci ACL folder sementara worker: $workerTempDirectory" }
+foreach ($workerFile in @($workerBinary, $masterPublisher)) {
+    & icacls.exe $workerFile /grant "${workerAccount}:RX" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Gagal memberi hak eksekusi managed worker pada $workerFile." }
+}
 $workerKey = [Environment]::GetEnvironmentVariable("COPIER_WORKER_API_KEY", "User")
 if (-not $workerKey) {
     $workerKey = [Environment]::GetEnvironmentVariable("COPIER_WORKER_API_KEY", "Machine")
 }
 if (-not $workerKey) {
-    $secureKey = Read-Host "Masukkan COPIER_WORKER_API_KEY yang sama dengan backend (disimpan pada environment User Windows)" -AsSecureString
+    $workerSecretPath = Join-Path $resolvedRoot "backend\data\integration-secrets\copier-worker.json"
+    if (Test-Path -LiteralPath $workerSecretPath -PathType Leaf) {
+        try { $workerKey = [string](Get-Content -LiteralPath $workerSecretPath -Raw | ConvertFrom-Json -ErrorAction Stop).api_key }
+        catch { throw "Key worker otomatis tidak dapat dibaca dari $workerSecretPath." }
+        if ($workerKey) {
+            $env:COPIER_WORKER_API_KEY = $workerKey
+        }
+    }
+}
+if (-not $workerKey) {
+    $secureKey = Read-Host "Masukkan COPIER_WORKER_API_KEY yang sama dengan backend (disimpan pada file rahasia worker lokal)" -AsSecureString
     $keyPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
     try {
         $workerKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($keyPointer)
@@ -158,7 +212,6 @@ if (-not $workerKey) {
     if (-not $workerKey) {
         throw "COPIER_WORKER_API_KEY tidak boleh kosong."
     }
-    [Environment]::SetEnvironmentVariable("COPIER_WORKER_API_KEY", $workerKey, "User")
     $env:COPIER_WORKER_API_KEY = $workerKey
 }
 if ($workerKey.Length -lt 32) {
@@ -169,17 +222,11 @@ if (-not $publisherToken) {
     $publisherToken = [Environment]::GetEnvironmentVariable("MASTER_PUBLISHER_TOKEN", "Machine")
 }
 if (-not $publisherToken) {
-    $secureToken = Read-Host "Buat MASTER_PUBLISHER_TOKEN rahasia untuk bridge lokal copier (disimpan pada environment User Windows)" -AsSecureString
-    $tokenPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
-    try {
-        $publisherToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($tokenPointer)
-    } finally {
-        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($tokenPointer)
-    }
-    if (-not $publisherToken) {
-        throw "MASTER_PUBLISHER_TOKEN tidak boleh kosong."
-    }
-    [Environment]::SetEnvironmentVariable("MASTER_PUBLISHER_TOKEN", $publisherToken, "User")
+    $randomBytes = [byte[]]::new(32)
+    $randomGenerator = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $randomGenerator.GetBytes($randomBytes) } finally { $randomGenerator.Dispose() }
+    $publisherToken = [BitConverter]::ToString($randomBytes).Replace('-', '').ToLowerInvariant()
+    [Array]::Clear($randomBytes, 0, $randomBytes.Length)
     $env:MASTER_PUBLISHER_TOKEN = $publisherToken
 }
 if ($publisherToken.Length -lt 32) {
@@ -205,14 +252,57 @@ try {
 if ($workerHealth.status -ne "ok") {
     throw "Backend tidak mengonfirmasi key worker."
 }
+$secretDirectory = Join-Path $runtimeDirectory "secrets"
+New-Item -ItemType Directory -Path $secretDirectory -Force | Out-Null
+& icacls.exe $secretDirectory /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' "${workerAccount}:(OI)(CI)R" | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Gagal mengunci ACL rahasia managed worker: $secretDirectory" }
+$secretEncoding = [System.Text.UTF8Encoding]::new($false)
+$workerSecret = [pscustomobject]@{ api_key = $workerKey }
+$publisherSecret = [pscustomobject]@{ publisher_token = $publisherToken }
+[IO.File]::WriteAllText((Join-Path $secretDirectory "worker.json"), ($workerSecret | ConvertTo-Json -Compress), $secretEncoding)
+[IO.File]::WriteAllText((Join-Path $secretDirectory "publisher.json"), ($publisherSecret | ConvertTo-Json -Compress), $secretEncoding)
+foreach ($secretFile in @((Join-Path $secretDirectory "worker.json"), (Join-Path $secretDirectory "publisher.json"))) {
+    & icacls.exe $secretFile /inheritance:r /grant:r 'SYSTEM:F' 'BUILTIN\Administrators:F' "${workerAccount}:R" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Gagal mengunci ACL file rahasia managed worker: $secretFile" }
+}
+$workerSecret = $null
+$publisherSecret = $null
+$secretEncoding = $null
+foreach ($legacySecret in @(
+    @{ Name = "COPIER_WORKER_API_KEY" },
+    @{ Name = "MASTER_PUBLISHER_TOKEN" }
+)) {
+    foreach ($scope in @("User", "Machine")) {
+        $storedSecret = [Environment]::GetEnvironmentVariable($legacySecret.Name, $scope)
+        if ($storedSecret) {
+            [Environment]::SetEnvironmentVariable($legacySecret.Name, $null, $scope)
+        }
+    }
+    $storedSecret = $null
+}
+if ($null -eq $originalWorkerKey) { Remove-Item Env:COPIER_WORKER_API_KEY -ErrorAction SilentlyContinue } else { $env:COPIER_WORKER_API_KEY = $originalWorkerKey }
+if ($null -eq $originalPublisherToken) { Remove-Item Env:MASTER_PUBLISHER_TOKEN -ErrorAction SilentlyContinue } else { $env:MASTER_PUBLISHER_TOKEN = $originalPublisherToken }
+$originalWorkerKey = $null
+$originalPublisherToken = $null
+$workerKey = $null
+$publisherToken = $null
 $taskName = "Algentra Managed Copy Worker"
 $taskLogDirectory = Join-Path $runtimeDirectory "logs"
 New-Item -ItemType Directory -Path $taskLogDirectory -Force | Out-Null
 $taskErrorLog = Join-Path $taskLogDirectory "managed_worker-task-error.log"
-$launcherCommand = "`$env:APP_ENV='production'; `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'User'); if (-not `$workerKey) { `$workerKey = [Environment]::GetEnvironmentVariable('COPIER_WORKER_API_KEY', 'Machine') }; if (-not `$workerKey) { throw 'COPIER_WORKER_API_KEY tidak tersedia pada environment akun worker.' }; `$env:COPIER_WORKER_API_KEY = `$workerKey; Remove-Variable workerKey; `$publisherToken = [Environment]::GetEnvironmentVariable('MASTER_PUBLISHER_TOKEN', 'User'); if (-not `$publisherToken) { `$publisherToken = [Environment]::GetEnvironmentVariable('MASTER_PUBLISHER_TOKEN', 'Machine') }; if (-not `$publisherToken) { throw 'MASTER_PUBLISHER_TOKEN tidak tersedia pada environment akun worker.' }; `$env:MASTER_PUBLISHER_TOKEN = `$publisherToken; Remove-Variable publisherToken; Set-Location -LiteralPath '$resolvedRoot'; & '$workerBinary' '$workerConfigPath' 2> '$taskErrorLog'"
+$taskRunner = Join-Path $PSScriptRoot "run_managed_worker_task.ps1"
+$runnerArguments = @(
+    "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$taskRunner`"",
+    "-ProjectRoot `"$resolvedRoot`"",
+    "-WorkerBinaryPath `"$workerBinary`"",
+    "-ConfigPath `"$workerConfigPath`"",
+    "-TempDirectory `"$workerTempDirectory`"",
+    "-SecretDirectory `"$secretDirectory`"",
+    "-ErrorLogPath `"$taskErrorLog`""
+) -join " "
 $action = New-ScheduledTaskAction `
     -Execute "powershell.exe" `
-    -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"$launcherCommand`"" `
+    -Argument $runnerArguments `
     -WorkingDirectory $resolvedRoot
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
 $principal = New-ScheduledTaskPrincipal `

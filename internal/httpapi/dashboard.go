@@ -24,15 +24,18 @@ import (
 type dashboardAPI struct {
 	pool            *pgxpool.Pool
 	state           *snapshot.Store
+	statsCache      *responseCache
+	eventCache      *responseCache
 	telegram        *telegramclient.Manager
-	geminiKey       string
-	geminiModel     string
+	gemini          *geminiRuntime
 	websocketOrigin []string
 }
 
 func (api dashboardAPI) register(mux *http.ServeMux) {
+	api.statsCache = newResponseCache()
+	api.eventCache = newResponseCache()
 	for _, prefix := range []string{"/api", "/v1/dashboard"} {
-		mux.HandleFunc("GET "+prefix+"/stats", api.stats)
+		mux.HandleFunc("GET "+prefix+"/stats", api.cachedStats)
 		mux.HandleFunc("GET "+prefix+"/realtime/stream", api.realtimeStream)
 		mux.HandleFunc("GET "+prefix+"/mt5-live", api.mt5Live)
 		mux.HandleFunc("GET "+prefix+"/signals", api.signals)
@@ -59,7 +62,8 @@ func (api dashboardAPI) realtimeStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
-	ticker := time.NewTicker(2 * time.Second)
+	// All open dashboard tabs share this database snapshot for 10 seconds.
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
 		if err := api.writeDashboardEvent(w, r); err != nil {
@@ -75,21 +79,37 @@ func (api dashboardAPI) realtimeStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api dashboardAPI) writeDashboardEvent(w http.ResponseWriter, r *http.Request) error {
+	if !api.authorized(w, r) {
+		return errors.New("dashboard unauthorized")
+	}
+	recorder := httptest.NewRecorder()
+	api.eventCache.serve("dashboard-event", 10*time.Second, http.HandlerFunc(api.writeDashboardPayload), recorder, r)
+	if recorder.Code != http.StatusOK {
+		return errors.New("dashboard snapshot failed")
+	}
+	_, err := w.Write(recorder.Body.Bytes())
+	return err
+}
+
+func (api dashboardAPI) writeDashboardPayload(w http.ResponseWriter, r *http.Request) {
 	statsResponse := httptest.NewRecorder()
 	api.stats(statsResponse, r)
 	if statsResponse.Code != http.StatusOK {
-		return fmt.Errorf("dashboard stats failed")
+		writeError(w, http.StatusServiceUnavailable, "Statistik dashboard tidak tersedia")
+		return
 	}
 	var stats map[string]any
 	if err := json.Unmarshal(statsResponse.Body.Bytes(), &stats); err != nil {
-		return err
+		writeError(w, http.StatusServiceUnavailable, "Statistik dashboard tidak tersedia")
+		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	var latest sql.NullInt64
 	err := api.pool.QueryRow(ctx, `SELECT id FROM signals ORDER BY created_at DESC,id DESC LIMIT 1`).Scan(&latest)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return err
+		writeError(w, http.StatusServiceUnavailable, "Signal terbaru tidak tersedia")
+		return
 	}
 	var latestID any
 	if latest.Valid {
@@ -98,10 +118,17 @@ func (api dashboardAPI) writeDashboardEvent(w http.ResponseWriter, r *http.Reque
 	payload := map[string]any{"stats": stats, "latest_signal_id": latestID, "server_time": wibTime(time.Now().UTC())}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		writeError(w, http.StatusInternalServerError, "Snapshot dashboard tidak dapat dibuat")
+		return
 	}
-	_, err = fmt.Fprintf(w, "event: dashboard\ndata: %s\n\n", encoded)
-	return err
+	fmt.Fprintf(w, "event: dashboard\ndata: %s\n\n", encoded)
+}
+
+func (api dashboardAPI) cachedStats(w http.ResponseWriter, r *http.Request) {
+	if !api.authorized(w, r) {
+		return
+	}
+	api.statsCache.serve("dashboard-stats", 5*time.Second, http.HandlerFunc(api.stats), w, r)
 }
 
 func (api dashboardAPI) stats(w http.ResponseWriter, r *http.Request) {
@@ -182,8 +209,9 @@ func (api dashboardAPI) stats(w http.ResponseWriter, r *http.Request) {
 	payload["telegram_connected"] = telegramStatus["connected"]
 	payload["telegram_status"] = telegramStatus["state"]
 	payload["telegram_account"] = telegramStatus["account_name"]
-	payload["gemini_configured"] = api.geminiKey != ""
-	payload["gemini_model"] = api.geminiModel
+	gemini := api.gemini.snapshot()
+	payload["gemini_configured"] = gemini.APIKey != ""
+	payload["gemini_model"] = gemini.Model
 	writeJSON(w, 200, payload)
 }
 

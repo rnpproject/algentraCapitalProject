@@ -1183,7 +1183,7 @@
           "dashboard"
         ],
         "summary": "Realtime Stream",
-        "description": "Stream dashboard snapshots to browsers through the Vercel BFF.",
+        "description": "Stream dashboard snapshots to browsers through the same-origin Next.js proxy and Cloudflare Tunnel.",
         "operationId": "realtime_stream_api_realtime_stream_get",
         "responses": {
           "200": {
@@ -1793,7 +1793,7 @@
           "dashboard"
         ],
         "summary": "Realtime Stream",
-        "description": "Stream dashboard snapshots to browsers through the Vercel BFF.",
+        "description": "Stream dashboard snapshots to browsers through the same-origin Next.js proxy and Cloudflare Tunnel.",
         "operationId": "realtime_stream_v1_dashboard_realtime_stream_get",
         "responses": {
           "200": {

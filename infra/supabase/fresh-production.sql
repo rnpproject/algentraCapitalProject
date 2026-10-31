@@ -175,6 +175,8 @@ CREATE TABLE mt5_master_equity_candles (
 );
 
 CREATE INDEX ix_mt5_master_equity_candle_account_minute ON mt5_master_equity_candles (account_key, minute_start);
+CREATE INDEX ix_mt5_master_equity_candle_minute ON mt5_master_equity_candles (minute_start);
+CREATE INDEX ix_mt5_master_equity_candle_observed_at ON mt5_master_equity_candles (observed_at DESC);
 
 CREATE TABLE mt5_master_equity_minute_samples (
     id SERIAL NOT NULL, 
@@ -494,6 +496,6 @@ SELECT (closed_at AT TIME ZONE 'Asia/Jakarta')::date,sum(profit),CURRENT_TIMESTA
 FROM trades WHERE closed_at IS NOT NULL
 GROUP BY (closed_at AT TIME ZONE 'Asia/Jakarta')::date;
 
-COMMENT ON SCHEMA app IS 'algentra:revision:0004_account_daily_profit';
+COMMENT ON SCHEMA app IS 'algentra:revision:0005_equity_candle_indexes';
 RESET search_path;
 COMMIT;

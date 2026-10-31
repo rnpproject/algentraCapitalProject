@@ -1276,9 +1276,15 @@ export function AccountPanel() {
         <div className="toolbar">
           <a
             className="workspace-tag ea-download-button"
+            href="/api/core/downloads/MT5FollowerCopyEA.ex5"
+          >
+            Unduh EA siap pasang (.ex5)
+          </a>
+          <a
+            className="workspace-tag ea-download-button"
             href="/api/core/downloads/MT5FollowerCopyEA.mq5"
           >
-            Unduh source EA Copy Trading
+            Unduh source EA (.mq5)
           </a>
         </div>
         <ol>
@@ -1288,9 +1294,9 @@ export function AccountPanel() {
           </li>
           <li>
             Di MT5, pilih File → Open Data Folder, buka folder{" "}
-            <code>MQL5/Experts</code>, lalu salin file <code>.mq5</code> yang
-            diunduh ke sana. Buka file itu di MetaEditor dan tekan F7; hasil compile <code>.ex5</code> siap digunakan
-            di folder tersebut.
+            <code>MQL5/Experts</code>, lalu salin file <code>.ex5</code> yang
+            sudah dikompilasi ke sana. Jika memakai source <code>.mq5</code>,
+            buka di MetaEditor dan tekan F7.
           </li>
           <li>
             Di MT5, pilih Tools → Options → Expert Advisors, aktifkan Allow WebRequest for listed URL, lalu tambahkan{" "}

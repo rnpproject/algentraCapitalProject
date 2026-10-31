@@ -38,12 +38,12 @@ func BFFSignature(secret string, next http.Handler) http.Handler {
 			return
 		}
 		if r.ContentLength > maxSignedBodyBytes {
-			writeError(w, http.StatusRequestEntityTooLarge, "Ukuran permintaan melewati batas")
+			writeBFFError(w, http.StatusRequestEntityTooLarge, "Ukuran permintaan melewati batas")
 			return
 		}
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSignedBodyBytes))
 		if err != nil {
-			writeError(w, http.StatusRequestEntityTooLarge, "Ukuran permintaan melewati batas")
+			writeBFFError(w, http.StatusRequestEntityTooLarge, "Ukuran permintaan melewati batas")
 			return
 		}
 		timestamp := r.Header.Get("X-Algentra-Timestamp")
@@ -51,12 +51,12 @@ func BFFSignature(secret string, next http.Handler) http.Handler {
 		supplied := r.Header.Get("X-Algentra-Signature")
 		seconds, err := strconv.ParseInt(timestamp, 10, 64)
 		if err != nil || len(nonce) < 16 || len(nonce) > 128 {
-			writeError(w, http.StatusUnauthorized, "Tanda tangan BFF tidak valid")
+			writeBFFError(w, http.StatusUnauthorized, "Tanda tangan BFF tidak valid")
 			return
 		}
 		now := time.Now()
 		if delta := now.Sub(time.Unix(seconds, 0)); delta < -maxClockSkew || delta > maxClockSkew {
-			writeError(w, http.StatusUnauthorized, "Tanda tangan BFF kedaluwarsa atau nonce tidak valid")
+			writeBFFError(w, http.StatusUnauthorized, "Tanda tangan BFF kedaluwarsa atau nonce tidak valid")
 			return
 		}
 		target := r.URL.Path
@@ -69,11 +69,11 @@ func BFFSignature(secret string, next http.Handler) http.Handler {
 		_, _ = mac.Write([]byte(payload))
 		expected := hex.EncodeToString(mac.Sum(nil))
 		if !hmac.Equal([]byte(supplied), []byte(expected)) {
-			writeError(w, http.StatusUnauthorized, "Tanda tangan BFF tidak valid")
+			writeBFFError(w, http.StatusUnauthorized, "Tanda tangan BFF tidak valid")
 			return
 		}
 		if !g.claimNonce(nonce, now) {
-			writeError(w, http.StatusConflict, "Permintaan BFF terdeteksi berulang")
+			writeBFFError(w, http.StatusConflict, "Permintaan BFF terdeteksi berulang")
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
@@ -96,7 +96,7 @@ func (g *signatureGuard) claimNonce(nonce string, now time.Time) bool {
 	return true
 }
 
-func writeError(w http.ResponseWriter, status int, detail string) {
+func writeBFFError(w http.ResponseWriter, status int, detail string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"detail": detail})

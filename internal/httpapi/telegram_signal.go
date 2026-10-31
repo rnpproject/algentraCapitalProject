@@ -110,7 +110,7 @@ func (api telegramAPI) processTelegramMessage(parent context.Context, message te
 	if parserPromptInjection.MatchString(promptContent) {
 		return nil
 	}
-	if !parserStructuredEnough(raw, classification) && api.parser.key == "" {
+	if !parserStructuredEnough(raw, classification) && api.parser.currentGemini().APIKey == "" {
 		if !api.parser.regexFallback {
 			return api.saveTelegramSignal(ctx, message, stamp, displayName, raw, nil, nil, nil, contentHash, "FAILED", "ERROR", "Gemini", "Parser gagal: GEMINI_API_KEY belum dikonfigurasi")
 		}

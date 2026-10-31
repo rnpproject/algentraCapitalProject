@@ -22,10 +22,6 @@ $ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
 $EnvironmentFile = (Resolve-Path -LiteralPath $EnvironmentFile).Path
 $backend = Join-Path $ProjectRoot 'algentra-backend.exe'
 if (-not (Test-Path -LiteralPath $backend -PathType Leaf)) { throw "Binary Go Core API tidak ditemukan: $backend. Build sebelum memasang service." }
-if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
-    throw "Service $ServiceName sudah terdaftar. Installer tidak menimpa service yang ada; verifikasi dan hapus instalasi parsial sebelum mencoba lagi."
-}
-
 $serviceAccount = "NT SERVICE\$ServiceName"
 $powershellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
 $startScript = Join-Path $PSScriptRoot 'start-core-api.ps1'
@@ -41,8 +37,21 @@ function Set-NssmSetting([string[]] $Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "NSSM gagal mengatur '$($Arguments[1])'." }
 }
 
-& $NssmPath install $ServiceName $powershellExe
-if ($LASTEXITCODE -ne 0) { throw 'NSSM gagal mendaftarkan service.' }
+$service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($service) {
+    $nativeService = Get-CimInstance -ClassName Win32_Service -Filter "Name='$ServiceName'" -ErrorAction Stop
+    $expectedCommand = '(?i)nssm\.exe.*//RS//' + [regex]::Escape($ServiceName) + '(?:\s|$)'
+    if (-not $nativeService -or $nativeService.PathName -notmatch $expectedCommand) {
+        throw "Service $ServiceName sudah ada tetapi bukan service NSSM Algentra; installer tidak akan mengubahnya."
+    }
+    if ($service.Status -ne 'Stopped') {
+        Stop-Service -Name $ServiceName -Force
+        $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+    }
+} else {
+    & $NssmPath install $ServiceName $powershellExe
+    if ($LASTEXITCODE -ne 0) { throw 'NSSM gagal mendaftarkan service.' }
+}
 Set-NssmSetting @($ServiceName, 'Start', 'SERVICE_DISABLED')
 Set-NssmSetting @($ServiceName, 'AppDirectory', $ProjectRoot)
 $parameters = @(
@@ -65,7 +74,8 @@ Set-NssmSetting @($ServiceName, 'ObjectName', $serviceAccount, '')
 if ($LASTEXITCODE -ne 0) { throw 'Gagal mengaktifkan service SID.' }
 $readOnlyPaths = @(
 	$backend,
-    $PSScriptRoot
+    $PSScriptRoot,
+    (Split-Path -Parent $NssmPath)
 )
 foreach ($path in $readOnlyPaths) {
     if (Test-Path -LiteralPath $path) {

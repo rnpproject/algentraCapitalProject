@@ -50,10 +50,10 @@ func (api eaSignalAPI) result(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(ctx)
 	var tradeID int64
 	var signalID sql.NullInt64
-	var closedAt sql.NullTime
+	var existingClosedAt sql.NullTime
 	var priorResult sql.NullString
 	err = tx.QueryRow(ctx, `SELECT id, signal_id, closed_at, result FROM trades WHERE ticket=$1 FOR UPDATE`, *ticket).
-		Scan(&tradeID, &signalID, &closedAt, &priorResult)
+		Scan(&tradeID, &signalID, &existingClosedAt, &priorResult)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "Trade/ticket tidak ditemukan")
 		return
@@ -62,7 +62,7 @@ func (api eaSignalAPI) result(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "Trade tidak tersedia")
 		return
 	}
-	if closedAt.Valid {
+	if existingClosedAt.Valid {
 		writeJSON(w, http.StatusOK, map[string]any{"status": nullableString(priorResult), "duplicate": true})
 		return
 	}

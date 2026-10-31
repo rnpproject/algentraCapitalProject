@@ -18,7 +18,6 @@ import (
 type ServerConfig struct {
 	Environment             string
 	ProjectRef              string
-	BFFSecret               string
 	ServiceName             string
 	CookieSecure            bool
 	WebSocketOrigins        []string
@@ -31,12 +30,7 @@ type ServerConfig struct {
 	PublicMusicURL          string
 	GeminiAPIKey            string
 	GeminiModel             string
-	GeminiTimeoutSeconds    float64
-	GeminiRetryAttempts     int
-	EnableRegexFallback     bool
-	GeminiCSAPIKey          string
-	GeminiCSModel           string
-	GeminiCSTimeoutSeconds  int
+	GeminiSettingsPath      string
 	ProjectRoot             string
 	PaymentBankName         string
 	PaymentNumber           string
@@ -89,6 +83,7 @@ type ServicePricing struct {
 
 func NewHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
 	mux := http.NewServeMux()
+	gemini := newGeminiRuntime(cfg.GeminiAPIKey, cfg.GeminiModel, cfg.GeminiSettingsPath)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			writeMethodNotAllowed(w, http.MethodGet)
@@ -139,12 +134,12 @@ func NewHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
 		go payments.bot.run(botCtx)
 	}
 	payments.register(mux)
-	settingsAPI{pool: pool, appEnv: cfg.Environment, geminiAPIKey: cfg.GeminiAPIKey, geminiModel: cfg.GeminiModel}.register(mux)
-	dashboardAPI{pool: pool, state: eaSnapshot.state, telegram: cfg.TelegramManager, geminiKey: cfg.GeminiAPIKey, geminiModel: cfg.GeminiModel, websocketOrigin: cfg.WebSocketOrigins}.register(mux)
-	parser := parserAPI{pool: pool, key: cfg.GeminiAPIKey, model: cfg.GeminiModel, timeout: time.Duration(cfg.GeminiTimeoutSeconds * float64(time.Second)), retries: cfg.GeminiRetryAttempts, regexFallback: cfg.EnableRegexFallback}
+	settingsAPI{pool: pool, integration: gemini, eaAPIKey: cfg.EAAPIKey, copierWorkerAPIKey: cfg.WorkerAPIKey}.register(mux)
+	dashboardAPI{pool: pool, state: eaSnapshot.state, telegram: cfg.TelegramManager, gemini: gemini, websocketOrigin: cfg.WebSocketOrigins}.register(mux)
+	parser := parserAPI{pool: pool, key: cfg.GeminiAPIKey, model: cfg.GeminiModel, integration: gemini, timeout: 25 * time.Second, retries: 3}
 	telegramAPI{pool: pool, manager: cfg.TelegramManager, parser: parser}.register(mux)
 	parser.register(mux)
-	customerServiceAPI{pool: pool, ctx: cfg.BotContext, secret: cfg.AppSecretKey, cookieSecure: cfg.CookieSecure, key: cfg.GeminiCSAPIKey, model: cfg.GeminiCSModel, timeout: time.Duration(cfg.GeminiCSTimeoutSeconds) * time.Second}.register(mux)
+	customerServiceAPI{pool: pool, ctx: cfg.BotContext, secret: cfg.AppSecretKey, cookieSecure: cfg.CookieSecure, integration: gemini, timeout: 60 * time.Second}.register(mux)
 	copierRoutes := copierAPI{pool: pool, apiKey: cfg.WorkerAPIKey, secret: cfg.AppSecretKey, master: eaSnapshot.state, updates: mt5Updates}
 	copierRoutes.register(mux, "/api/mt5")
 	copierRoutes.register(mux, "/v1/mt5")
@@ -152,7 +147,6 @@ func NewHandler(pool *pgxpool.Pool, cfg ServerConfig) http.Handler {
 		writeJSON(w, http.StatusNotFound, map[string]string{"detail": "Not Found"})
 	})
 	handler := SessionMiddleware(pool, cfg.AppSecretKey, cfg.CookieSecure, mux)
-	handler = BFFSignature(cfg.BFFSecret, handler)
 	handler = RateLimit(handler)
 	return SecurityHeaders(handler, cfg.CookieSecure)
 }
@@ -319,6 +313,12 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any, maximum int6
 		return errors.New("request contains extra JSON data")
 	}
 	return nil
+}
+
+func writeError(w http.ResponseWriter, status int, detail string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"detail": detail})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

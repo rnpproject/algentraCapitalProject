@@ -23,7 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const expectedRevision = "0004_account_daily_profit"
+const expectedRevision = "0005_equity_candle_indexes"
 
 type column struct {
 	name     string

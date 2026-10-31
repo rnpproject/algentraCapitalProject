@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const ExpectedSchemaRevision = "0004_account_daily_profit"
+const ExpectedSchemaRevision = "0005_equity_candle_indexes"
 
 func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	parsedURL, err := url.Parse(databaseURL)
@@ -30,8 +30,8 @@ func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
-	config.MaxConns = 10
-	config.MinConns = 1
+	config.MaxConns = 5
+	config.MinConns = 0
 	config.MaxConnIdleTime = 5 * time.Minute
 	config.MaxConnLifetime = 30 * time.Minute
 	config.HealthCheckPeriod = 30 * time.Second

@@ -8,5 +8,6 @@ __pycache__/
 logs/
 state/
 runtime/
+config/runtime/
 heartbeat_*.txt
 *.log

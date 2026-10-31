@@ -22,14 +22,24 @@ import (
 const registrationLaunch = "2027-01-16T02:00:00Z" // 09:00 Asia/Jakarta
 
 func registerPublicRoutes(mux *http.ServeMux, pool *pgxpool.Pool, contact ContactConfig, musicURL string, state *snapshot.Store, websocketOrigins []string) {
+	performanceCache := newResponseCache()
+	registrationCache := newResponseCache()
+	performance := cachedPublicPerformance(publicPerformance(pool, state), performanceCache)
+	registration := cachedRegistrationStatus(registrationStatus(pool), registrationCache)
 	for _, prefix := range []string{"/api/public", "/v1/public"} {
-		mux.HandleFunc("GET "+prefix+"/registration-status", registrationStatus(pool))
+		mux.HandleFunc("GET "+prefix+"/registration-status", registration)
 		mux.HandleFunc("GET "+prefix+"/contact", publicContact(contact))
-		mux.HandleFunc("GET "+prefix+"/performance", publicPerformance(pool, state))
-		mux.HandleFunc("GET "+prefix+"/performance/stream", publicPerformanceStream(pool, state))
+		mux.HandleFunc("GET "+prefix+"/performance", performance)
+		mux.HandleFunc("GET "+prefix+"/performance/stream", publicPerformanceStream(performance))
 	}
-	mux.HandleFunc("GET /ws/public/performance", publicPerformanceWebSocket(pool, state, websocketOrigins))
+	mux.HandleFunc("GET /ws/public/performance", publicPerformanceWebSocket(performance, websocketOrigins))
 	mux.HandleFunc("GET /musik.mp3", publicMusic(musicURL))
+}
+
+func cachedRegistrationStatus(next http.HandlerFunc, cache *responseCache) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cache.serve("public-registration-status", 5*time.Second, next, w, r)
+	}
 }
 
 func publicMusic(musicURL string) http.HandlerFunc {
@@ -54,7 +64,27 @@ func publicMusic(musicURL string) http.HandlerFunc {
 	}
 }
 
-func publicPerformanceStream(pool *pgxpool.Pool, state *snapshot.Store) http.HandlerFunc {
+func cachedPublicPerformance(next http.HandlerFunc, cache *responseCache) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		includeCurve := true
+		if raw, exists := r.URL.Query()["include_equity_curve"]; exists {
+			if len(raw) != 1 {
+				next(w, r)
+				return
+			}
+			parsed, err := strconv.ParseBool(raw[0])
+			if err != nil {
+				next(w, r)
+				return
+			}
+			includeCurve = parsed
+		}
+		key := "public-performance:curve=" + strconv.FormatBool(includeCurve)
+		cache.serve(key, 10*time.Second, next, w, r)
+	}
+}
+
+func publicPerformanceStream(performance http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "public, no-store, no-transform")
@@ -66,7 +96,9 @@ func publicPerformanceStream(pool *pgxpool.Pool, state *snapshot.Store) http.Han
 		}
 		lastPayload := []byte(nil)
 		lastHistoryAt := time.Time{}
-		ticker := time.NewTicker(2 * time.Second)
+		// Public snapshots are presentation data, not a trading execution feed.
+		// Refresh every 10s to avoid repeating database reads for every visitor.
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for {
 			includeHistory := lastPayload == nil || time.Since(lastHistoryAt) >= time.Minute
@@ -75,7 +107,7 @@ func publicPerformanceStream(pool *pgxpool.Pool, state *snapshot.Store) http.Han
 			query.Set("include_equity_curve", strconv.FormatBool(includeHistory))
 			request.URL.RawQuery = query.Encode()
 			recorder := httptest.NewRecorder()
-			publicPerformance(pool, state).ServeHTTP(recorder, request)
+			performance.ServeHTTP(recorder, request)
 			body := bytes.TrimSpace(recorder.Body.Bytes())
 			if recorder.Code == http.StatusOK {
 				if includeHistory {

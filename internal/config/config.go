@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -23,7 +22,6 @@ type Settings struct {
 	DatabaseURL             string
 	SupabaseDevRef          string
 	SupabaseProjectRef      string
-	BFFHMACSecret           string
 	EAAPIKey                string
 	CopierWorkerAPIKey      string
 	HTTPAddr                string
@@ -43,12 +41,6 @@ type Settings struct {
 	PublicMusicURL          string
 	GeminiAPIKey            string
 	GeminiModel             string
-	GeminiTimeoutSeconds    float64
-	GeminiRetryAttempts     int
-	EnableRegexFallback     bool
-	GeminiCSAPIKey          string
-	GeminiCSModel           string
-	GeminiCSTimeoutSeconds  int
 	PaymentBankName         string
 	PaymentNumber           string
 	PaymentName             string
@@ -91,6 +83,7 @@ func Load() (Settings, error) {
 			return Settings{}, fmt.Errorf("baca file environment: %w", err)
 		}
 	}
+	geminiAPIKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
 	s := Settings{
 		AppEnv:                  strings.ToLower(valueOr(os.Getenv("APP_ENV"), "development")),
 		AppSecretKey:            os.Getenv("APP_SECRET_KEY"),
@@ -99,7 +92,6 @@ func Load() (Settings, error) {
 		DatabaseURL:             strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		SupabaseDevRef:          strings.TrimSpace(os.Getenv("SUPABASE_DEV_PROJECT_REF")),
 		SupabaseProjectRef:      strings.TrimSpace(os.Getenv("SUPABASE_PROJECT_REF")),
-		BFFHMACSecret:           os.Getenv("BFF_HMAC_SECRET"),
 		EAAPIKey:                os.Getenv("EA_API_KEY"),
 		CopierWorkerAPIKey:      os.Getenv("COPIER_WORKER_API_KEY"),
 		HTTPAddr:                valueOr(os.Getenv("HTTP_ADDR"), "127.0.0.1:8000"),
@@ -116,13 +108,8 @@ func Load() (Settings, error) {
 		ContactX:                strings.TrimSpace(os.Getenv("CONTACT_X")),
 		ContactYouTube:          strings.TrimSpace(os.Getenv("CONTACT_YOUTUBE")),
 		PublicMusicURL:          strings.TrimSpace(os.Getenv("PUBLIC_MUSIC_URL")),
-		GeminiAPIKey:            strings.TrimSpace(os.Getenv("GEMINI_API_KEY")),
-		GeminiModel:             valueOr(os.Getenv("GEMINI_MODEL"), "gemini-3.8-flash"),
-		GeminiTimeoutSeconds:    25,
-		GeminiRetryAttempts:     3,
-		GeminiCSAPIKey:          strings.TrimSpace(os.Getenv("GEMINI_CS_API_KEY")),
-		GeminiCSModel:           valueOr(os.Getenv("GEMINI_CS_MODEL"), "gemini-3.8-flash"),
-		GeminiCSTimeoutSeconds:  60,
+		GeminiAPIKey:            geminiAPIKey,
+		GeminiModel:             valueOr(os.Getenv("GEMINI_MODEL"), "gemini-3.5-flash-lite"),
 		PaymentBankName:         strings.TrimSpace(os.Getenv("PAYMENT_BANK_NAME")),
 		PaymentNumber:           strings.TrimSpace(os.Getenv("PAYMENT_NUMBER")),
 		PaymentName:             strings.TrimSpace(os.Getenv("PAYMENT_NAME")),
@@ -137,19 +124,7 @@ func Load() (Settings, error) {
 		EmailFrom:               strings.TrimSpace(os.Getenv("EMAIL_FROM")),
 	}
 	var err error
-	s.GeminiTimeoutSeconds, err = floatEnv("GEMINI_TIMEOUT_SECONDS", 25)
-	if err != nil || math.IsNaN(s.GeminiTimeoutSeconds) || math.IsInf(s.GeminiTimeoutSeconds, 0) || s.GeminiTimeoutSeconds <= 0 || s.GeminiTimeoutSeconds > 120 {
-		return Settings{}, errors.New("GEMINI_TIMEOUT_SECONDS harus lebih besar dari 0 dan maksimal 120")
-	}
-	s.GeminiRetryAttempts, err = intEnv("GEMINI_RETRY_ATTEMPTS", 3)
-	if err != nil || s.GeminiRetryAttempts < 1 || s.GeminiRetryAttempts > 6 {
-		return Settings{}, errors.New("GEMINI_RETRY_ATTEMPTS harus antara 1 dan 6")
-	}
-	s.EnableRegexFallback, err = boolEnv("ENABLE_REGEX_FALLBACK", false)
-	if err != nil {
-		return Settings{}, err
-	}
-	s.CookieSecure, err = boolEnv("COOKIE_SECURE", true)
+	s.CookieSecure, err = boolEnv("COOKIE_SECURE", s.AppEnv == "production")
 	if err != nil {
 		return Settings{}, err
 	}
@@ -170,10 +145,6 @@ func Load() (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	s.GeminiCSTimeoutSeconds, err = intEnv("GEMINI_CS_TIMEOUT_SECONDS", 60)
-	if err != nil || s.GeminiCSTimeoutSeconds < 15 || s.GeminiCSTimeoutSeconds > 180 {
-		return Settings{}, errors.New("GEMINI_CS_TIMEOUT_SECONDS harus antara 15 dan 180")
-	}
 	configuredEmail := 0
 	for _, value := range []string{s.EmailSMTPHost, s.EmailSMTPUsername, s.EmailSMTPPassword, s.EmailFrom} {
 		if value != "" {
@@ -189,6 +160,12 @@ func Load() (Settings, error) {
 		return Settings{}, err
 	}
 	s.TelegramAPIHash = strings.TrimSpace(os.Getenv("TELEGRAM_API_HASH"))
+	if s.SupabaseProjectRef == "" {
+		s.SupabaseProjectRef = supabaseProjectRefFromURL(s.DatabaseURL)
+	}
+	if s.SupabaseDevRef == "" {
+		s.SupabaseDevRef = supabaseProjectRefFromURL(s.DatabaseURL)
+	}
 	if err := s.Validate(); err != nil {
 		return Settings{}, err
 	}
@@ -196,6 +173,33 @@ func Load() (Settings, error) {
 		return Settings{}, err
 	}
 	return s, nil
+}
+
+func supabaseProjectRefFromURL(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	if strings.HasPrefix(host, "db.") && strings.HasSuffix(host, ".supabase.co") {
+		ref := strings.TrimSuffix(strings.TrimPrefix(host, "db."), ".supabase.co")
+		if ref != "" && !strings.Contains(ref, ".") {
+			return ref
+		}
+	}
+	if u.User != nil {
+		parts := strings.Split(u.User.Username(), ".")
+		if len(parts) == 2 && strings.EqualFold(parts[0], "algentra_api") && parts[1] != "" {
+			return strings.ToLower(parts[1])
+		}
+	}
+	return ""
+}
+
+// SupabaseProjectRefFromURL returns the project identity encoded in a direct
+// Supabase hostname or a role-qualified session-pooler username.
+func SupabaseProjectRefFromURL(raw string) string {
+	return supabaseProjectRefFromURL(raw)
 }
 
 func loadServicePricing(s *Settings) error {
@@ -255,15 +259,6 @@ func intEnv(key string, fallback int) (int, error) {
 	return int(v), nil
 }
 
-func floatEnv(key string, fallback float64) (float64, error) {
-	value, ok := os.LookupEnv(key)
-	if !ok || strings.TrimSpace(value) == "" {
-		return fallback, nil
-	}
-	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-	return parsed, err
-}
-
 func (s Settings) Validate() error {
 	if s.AppEnv != "production" && s.AppEnv != "development" && s.AppEnv != "test" {
 		return errors.New("APP_ENV harus production, development, atau test")
@@ -271,10 +266,10 @@ func (s Settings) Validate() error {
 	if s.AppEnv == "production" && strings.ToLower(os.Getenv("APP_ENV")) != "production" {
 		return errors.New("APP_ENV=production harus disetel pada environment proses")
 	}
-	if len(s.AppSecretKey) < 32 || hasPlaceholder(s.AppSecretKey, "replace-with", "change-this", "changethis", "your-secret") {
+	if s.AppSecretKey != "" && (len(s.AppSecretKey) < 32 || hasPlaceholder(s.AppSecretKey, "replace-with", "change-this", "changethis", "your-secret")) {
 		return errors.New("APP_SECRET_KEY harus berupa secret acak minimal 32 karakter")
 	}
-	if len(s.AdminPassword) < 12 || hasPlaceholder(s.AdminPassword, "replace-with", "change-this", "changethis", "your-password") {
+	if s.AdminPassword != "" && (len(s.AdminPassword) < 12 || hasPlaceholder(s.AdminPassword, "replace-with", "change-this", "changethis", "your-password")) {
 		return errors.New("ADMIN_PASSWORD harus berupa password unik minimal 12 karakter")
 	}
 	if strings.TrimSpace(s.AdminUsername) == "" {
@@ -320,8 +315,8 @@ func (s Settings) Validate() error {
 		if !s.CookieSecure {
 			return errors.New("COOKIE_SECURE tidak boleh false di production")
 		}
-		if s.DatabaseURL == "" || s.SupabaseProjectRef == "" || len(s.BFFHMACSecret) < 32 {
-			return errors.New("DATABASE_URL, SUPABASE_PROJECT_REF, dan BFF_HMAC_SECRET wajib di production")
+		if s.DatabaseURL == "" || s.SupabaseProjectRef == "" {
+			return errors.New("DATABASE_URL harus mengidentifikasi project Supabase production")
 		}
 		if os.Getenv("MIGRATION_DATABASE_URL") != "" {
 			return errors.New("MIGRATION_DATABASE_URL tidak boleh dipasang pada service production")
@@ -331,9 +326,6 @@ func (s Settings) Validate() error {
 		if err := validateMigrationDatabaseURL(s, migrationURL); err != nil {
 			return err
 		}
-	}
-	if s.BFFHMACSecret != "" && len(s.BFFHMACSecret) < 32 {
-		return errors.New("BFF_HMAC_SECRET minimal 32 karakter")
 	}
 	if s.PublicMusicURL != "" {
 		musicURL, err := url.Parse(s.PublicMusicURL)
@@ -377,6 +369,9 @@ func validateDatabaseURL(s Settings) error {
 	password, hasPassword := u.User.Password()
 	if !hasPassword || password == "" {
 		return errors.New("DATABASE_URL harus menyertakan password role runtime")
+	}
+	if port := u.Port(); port != "" && port != "5432" {
+		return errors.New("DATABASE_URL harus memakai koneksi langsung atau session pooler Supabase pada port 5432")
 	}
 	scheme := strings.ToLower(u.Scheme)
 	if scheme != "postgres" && scheme != "postgresql" && scheme != "postgresql+psycopg" {

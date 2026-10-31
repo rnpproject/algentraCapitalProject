@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rnpproject/algentra-backend/internal/config"
 	_ "modernc.org/sqlite"
 )
 
@@ -68,11 +69,14 @@ func createBackup() error {
 		}
 		projectRef := strings.TrimSpace(os.Getenv("SUPABASE_PROJECT_REF"))
 		if projectRef == "" {
-			return errors.New("SUPABASE_PROJECT_REF wajib diisi di production untuk memeriksa target backup")
+			projectRef = config.SupabaseProjectRefFromURL(databaseURL)
+		}
+		if projectRef == "" {
+			return errors.New("DATABASE_URL tidak mengidentifikasi project Supabase production")
 		}
 		identity := strings.ToLower(runtime.Hostname() + " " + runtime.User.Username())
 		if !strings.Contains(identity, strings.ToLower(projectRef)) {
-			return errors.New("DATABASE_URL harus menunjuk project Supabase yang cocok dengan SUPABASE_PROJECT_REF")
+			return errors.New("DATABASE_URL tidak cocok dengan identitas project Supabase")
 		}
 	}
 	stamp := time.Now().UTC().Format("20060102T150405Z")

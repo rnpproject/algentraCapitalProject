@@ -7,16 +7,23 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'Load-EnvironmentFile.ps1')
 $resolvedRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
-Import-EnvironmentFile -Path $EnvironmentFile
+if ($env:MIGRATION_DATABASE_URL) {
+    throw 'Production tidak boleh menerima MIGRATION_DATABASE_URL.'
+}
 
+. (Join-Path $PSScriptRoot 'Clear-ApplicationEnvironment.ps1')
+Clear-AlgentraApplicationEnvironment
+
+. (Join-Path $PSScriptRoot 'Load-EnvironmentFile.ps1')
+Import-EnvironmentFile -Path $EnvironmentFile
 if ($env:MIGRATION_DATABASE_URL) {
     throw 'Production tidak boleh menerima MIGRATION_DATABASE_URL.'
 }
 [Environment]::SetEnvironmentVariable('MIGRATION_DATABASE_URL', $null, 'Process')
 [Environment]::SetEnvironmentVariable('SUPABASE_DEV_PROJECT_REF', $null, 'Process')
 $env:APP_ENV = 'production'
+$env:PROJECT_ROOT = $resolvedRoot
 
 $backend = Join-Path $resolvedRoot 'algentra-backend.exe'
 if (-not (Test-Path -LiteralPath $backend -PathType Leaf)) {

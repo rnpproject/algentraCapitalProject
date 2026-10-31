@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,11 +20,31 @@ import (
 )
 
 func main() {
+	projectRoot := os.Getenv("PROJECT_ROOT")
+	if projectRoot == "" {
+		projectRoot, _ = os.Getwd()
+	}
 	settings, err := config.Load()
 	if err != nil {
 		slog.Error("konfigurasi service tidak valid", "error", err)
 		os.Exit(1)
 	}
+	optionalIntegrationsPath := filepath.Join(projectRoot, "backend", "data", "integration-secrets", "optional-integrations.json")
+	if err := loadOptionalIntegrationSettings(optionalIntegrationsPath, &settings); err != nil {
+		slog.Error("konfigurasi integrasi opsional tidak valid", "error", err)
+		os.Exit(1)
+	}
+	telegramSettingsPath := filepath.Join(projectRoot, "backend", "data", "integration-secrets", "telegram.json")
+	if err := loadTelegramSettings(telegramSettingsPath, &settings); err != nil {
+		slog.Error("konfigurasi Telegram tidak valid", "error", err)
+		os.Exit(1)
+	}
+	appSecret, err := loadOrCreateAppSecret(settings.AppSecretKey, filepath.Join(projectRoot, "backend", "data", "integration-secrets", "app-secret.json"))
+	if err != nil {
+		slog.Error("application secret tidak dapat disiapkan", "error", err)
+		os.Exit(1)
+	}
+	settings.AppSecretKey = appSecret
 	if settings.DatabaseURL == "" {
 		slog.Error("DATABASE_URL wajib diisi untuk Core API Go")
 		os.Exit(1)
@@ -47,12 +68,39 @@ func main() {
 		slog.Error("database belum siap atau schema tidak sesuai", "error", err)
 		os.Exit(1)
 	}
+	var adminExists bool
+	if err := pool.QueryRow(context.Background(), `SELECT EXISTS (SELECT 1 FROM admin_users WHERE username = $1)`, settings.AdminUsername).Scan(&adminExists); err != nil {
+		slog.Error("akun admin tidak dapat diperiksa", "error", err)
+		os.Exit(1)
+	}
+	adminPassword := settings.AdminPassword
+	autoAdminPasswordPath := ""
+	if !adminExists && adminPassword == "" {
+		if settings.AppEnv != "development" {
+			slog.Error("ADMIN_PASSWORD wajib diisi untuk bootstrap admin production")
+			os.Exit(1)
+		}
+		autoAdminPasswordPath = filepath.Join(projectRoot, "backend", "data", "integration-secrets", "admin-bootstrap.json")
+		adminPassword, err = loadOrCreateAdminBootstrapPassword(autoAdminPasswordPath)
+		if err != nil {
+			slog.Error("password bootstrap admin tidak dapat disiapkan", "error", err)
+			os.Exit(1)
+		}
+	}
 	adminCtx, adminCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	err = auth.EnsureAdmin(adminCtx, pool, settings.AdminUsername, settings.AdminPassword)
+	err = auth.EnsureAdmin(adminCtx, pool, settings.AdminUsername, adminPassword)
 	adminCancel()
 	if err != nil {
 		slog.Error("akun admin tidak dapat disiapkan", "error", err)
 		os.Exit(1)
+	}
+	if !adminExists && settings.AppEnv == "development" {
+		fmt.Fprintf(os.Stderr, "Password awal admin (simpan sekarang): %s\n", adminPassword)
+	}
+	if autoAdminPasswordPath != "" {
+		if err := os.Remove(autoAdminPasswordPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("password bootstrap admin tersimpan tidak dapat dihapus setelah akun dibuat", "error", err)
+		}
 	}
 	settingsCtx, settingsCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	err = httpapi.EnsureStartupSettings(settingsCtx, pool)
@@ -71,31 +119,32 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go httpapi.CleanupExpiredConversationsPeriodically(ctx, pool)
-	projectRoot := os.Getenv("PROJECT_ROOT")
-	if projectRoot == "" {
-		projectRoot, _ = os.Getwd()
+	eaAPIKey, err := loadOrCreateEAAPIKey(settings.EAAPIKey, filepath.Join(projectRoot, "backend", "data", "integration-secrets", "ea.json"))
+	if err != nil {
+		slog.Error("EA API key tidak dapat disiapkan", "error", err)
+		os.Exit(1)
+	}
+	workerAPIKey, err := loadOrCreateCopierWorkerAPIKey(settings.CopierWorkerAPIKey, filepath.Join(projectRoot, "backend", "data", "integration-secrets", "copier-worker.json"))
+	if err != nil {
+		slog.Error("copier worker API key tidak dapat disiapkan", "error", err)
+		os.Exit(1)
 	}
 	tgManager := telegramclient.NewManager(settings.TelegramAPIID, settings.TelegramAPIHash, filepath.Join(projectRoot, "backend", "data", "telegram_user.gotd.session"))
+	geminiSettingsPath := filepath.Join(projectRoot, "backend", "data", "integration-secrets", "gemini.json")
 	handler := httpapi.NewHandler(pool, httpapi.ServerConfig{
 		Environment:             settings.AppEnv,
 		ProjectRef:              projectRef,
-		BFFSecret:               settings.BFFHMACSecret,
 		ServiceName:             "algentra-capital",
 		CookieSecure:            settings.CookieSecure,
 		WebSocketOrigins:        settings.WebSocketOrigins,
 		TelegramManager:         tgManager,
 		AppSecretKey:            settings.AppSecretKey,
-		WorkerAPIKey:            settings.CopierWorkerAPIKey,
-		EAAPIKey:                settings.EAAPIKey,
+		WorkerAPIKey:            workerAPIKey,
+		EAAPIKey:                eaAPIKey,
 		PublicMusicURL:          settings.PublicMusicURL,
 		GeminiAPIKey:            settings.GeminiAPIKey,
 		GeminiModel:             settings.GeminiModel,
-		GeminiTimeoutSeconds:    settings.GeminiTimeoutSeconds,
-		GeminiRetryAttempts:     settings.GeminiRetryAttempts,
-		EnableRegexFallback:     settings.EnableRegexFallback,
-		GeminiCSAPIKey:          settings.GeminiCSAPIKey,
-		GeminiCSModel:           settings.GeminiCSModel,
-		GeminiCSTimeoutSeconds:  settings.GeminiCSTimeoutSeconds,
+		GeminiSettingsPath:      geminiSettingsPath,
 		PaymentBankName:         settings.PaymentBankName,
 		PaymentNumber:           settings.PaymentNumber,
 		PaymentName:             settings.PaymentName,
@@ -114,7 +163,7 @@ func main() {
 		EmailSMTPPassword:       settings.EmailSMTPPassword,
 		EmailFrom:               settings.EmailFrom,
 		EmailSMTPStartTLS:       settings.EmailSMTPStartTLS,
-		ProjectRoot:             os.Getenv("PROJECT_ROOT"),
+		ProjectRoot:             projectRoot,
 		Contact: httpapi.ContactConfig{
 			PersonName:    settings.ContactPersonName,
 			WhatsApp:      settings.ContactWhatsApp,

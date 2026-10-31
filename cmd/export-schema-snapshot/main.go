@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const schemaHead = "0004_account_daily_profit"
+const schemaHead = "0005_equity_candle_indexes"
 
 type dbConfig struct{ projectRef, runtimeURL, migrationURL string }
 

@@ -1,13 +1,11 @@
 // Diagnostik koneksi Core API dari mesin Anda (butuh Node 18+).
-// Pakai:  CORE_API_ORIGIN=https://... CF_ACCESS_CLIENT_ID=... CF_ACCESS_CLIENT_SECRET=... node scripts/check-core-api.mjs
-const origin = (process.env.CORE_API_ORIGIN ?? "").replace(/\/+$/, "");
-const id = process.env.CF_ACCESS_CLIENT_ID;
-const secret = process.env.CF_ACCESS_CLIENT_SECRET;
-if (!origin || !id || !secret) {
-  console.error("Isi CORE_API_ORIGIN, CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET (pakai tanda '=', underscore, bukan 'CF-Access-Client-Id:').");
+// Pakai:  API_ORIGIN=https://... node scripts/check-core-api.mjs
+const origin = (process.env.API_ORIGIN ?? "").replace(/\/+$/, "");
+if (!origin) {
+  console.error("Isi API_ORIGIN.");
   process.exit(1);
 }
-const headers = { "cf-access-client-id": id, "cf-access-client-secret": secret, accept: "application/json" };
+const headers = { accept: "application/json" };
 const times = [];
 for (let i = 1; i <= 8; i += 1) {
   const t0 = performance.now();
@@ -24,5 +22,5 @@ for (let i = 1; i <= 8; i += 1) {
 if (times.length) {
   const sorted = [...times].sort((a, b) => a - b);
   console.log(`\nmin ${sorted[0]} ms · median ${sorted[Math.floor(sorted.length / 2)]} ms · max ${sorted.at(-1)} ms · berhasil ${times.length}/8`);
-  console.log("Catatan: median >800 ms atau ada yang gagal berarti jalur Cloudflare Tunnel/Access-lah yang lambat, bukan frontend.");
+  console.log("Catatan: median >800 ms atau ada yang gagal berarti origin API atau jalur jaringan perlu diperiksa.");
 }

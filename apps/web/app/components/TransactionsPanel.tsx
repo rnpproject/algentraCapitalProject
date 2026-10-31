@@ -185,11 +185,11 @@ function QrisPayment({ order, onRefresh }: { order: PaymentOrder; onRefresh: () 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order.id]);
 
-  // Cek langsung ke Midtrans selama QR tampil agar pembatalan/kedaluwarsa
-  // di provider segera melepas QR lokal, termasuk saat webhook tidak terkirim.
+  // Webhook Midtrans is the primary update. Keep a low-frequency fallback check
+  // in case a notification is delayed or unavailable.
   useEffect(() => {
     if (!charge) return;
-    const timer = setInterval(() => void syncStatus(true), 5000);
+    const timer = setInterval(() => void syncStatus(true), 15000);
     return () => clearInterval(timer);
   }, [charge, order.id]);
 
@@ -310,7 +310,7 @@ function TransactionsPanelInner() {
     if (requested && requested > 0) setExpandedOrderId(requested);
     const timer = setInterval(() => {
       if (!document.hidden) void loadOrders();
-    }, 7000);
+    }, 20000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,9 +14,31 @@ import (
 )
 
 type eaSnapshotAPI struct {
-	pool  *pgxpool.Pool
-	key   string
-	state *snapshot.Store
+	pool          *pgxpool.Pool
+	key           string
+	state         *snapshot.Store
+	candleCleanup *candleRetentionCleanup
+}
+
+type candleRetentionCleanup struct {
+	mu      sync.Mutex
+	lastRun time.Time
+}
+
+func (cleanup *candleRetentionCleanup) begin(now time.Time) bool {
+	cleanup.mu.Lock()
+	defer cleanup.mu.Unlock()
+	if !cleanup.lastRun.IsZero() && now.Sub(cleanup.lastRun) < time.Hour {
+		return false
+	}
+	cleanup.lastRun = now
+	return true
+}
+
+func (cleanup *candleRetentionCleanup) failed() {
+	cleanup.mu.Lock()
+	cleanup.lastRun = time.Time{}
+	cleanup.mu.Unlock()
 }
 
 type masterSnapshotRequest struct {
@@ -50,6 +73,7 @@ type heartbeatRequest struct {
 var marketSymbolPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
 
 func (api eaSnapshotAPI) register(mux *http.ServeMux) {
+	api.candleCleanup = &candleRetentionCleanup{}
 	for _, path := range []string{"/api/ea/master/snapshot", "/v1/ea/master/snapshot"} {
 		mux.HandleFunc("POST "+path, api.publishMasterSnapshot)
 	}
@@ -195,6 +219,11 @@ func (api eaSnapshotAPI) saveEquityCandle(ctx context.Context, payload masterSna
 	if err != nil {
 		return err
 	}
-	_, err = api.pool.Exec(ctx, `DELETE FROM mt5_master_equity_candles WHERE minute_start < $1`, now.Add(-45*24*time.Hour))
-	return err
+	if api.candleCleanup.begin(now) {
+		if _, err = api.pool.Exec(ctx, `DELETE FROM mt5_master_equity_candles WHERE minute_start < $1`, now.Add(-45*24*time.Hour)); err != nil {
+			api.candleCleanup.failed()
+			return err
+		}
+	}
+	return nil
 }
