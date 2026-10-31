@@ -37,12 +37,12 @@ function Set-NssmSetting([string[]] $Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "NSSM gagal mengatur '$($Arguments[1])'." }
 }
 
-function Set-NssmVirtualServiceAccount([string] $AccountName) {
-    # Windows PowerShell 5 can drop an empty native argument when splatting.
-    # NSSM requires an explicit empty password argument for passwordless accounts.
+function Set-WindowsVirtualServiceAccount([string] $AccountName) {
+    # Configure virtual accounts through SCM; NSSM's account lookup can reject NT SERVICE SIDs.
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $NssmPath
-    $startInfo.Arguments = ('set "{0}" ObjectName "{1}" ""' -f $ServiceName, $AccountName)
+    $startInfo.FileName = (Get-Command 'sc.exe' -ErrorAction Stop).Source
+    # A virtual account must be passed without a password argument (NULL to ChangeServiceConfig).
+    $startInfo.Arguments = ('config "{0}" obj= "{1}"' -f $ServiceName, $AccountName)
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
@@ -55,7 +55,7 @@ function Set-NssmVirtualServiceAccount([string] $AccountName) {
         $stderrTask = $process.StandardError.ReadToEndAsync()
         $process.WaitForExit()
         $output = @($stdoutTask.GetAwaiter().GetResult(), $stderrTask.GetAwaiter().GetResult()) -join "`n"
-        if ($process.ExitCode -ne 0) { throw "NSSM gagal mengatur akun service '$AccountName'. $output" }
+        if ($process.ExitCode -ne 0) { throw "Windows gagal mengatur akun service '$AccountName'. $output" }
     } finally {
         $process.Dispose()
     }
@@ -110,7 +110,7 @@ Set-NssmSetting @($ServiceName, 'AppStdout', (Join-Path $logDirectory 'stdout.lo
 Set-NssmSetting @($ServiceName, 'AppStderr', (Join-Path $logDirectory 'stderr.log'))
 Set-NssmSetting @($ServiceName, 'AppRotateFiles', '1')
 Set-NssmSetting @($ServiceName, 'AppRotateBytes', '10485760')
-Set-NssmVirtualServiceAccount $serviceAccount
+Set-WindowsVirtualServiceAccount $serviceAccount
 $readOnlyPaths = @(
 	$backend,
     $PSScriptRoot,
