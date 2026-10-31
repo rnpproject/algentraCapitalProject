@@ -606,9 +606,14 @@ if ($reuseEnvironment) {
         Save-ProtectedInstallConfiguration $pending $pendingFile
         Remove-Item -LiteralPath $legacyPendingFile -Force
     } else {
-        $projectRef = Get-SupabaseProjectRef $adminDatabaseUrl
-        if ($projectRef -notmatch '^[a-z0-9]{10,30}$') {
-            throw 'Project ref tidak dapat dibaca dari DATABASE_ADMIN_URL. Gunakan koneksi langsung db.<PROJECT_REF>.supabase.co atau Session Pooler dengan username postgres.<PROJECT_REF>.'
+        $projectRef = ''
+        while ($projectRef -notmatch '^[a-z0-9]{10,30}$') {
+            $projectRef = Get-SupabaseProjectRef $adminDatabaseUrl
+            if ($projectRef -notmatch '^[a-z0-9]{10,30}$') {
+                Write-Warning 'Project ref tidak dapat dibaca dari URL ini. Gunakan URL Connect Supabase direct atau Session Pooler dengan username postgres.<PROJECT_REF>.'
+                $adminDatabaseUrl = Read-SecureText 'Masukkan ulang DATABASE_ADMIN_URL (kosong untuk membatalkan)'
+                if ([string]::IsNullOrWhiteSpace($adminDatabaseUrl)) { throw 'DATABASE_ADMIN_URL belum valid; installer dibatalkan sebelum build.' }
+            }
         }
         $apiRoleCredential = New-RandomHex 32
         $adminPassword = New-RandomPassword 30
@@ -633,29 +638,57 @@ if ($reuseEnvironment) {
     if (-not $adminDatabaseUrl) { $adminDatabaseUrl = Read-SecureText 'DATABASE_ADMIN_URL role postgres, Session Pooler port 5432 direkomendasikan untuk jaringan IPv4, TLS sslmode=require' }
 }
 
-$adminProjectRef = Get-SupabaseProjectRef $adminDatabaseUrl
-if ($adminProjectRef -and $adminProjectRef -ne $projectRef) {
-    throw "DATABASE_ADMIN_URL menunjuk project Supabase $adminProjectRef, sedangkan secret installer dibuat untuk $projectRef. Masukkan URL owner project yang benar."
-}
-
 if (-not $reuseEnvironment) {
-    $env:DATABASE_ADMIN_URL = $adminDatabaseUrl
-    $env:SUPABASE_PROJECT_REF = $projectRef
-    $env:ALGENTRA_API_PASSWORD = $apiRoleCredential
-    try {
-        Push-Location $ProjectRoot
-        try { $validationOutput = @(& go run ./cmd/setup-production-db -validate-only 2>&1 | ForEach-Object { $_.ToString() }) }
-        finally { Pop-Location }
-        if ($LASTEXITCODE -ne 0) {
-            foreach ($line in $validationOutput) { Write-Host $line }
-            throw 'Validasi koneksi Supabase gagal sebelum build. Lihat detail error di atas; password URL database sudah disamarkan.'
+    $databaseValidated = $false
+    while (-not $databaseValidated) {
+        $adminProjectRef = Get-SupabaseProjectRef $adminDatabaseUrl
+        if (-not $adminProjectRef) {
+            $validationFailure = 'Project ref tidak dapat dibaca dari DATABASE_ADMIN_URL.'
+        } elseif ($adminProjectRef -ne $projectRef) {
+            $validationFailure = "URL ini menunjuk project $adminProjectRef, tetapi setup sementara dibuat untuk $projectRef."
+        } else {
+            $validationFailure = ''
+            $validationOutput = @()
+            $validationExitCode = 1
+            $env:DATABASE_ADMIN_URL = $adminDatabaseUrl
+            $env:SUPABASE_PROJECT_REF = $projectRef
+            $env:ALGENTRA_API_PASSWORD = $apiRoleCredential
+            try {
+                Push-Location $ProjectRoot
+                try {
+                    $validationOutput = @(& go run ./cmd/setup-production-db -validate-only 2>&1 | ForEach-Object { $_.ToString() })
+                    $validationExitCode = $LASTEXITCODE
+                } finally { Pop-Location }
+                if ($validationExitCode -eq 0) {
+                    try {
+                        $validation = (($validationOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop)
+                        $databaseValidated = [bool]$validation.validated
+                        if (-not $databaseValidated) { $validationFailure = 'Program validasi belum mengonfirmasi koneksi.' }
+                    } catch {
+                        $validationFailure = "Output validasi tidak dapat dibaca: $($_.Exception.Message)"
+                    }
+                } else {
+                    $validationFailure = $validationOutput -join "`n"
+                }
+            } finally {
+                Remove-Item Env:DATABASE_ADMIN_URL, Env:SUPABASE_PROJECT_REF, Env:ALGENTRA_API_PASSWORD -ErrorAction SilentlyContinue
+                $validation = $null
+            }
         }
-        $validation = (($validationOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop)
-        if (-not $validation.validated) { throw 'Koneksi Supabase belum berhasil divalidasi.' }
-    } finally {
-        Remove-Item Env:DATABASE_ADMIN_URL, Env:SUPABASE_PROJECT_REF, Env:ALGENTRA_API_PASSWORD -ErrorAction SilentlyContinue
-        $validationOutput = $null
-        $validation = $null
+        if (-not $databaseValidated) {
+            Write-Host "Validasi DATABASE_ADMIN_URL gagal: $validationFailure"
+            $adminDatabaseUrl = Read-SecureText 'Masukkan ulang DATABASE_ADMIN_URL (Session Pooler port 5432 untuk jaringan IPv4; kosong untuk membatalkan)'
+            if ([string]::IsNullOrWhiteSpace($adminDatabaseUrl)) { throw 'Validasi Supabase dibatalkan. Jalankan installer kembali setelah URL database siap.' }
+            $replacementProjectRef = Get-SupabaseProjectRef $adminDatabaseUrl
+            if ($replacementProjectRef -match '^[a-z0-9]{10,30}$' -and $replacementProjectRef -ne $projectRef) {
+                Write-Host "URL baru menunjuk project $replacementProjectRef. Kredensial setup sementara diperbarui untuk project itu."
+                $projectRef = $replacementProjectRef
+                $pending.project_ref = $projectRef
+                Save-ProtectedInstallConfiguration $pending $pendingFile
+            }
+            $installConfiguration.database_admin_url = $adminDatabaseUrl
+            Save-ProtectedInstallConfiguration $installConfiguration $installConfigurationPath
+        }
     }
 }
 
