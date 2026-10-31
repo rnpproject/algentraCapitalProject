@@ -501,13 +501,39 @@ function Download-InstallerTools {
     $nssmPath = Join-Path $toolsRoot 'nssm\win64\nssm.exe'
     if (-not (Test-Path -LiteralPath $nssmPath -PathType Leaf)) {
         $zip = Join-Path $downloadsRoot 'algentra-nssm.zip'
-        Invoke-WebRequest 'https://nssm.cc/release/nssm-2.24.zip' -OutFile $zip
-        Expand-Archive -LiteralPath $zip -DestinationPath $toolsRoot -Force
-        Remove-Item -LiteralPath $zip -Force
-        $nssmDirectory = Join-Path $toolsRoot 'nssm'
-        New-Item -ItemType Directory -Path $nssmDirectory -Force | Out-Null
-        Move-Item -LiteralPath (Join-Path $toolsRoot 'nssm-2.24\win64') -Destination $nssmDirectory -Force
-        Remove-Item -LiteralPath (Join-Path $toolsRoot 'nssm-2.24') -Recurse -Force
+        $extract = Join-Path $downloadsRoot 'nssm-extract'
+        try {
+            Invoke-WebRequest 'https://nssm.cc/release/nssm-2.24.zip' -OutFile $zip
+            Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+            $bundledNssm = Join-Path $extract 'nssm-2.24\win64\nssm.exe'
+            if (-not (Test-Path -LiteralPath $bundledNssm -PathType Leaf)) {
+                throw 'Arsip NSSM dari nssm.cc tidak berisi binary win64 yang diharapkan.'
+            }
+            New-Item -ItemType Directory -Path (Split-Path -Parent $nssmPath) -Force | Out-Null
+            Copy-Item -LiteralPath $bundledNssm -Destination $nssmPath -Force
+        } catch {
+            if (Test-Path -LiteralPath $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
+            if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+            Write-Warning "Unduhan NSSM dari nssm.cc gagal; mencoba mirror GitHub terverifikasi. Detail: $($_.Exception.Message)"
+            $fallbackUrl = 'https://github.com/ONLYOFFICE/nssm/releases/download/v2.24.1/nssm_x64.zip'
+            Invoke-WebRequest -Uri $fallbackUrl -OutFile $zip
+            $expectedHash = 'DD15B0BD3541F954220B8C0622A40294B919DFD0E6635859E733F153BA34BCEB'
+            $actualHash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+            if ($actualHash -ne $expectedHash) {
+                Remove-Item -LiteralPath $zip -Force
+                throw "Checksum arsip NSSM mirror GitHub tidak cocok (SHA256 $actualHash)."
+            }
+            Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+            $bundledNssm = Join-Path $extract 'nssm.exe'
+            if (-not (Test-Path -LiteralPath $bundledNssm -PathType Leaf)) {
+                throw 'Arsip NSSM mirror GitHub tidak berisi nssm.exe.'
+            }
+            New-Item -ItemType Directory -Path (Split-Path -Parent $nssmPath) -Force | Out-Null
+            Copy-Item -LiteralPath $bundledNssm -Destination $nssmPath -Force
+        } finally {
+            if (Test-Path -LiteralPath $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
+            if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+        }
     }
     $cloudflaredPath = Join-Path $toolsRoot 'cloudflared\cloudflared.exe'
     if (-not (Test-Path -LiteralPath $cloudflaredPath -PathType Leaf)) {
@@ -618,9 +644,12 @@ if (-not $reuseEnvironment) {
     $env:ALGENTRA_API_PASSWORD = $apiRoleCredential
     try {
         Push-Location $ProjectRoot
-        try { $validationOutput = & go run ./cmd/setup-production-db -validate-only }
+        try { $validationOutput = @(& go run ./cmd/setup-production-db -validate-only 2>&1 | ForEach-Object { $_.ToString() }) }
         finally { Pop-Location }
-        if ($LASTEXITCODE -ne 0) { throw 'Validasi koneksi Supabase gagal. Periksa URL owner, password, TLS, dan akses jaringan sebelum build.' }
+        if ($LASTEXITCODE -ne 0) {
+            foreach ($line in $validationOutput) { Write-Host $line }
+            throw 'Validasi koneksi Supabase gagal sebelum build. Lihat detail error di atas; password URL database sudah disamarkan.'
+        }
         $validation = (($validationOutput -join "`n") | ConvertFrom-Json -ErrorAction Stop)
         if (-not $validation.validated) { throw 'Koneksi Supabase belum berhasil divalidasi.' }
     } finally {

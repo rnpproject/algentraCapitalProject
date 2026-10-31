@@ -79,7 +79,13 @@ func setup(validateOnly bool) error {
 	defer cancel()
 	conn, err := pgx.Connect(ctx, adminURL)
 	if err != nil {
-		return errors.New("koneksi ke Supabase gagal; periksa URL owner, password, dan akses jaringan")
+		message := err.Error()
+		message = strings.ReplaceAll(message, adminURL, "[DATABASE_ADMIN_URL]")
+		if adminPassword != "" {
+			message = strings.ReplaceAll(message, adminPassword, "[REDACTED]")
+		}
+		message = regexp.MustCompile(`(?i)(postgres(?:ql)?://)[^/@\s]+@`).ReplaceAllString(message, `${1}[REDACTED]@`)
+		return fmt.Errorf("koneksi ke Supabase gagal: %s", message)
 	}
 	defer conn.Close(context.Background())
 	runtimeURL := *parsed
